@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/anthonyalando8/prospector/internal/draft"
 	"github.com/anthonyalando8/prospector/internal/sendpolicy"
@@ -198,4 +199,137 @@ func suffixIfReason(reason string) string {
 		return ""
 	}
 	return " (" + reason + ")"
+}
+
+// ContactAdd adds a new contact to a company by hand — the gap when enrichment finds nothing,
+// or finds a dead email and a human has the real one.
+func (h *Handler) ContactAdd(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	kind := r.FormValue("kind")
+	value := strings.TrimSpace(r.FormValue("value"))
+	if kind == "" || value == "" {
+		http.Error(w, "kind and value required", http.StatusBadRequest)
+		return
+	}
+
+	var personName, role *string
+	if v := strings.TrimSpace(r.FormValue("person_name")); v != "" {
+		personName = &v
+	}
+	if v := strings.TrimSpace(r.FormValue("role")); v != "" {
+		role = &v
+	}
+
+	// A human typed this in directly — trust it as the best-quality contact on file, same
+	// reasoning as a manually-verified domain.
+	if _, err := h.db.CreateContact(ctx, id, kind, value, personName, role, 3); err != nil {
+		http.Error(w, "Failed to add contact: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logActivity(ctx, "contact", fmt.Sprintf("Added %s contact %s", kind, value), true)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// ContactUpdate edits an existing contact's value/name/role — fixing a dead or mistyped email in
+// place rather than deleting and re-adding.
+func (h *Handler) ContactUpdate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	contactID, _ := strconv.ParseInt(chi.URLParam(r, "contactID"), 10, 64)
+
+	contact, err := h.db.GetContact(ctx, contactID)
+	if err != nil {
+		http.Error(w, "Contact not found", http.StatusNotFound)
+		return
+	}
+
+	value := strings.TrimSpace(r.FormValue("value"))
+	if value == "" {
+		http.Error(w, "value required", http.StatusBadRequest)
+		return
+	}
+	var personName, role *string
+	if v := strings.TrimSpace(r.FormValue("person_name")); v != "" {
+		personName = &v
+	}
+	if v := strings.TrimSpace(r.FormValue("role")); v != "" {
+		role = &v
+	}
+
+	if err := h.db.UpdateContact(ctx, contactID, value, personName, role); err != nil {
+		http.Error(w, "Failed to update contact: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logActivity(ctx, "contact", "Updated contact: "+value, true)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(contact.CompanyID, 10), http.StatusSeeOther)
+}
+
+// ContactDelete removes a contact outright — for a duplicate or a completely wrong entry, as
+// opposed to ContactMarkBad which keeps the record but stops it being auto-picked.
+func (h *Handler) ContactDelete(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	contactID, _ := strconv.ParseInt(chi.URLParam(r, "contactID"), 10, 64)
+
+	contact, err := h.db.GetContact(ctx, contactID)
+	if err != nil {
+		http.Error(w, "Contact not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.db.DeleteContact(ctx, contactID); err != nil {
+		http.Error(w, "Failed to delete contact: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logActivity(ctx, "contact", "Deleted contact "+contact.Value, true)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(contact.CompanyID, 10), http.StatusSeeOther)
+}
+
+// ContactMarkBad flags a contact as dead — a bounce noticed in the operator's own inbox, or an
+// SMTP rejection at send time — so the next auto-pick (send-time recipient selection) skips it
+// without losing the record or the reason.
+func (h *Handler) ContactMarkBad(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	contactID, _ := strconv.ParseInt(chi.URLParam(r, "contactID"), 10, 64)
+	reason := strings.TrimSpace(r.FormValue("reason"))
+	if reason == "" {
+		reason = "marked dead manually"
+	}
+
+	contact, err := h.db.GetContact(ctx, contactID)
+	if err != nil {
+		http.Error(w, "Contact not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.db.MarkContactBad(ctx, contactID, reason); err != nil {
+		http.Error(w, "Failed to update contact: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logActivity(ctx, "contact", fmt.Sprintf("Marked %s as bad: %s", contact.Value, reason), false)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(contact.CompanyID, 10), http.StatusSeeOther)
+}
+
+// ContactReactivate undoes ContactMarkBad — for a contact flagged in error.
+func (h *Handler) ContactReactivate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	contactID, _ := strconv.ParseInt(chi.URLParam(r, "contactID"), 10, 64)
+
+	contact, err := h.db.GetContact(ctx, contactID)
+	if err != nil {
+		http.Error(w, "Contact not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.db.ReactivateContact(ctx, contactID); err != nil {
+		http.Error(w, "Failed to update contact: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logActivity(ctx, "contact", "Reactivated contact "+contact.Value, true)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(contact.CompanyID, 10), http.StatusSeeOther)
 }

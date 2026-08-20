@@ -89,6 +89,11 @@ func main() {
 		r.Post("/companies/{id}/suppress", handler.Suppress)
 		r.Post("/companies/{id}/domain/verify", handler.CompanyVerifyDomain)
 		r.Post("/companies/{id}/generate-draft", handler.CompanyDraft)
+		r.Post("/companies/{id}/contacts", handler.ContactAdd)
+		r.Post("/contacts/{contactID}/update", handler.ContactUpdate)
+		r.Post("/contacts/{contactID}/delete", handler.ContactDelete)
+		r.Post("/contacts/{contactID}/mark-bad", handler.ContactMarkBad)
+		r.Post("/contacts/{contactID}/reactivate", handler.ContactReactivate)
 
 		// Review — the main screen, one pending draft at a time
 		r.Get("/review", handler.Review)

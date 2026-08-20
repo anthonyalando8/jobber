@@ -38,6 +38,25 @@
         .badge.failed { background: #ffebee; color: #c62828; }
         .badge.manual { background: #eceff1; color: #37474f; }
         .badge.unknown { background: #eceff1; color: #78909c; }
+        .contact-item.bad { opacity: 0.65; }
+        .contact-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .contact-main { flex: 1; min-width: 0; }
+        .contact-reason { font-size: 12px; color: #b3261e; margin-top: 2px; }
+        .contact-btns { display: flex; gap: 6px; flex-shrink: 0; }
+        .contact-btns button, .contact-btns a.btn-link { background: none; border: 1px solid #ddd; color: #555; padding: 3px 9px; border-radius: 4px; font-size: 11.5px; cursor: pointer; text-decoration: none; }
+        .contact-btns button:hover, .contact-btns a.btn-link:hover { background: #f0f0f0; }
+        .contact-btns .danger { color: #c62828; border-color: #f3cfcc; }
+        .contact-btns .danger:hover { background: #fbe9e8; }
+        .contact-btns .good { color: #2e7d32; border-color: #cde8d2; }
+        .contact-edit-form { display: none; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+        .contact-edit-form.open { display: flex; }
+        .contact-edit-form input { padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12.5px; }
+        .contact-edit-form input[name=value] { flex: 1; min-width: 160px; }
+        .contact-edit-form input[name=person_name], .contact-edit-form input[name=role] { width: 110px; }
+        .add-contact-form { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid #f0f0f0; }
+        .add-contact-form select, .add-contact-form input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; }
+        .add-contact-form input[name=value] { flex: 1; min-width: 160px; }
+        .add-contact-form input[name=person_name], .add-contact-form input[name=role] { width: 110px; }
     </style>
 </head>
 <body>
@@ -118,14 +137,51 @@
                 <div class="card">
                     <h2>Contacts</h2>
                     {{range .contacts}}
-                    <div class="contact-item">
-                        <div class="contact-kind">{{.Kind}}</div>
-                        <div class="contact-value">{{.Value}}</div>
-                        {{if .PersonName}}<small>{{.PersonName}}{{if .Role}} — {{.Role}}{{end}}</small>{{end}}
+                    <div class="contact-item{{if eq .Status "bad"}} bad{{end}}">
+                        <div class="contact-row">
+                            <div class="contact-main">
+                                <div class="contact-kind">{{.Kind}}{{if eq .Status "bad"}} · bad{{end}}</div>
+                                <div class="contact-value">{{.Value}}</div>
+                                {{if .PersonName}}<small>{{.PersonName}}{{if .Role}} — {{.Role}}{{end}}</small>{{end}}
+                                {{if .BadReason}}<div class="contact-reason">{{.BadReason}}</div>{{end}}
+                            </div>
+                            <div class="contact-btns">
+                                <button type="button" onclick="toggleEdit({{.ID}})">Edit</button>
+                                {{if eq .Status "bad"}}
+                                <form method="POST" action="/contacts/{{.ID}}/reactivate" style="display:inline">
+                                    <button type="submit" class="good">Reactivate</button>
+                                </form>
+                                {{else}}
+                                <button type="button" onclick="markBad({{.ID}})">Mark bad</button>
+                                {{end}}
+                                <form method="POST" action="/contacts/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Delete this contact?')">
+                                    <button type="submit" class="danger">Delete</button>
+                                </form>
+                            </div>
+                        </div>
+                        <form class="contact-edit-form" id="edit-{{.ID}}" method="POST" action="/contacts/{{.ID}}/update">
+                            <input type="text" name="value" value="{{.Value}}" placeholder="value" required>
+                            <input type="text" name="person_name" value="{{if .PersonName}}{{.PersonName}}{{end}}" placeholder="name (optional)">
+                            <input type="text" name="role" value="{{if .Role}}{{.Role}}{{end}}" placeholder="role (optional)">
+                            <button type="submit">Save</button>
+                        </form>
                     </div>
                     {{else}}
                     <p style="color: #999; font-size: 14px;">No contacts extracted yet.</p>
                     {{end}}
+
+                    <form class="add-contact-form" method="POST" action="/companies/{{.company.ID}}/contacts">
+                        <select name="kind">
+                            <option value="email">email</option>
+                            <option value="phone">phone</option>
+                            <option value="whatsapp">whatsapp</option>
+                            <option value="form_url">form_url</option>
+                        </select>
+                        <input type="text" name="value" placeholder="value" required>
+                        <input type="text" name="person_name" placeholder="name (optional)">
+                        <input type="text" name="role" placeholder="role (optional)">
+                        <button type="submit">Add contact</button>
+                    </form>
                 </div>
 
                 <div class="card" style="margin-top: 20px;">
@@ -174,5 +230,27 @@
             </div>
         </div>
     </div>
+
+    <script>
+        function toggleEdit(id) {
+            var el = document.getElementById('edit-' + id);
+            if (el) el.classList.toggle('open');
+        }
+
+        function markBad(id) {
+            var reason = prompt('Why is this contact bad? (e.g. bounced, wrong person)');
+            if (reason === null) return; // cancelled
+            var form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/contacts/' + id + '/mark-bad';
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'reason';
+            input.value = reason;
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+        }
+    </script>
 </body>
 </html>

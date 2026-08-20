@@ -242,7 +242,7 @@ func (h *Handler) SendPolicy() sendpolicy.Config { return h.sendPolicy }
 // else uses (review.md: "there must still be exactly ONE sending implementation"). Satisfies
 // worker.Sender without worker needing to import this package.
 func (h *Handler) ExecuteSend(ctx context.Context, companyID, draftID int64) error {
-	return h.executeSend(ctx, companyID, draftID, false)
+	return h.executeSend(ctx, companyID, draftID, false, "")
 }
 
 // HasAIProvider reports whether an AI provider is actually configured — drafting is a no-op,
@@ -577,7 +577,7 @@ func (e *sendError) Error() string { return e.msg }
 // it skips creating a fresh send_log row / rescheduling follow-up dates, since the caller
 // (ReviewFollowupSend) marks the existing thread's followup_N_sent_at instead of starting a
 // new one.
-func (h *Handler) executeSend(ctx context.Context, companyID, draftID int64, isFollowup bool) error {
+func (h *Handler) executeSend(ctx context.Context, companyID, draftID int64, isFollowup bool, toOverride string) error {
 	company, err := h.db.GetCompany(ctx, companyID)
 	if err != nil {
 		return &sendError{http.StatusNotFound, "Company not found"}
@@ -605,19 +605,24 @@ func (h *Handler) executeSend(ctx context.Context, companyID, draftID int64, isF
 	}
 
 	contacts, err := h.db.GetContactsByCompany(ctx, companyID)
-	if err != nil || len(contacts) == 0 {
-		return &sendError{http.StatusBadRequest, "No contact email found"}
+	if err != nil {
+		return &sendError{http.StatusInternalServerError, "Failed to load contacts"}
 	}
 
-	toEmail := ""
-	for _, c := range contacts {
-		if c.Kind == "email" {
-			toEmail = c.Value
-			break
+	// A human-typed override (the review screen's editable "Send to" field, or a direct API
+	// call) always wins — that's the fix for enrichment having found a dead email. Otherwise
+	// fall back to auto-pick, skipping anything already marked bad.
+	toEmail := strings.TrimSpace(toOverride)
+	if toEmail == "" {
+		for _, c := range contacts {
+			if c.Kind == "email" && c.Status != "bad" {
+				toEmail = c.Value
+				break
+			}
 		}
 	}
 	if toEmail == "" {
-		return &sendError{http.StatusBadRequest, "No email address found"}
+		return &sendError{http.StatusBadRequest, "No email address found — add or fix one on the company page"}
 	}
 
 	if suppressed, _ := h.db.IsSuppressed(ctx, toEmail); suppressed {
@@ -662,6 +667,26 @@ func (h *Handler) executeSend(ctx context.Context, companyID, draftID int64, isF
 	// min-interval clock — a failed send above must not cost the sender a slot.
 	h.recordSend(ctx)
 
+	// A manually-typed address that wasn't already on file just proved it's deliverable enough
+	// to accept the SMTP handoff — worth remembering (quality 3) so it wins auto-pick next time
+	// instead of whatever dead address enrichment originally found. Skipped when the override
+	// just matches an existing contact (e.g. picked from the quick-select list) — re-inserting it
+	// would wipe that contact's person_name/role via the upsert's ON CONFLICT UPDATE.
+	if toOverride != "" {
+		alreadyKnown := false
+		for _, c := range contacts {
+			if c.Kind == "email" && c.Value == toEmail {
+				alreadyKnown = true
+				break
+			}
+		}
+		if !alreadyKnown {
+			if _, err := h.db.CreateContact(ctx, companyID, "email", toEmail, nil, nil, 3); err != nil {
+				log.Printf("executeSend: failed to save corrected contact for company %d: %v", companyID, err)
+			}
+		}
+	}
+
 	if err := h.db.UpdateDraftState(ctx, draftID, "sent"); err != nil {
 		log.Printf("executeSend: Failed to update draft state: %v", err)
 	}
@@ -689,8 +714,9 @@ func (h *Handler) SendDraft(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	draftID, _ := strconv.ParseInt(r.FormValue("draft_id"), 10, 64)
+	toEmail := strings.TrimSpace(r.FormValue("to_email"))
 
-	if err := h.executeSend(ctx, id, draftID, false); err != nil {
+	if err := h.executeSend(ctx, id, draftID, false, toEmail); err != nil {
 		if se, ok := err.(*sendError); ok {
 			http.Error(w, se.msg, se.status)
 		} else {

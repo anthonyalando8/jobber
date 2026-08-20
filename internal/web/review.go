@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -82,6 +83,13 @@ func (h *Handler) Review(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.renderReviewForDraft(w, ctx, dft, skipped, queue, "", "")
+}
+
+// renderReviewForDraft builds and renders the review screen for one draft — shared by the
+// normal GET flow and ReviewSend's failure path, so a failed send re-shows the same form (with
+// whatever the operator already typed) instead of dead-ending on a blank error page.
+func (h *Handler) renderReviewForDraft(w http.ResponseWriter, ctx context.Context, dft *store.Draft, skipped []int64, queue []store.ReviewQueueItem, errorMsg, toEmailOverride string) {
 	company, err := h.db.GetCompany(ctx, dft.CompanyID)
 	if err != nil {
 		http.Error(w, "Company not found", http.StatusNotFound)
@@ -121,6 +129,20 @@ func (h *Handler) Review(w http.ResponseWriter, r *http.Request) {
 		decisionReason = *dft.DecisionReason
 	}
 
+	// The "Send to" field defaults to the best active email contact on file — the same one
+	// executeSend's own auto-pick would choose — but the operator can retype it before sending.
+	// That's what actually lets a dead address enrichment found be corrected in place instead of
+	// silently failing the send.
+	toEmail := toEmailOverride
+	if toEmail == "" {
+		for _, c := range contacts {
+			if c.Kind == "email" && c.Status != "bad" {
+				toEmail = c.Value
+				break
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "review.html", map[string]interface{}{
 		"empty":          false,
@@ -133,6 +155,8 @@ func (h *Handler) Review(w http.ResponseWriter, r *http.Request) {
 		"decisionReason": decisionReason,
 		"queue":          queue,
 		"activeDraftID":  dft.ID,
+		"toEmail":        toEmail,
+		"error":          errorMsg,
 	})
 }
 
@@ -159,11 +183,23 @@ func (h *Handler) ReviewSend(w http.ResponseWriter, r *http.Request) {
 	draftID, _ := strconv.ParseInt(r.FormValue("draft_id"), 10, 64)
 	companyID, _ := strconv.ParseInt(r.FormValue("company_id"), 10, 64)
 	skippedList := r.FormValue("skipped")
+	toEmail := strings.TrimSpace(r.FormValue("to_email"))
 
 	saveEditIfChanged(h, r, draftID)
 
-	if err := h.executeSend(ctx, companyID, draftID, false); err != nil {
+	if err := h.executeSend(ctx, companyID, draftID, false, toEmail); err != nil {
 		msg := err.Error()
+
+		// Re-show the same draft with the error and whatever the operator typed still in
+		// place, rather than a dead-end error page — a bad/dead address is exactly the kind of
+		// failure they need to fix and immediately retry, not read about and lose their edit.
+		dft, dErr := h.db.GetDraft(ctx, draftID)
+		if dErr == nil {
+			queue, _ := h.db.ListReviewQueue(ctx, reviewQueueLimit)
+			h.renderReviewForDraft(w, ctx, dft, parseSkipped(skippedList), queue, msg, toEmail)
+			return
+		}
+
 		status := http.StatusInternalServerError
 		if se, ok := err.(*sendError); ok {
 			status = se.status

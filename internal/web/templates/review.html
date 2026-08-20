@@ -44,6 +44,13 @@
         .decision.auto_send { background: #e8f5e9; color: #2e7d32; }
         .decision.review_required { background: #fff3e0; color: #b06000; }
         .decision-reason { font-size: 12px; color: #777; font-family: ui-monospace, monospace; }
+        .send-error { background: #fbe9e8; border-left: 3px solid #b3261e; color: #8c1d17; padding: 10px 14px; border-radius: 4px; font-size: 13px; margin-bottom: 16px; }
+        .send-error strong { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px; opacity: 0.8; }
+        .contact-pick { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 14px; }
+        .contact-pick button { background: #eef2f7; color: #333; border: 1px solid #dde3ea; border-radius: 12px; padding: 3px 10px; font-size: 11.5px; font-weight: 500; cursor: pointer; }
+        .contact-pick button:hover { background: #e2e8f0; }
+        .contact-pick button.bad { background: #fbe9e8; color: #a8342c; border-color: #f3cfcc; text-decoration: line-through; }
+        .contact-pick .cp-note { font-size: 11px; color: #999; align-self: center; }
 
         .with-queue { display: grid; grid-template-columns: 260px 1fr; gap: 20px; align-items: start; }
         @media (max-width: 1150px) { .with-queue { grid-template-columns: 1fr; } }
@@ -145,9 +152,12 @@
                 </div>
 
                 <div class="card">
-                    <h2>Contacts</h2>
+                    <h2>Contacts <a href="/companies/{{.company.ID}}" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;">— edit on company page →</a></h2>
                     {{range .contacts}}
-                        <div class="contact"><span class="kind">{{.Kind}}</span>{{.Value}}{{if .PersonName}} — {{.PersonName}}{{end}}</div>
+                        <div class="contact">
+                            <span class="kind">{{.Kind}}</span>{{.Value}}{{if .PersonName}} — {{.PersonName}}{{end}}
+                            {{if eq .Status "bad"}}<span style="color:#b3261e;font-size:11px;"> · bad{{if .BadReason}} ({{.BadReason}}){{end}}</span>{{end}}
+                        </div>
                     {{else}}
                         <p style="font-size:13px;color:#999;">No contacts recorded.</p>
                     {{end}}
@@ -155,7 +165,25 @@
             </div>
 
             <div>
+                {{if .error}}
+                <div class="send-error">
+                    <strong>Send failed</strong>
+                    {{.error}}
+                </div>
+                {{end}}
+
                 <div class="card">
+                    <h2>Send to</h2>
+                    <input type="text" name="to_email" id="toEmailField" value="{{.toEmail}}" placeholder="recipient email address">
+                    <div class="contact-pick">
+                        {{range .contacts}}
+                            {{if eq .Kind "email"}}
+                            <button type="button" class="{{if eq .Status "bad"}}bad{{end}}" onclick="document.getElementById('toEmailField').value='{{.Value}}'" title="{{if eq .Status "bad"}}Marked bad{{if .BadReason}}: {{.BadReason}}{{end}}{{else}}Use this address{{end}}">{{.Value}}</button>
+                            {{end}}
+                        {{end}}
+                        <span class="cp-note">click to fill in — edit the field directly for a corrected/new address</span>
+                    </div>
+
                     <h2>Subject</h2>
                     <input type="text" readonly value="{{if .draft.Subject}}{{.draft.Subject}}{{end}}">
                     <h2>Body — edit before sending</h2>
