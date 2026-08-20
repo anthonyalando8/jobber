@@ -1,0 +1,21 @@
+# Secrets
+.env
+.env.local
+
+# Compiled binaries
+*.exe
+*.test
+/prospector
+/prospector-test
+
+# Go
+/vendor/
+
+# Claude Code local settings (per-developer, not shared)
+.claude/settings.local.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

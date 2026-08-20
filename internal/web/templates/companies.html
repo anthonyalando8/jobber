@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Companies — Prospector</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        header { background: white; padding: 20px; border-bottom: 1px solid #ddd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        h1 { font-size: 24px; }
+        .filters { display: flex; gap: 10px; margin-bottom: 20px; }
+        .filters input, .filters select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .filters button { background: #0066cc; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        table { width: 100%; background: white; border-collapse: collapse; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        th { background: #f9f9f9; padding: 12px; text-align: left; font-weight: 600; border-bottom: 1px solid #ddd; font-size: 12px; text-transform: uppercase; }
+        td { padding: 12px; border-bottom: 1px solid #f0f0f0; }
+        tr:hover { background: #fafafa; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+        .badge.new { background: #e3f2fd; color: #1976d2; }
+        .badge.enriched { background: #f3e5f5; color: #7b1fa2; }
+        .badge.drafted { background: #fff3e0; color: #e65100; }
+        .badge.sent { background: #e8f5e9; color: #2e7d32; }
+        .badge.agency { background: #f0f4ff; color: #003d99; }
+        .badge.incubator { background: #fff0f5; color: #c2185b; }
+        .badge.hiring { background: #e0f2f1; color: #004d40; }
+        .badge.sme { background: #fff8e1; color: #f57f17; }
+        .badge.verified { background: #e8f5e9; color: #2e7d32; }
+        .badge.candidate { background: #fff3e0; color: #e65100; }
+        .badge.failed { background: #ffebee; color: #c62828; }
+        .badge.manual { background: #eceff1; color: #37474f; }
+        .badge.unknown { background: #eceff1; color: #78909c; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Companies</h1>
+            <a href="/" style="color: #0066cc;">← Back to Dashboard</a>
+        </header>
+
+        <div class="filters">
+            <select onchange="window.location.href='?status='+this.value">
+                <option value="">All Statuses</option>
+                <option value="new">New</option>
+                <option value="enriched">Enriched</option>
+                <option value="drafted">Drafted</option>
+                <option value="sent">Sent</option>
+            </select>
+            <input type="text" placeholder="Search..." />
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Domain</th>
+                    <th>Domain status</th>
+                    <th>Segment</th>
+                    <th>Score</th>
+                    <th>Status</th>
+                    <th>Source</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .companies}}
+                <tr>
+                    <td><strong>{{.Name}}</strong></td>
+                    <td>{{.Domain}}</td>
+                    <td><span class="badge {{.DomainStatus}}">{{.DomainStatus}}</span></td>
+                    <td>
+                        {{if .Segment}}
+                        <span class="badge {{.Segment}}">{{.Segment}}</span>
+                        {{else}}
+                        —
+                        {{end}}
+                    </td>
+                    <td>{{.Score}}</td>
+                    <td><span class="badge {{.Status}}">{{.Status}}</span></td>
+                    <td><small>{{.Source}}</small></td>
+                    <td><a href="/companies/{{.ID}}">View</a></td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

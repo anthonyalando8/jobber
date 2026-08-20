@@ -1,0 +1,202 @@
+# Outreach templates — data for the Prospector tool
+
+These are the literal message templates the tool fills. The model only ever supplies
+`{{observation}}` and `{{hypothesis}}` (see PROSPECTOR_SPEC.md section 7). Everything else
+is fixed text. Store these as seed rows in a `template` table or as files in
+`internal/draft/templates/` — either is fine.
+
+Sender constants:
+
+```
+name    Anthony Alando
+email   anthonyalando8@gmail.com
+phone   +254 700 536 326
+site    antho-tech.netlify.app
+github  github.com/anthonyalando8
+```
+
+## Rules the code must enforce
+
+1. Every send needs a non-empty `{{observation}}`. No observation, no send.
+2. The ask is always a 15-minute call, never "give me work".
+3. LinkedIn variants are **display only** — the tool shows them for copy-paste, it never
+   sends them.
+4. WhatsApp and phone variants are display only too. Mark as sent manually.
+5. Refuse to send any body still containing `[` or `{{`.
+
+---
+
+## segment: agency  ·  channel: email
+
+Subject: `Backend overflow work — Go / M-Pesa`
+
+```
+Hi {{first_name}},
+
+I came across {{company}} — {{observation}}.
+
+I'm a backend engineer in Nairobi: Go, Postgres, M-Pesa integrations, APIs for mobile
+teams. I work as a subcontractor for agencies on fixed-price scopes — you keep the client
+relationship, I deliver the server side, one to three weeks per job.
+
+{{hypothesis}} If a project ever needs payments done properly or an API your Flutter team
+can build against, I'd like to be the person you call. Worth a 15-minute call this week?
+
+Anthony
++254 700 536 326 · antho-tech.netlify.app
+
+Tell me to stop and I won't write again.
+```
+
+## segment: agency · channel: linkedin_dm (display only, <300 chars)
+
+```
+Hi {{first_name}} — saw {{observation}}. I'm a Go/Postgres backend dev in Nairobi doing
+subcontract work for agencies: M-Pesa integrations and APIs for mobile teams, fixed price
+per scope. Do you ever outsource backend work? Happy to send a one-pager.
+```
+
+---
+
+## segment: incubator · channel: email (programme / innovation manager)
+
+Subject: `Backend support for cohort teams`
+
+```
+Hi {{first_name}},
+
+I'm Anthony, a backend engineer in Nairobi — {{observation}}.
+
+Most early teams I meet hit the same wall: M-Pesa payments and a backend for their app,
+with no server-side engineer on the team. That's exactly what I do, on short fixed-price
+scopes that fit a startup budget.
+
+Would you be open to pointing me at two or three teams who are stuck there? Happy to do a
+free 30-minute review for any of them so they can judge the value first.
+
+Anthony
++254 700 536 326 · anthonyalando8@gmail.com
+
+Tell me to stop and I won't write again.
+```
+
+## segment: incubator · channel: email (founder direct)
+
+Subject: `Payments on {{company}}`
+
+```
+Hi {{first_name}},
+
+{{observation}}.
+
+I'm a backend engineer — Go, Postgres, M-Pesa. I've just finished designing the payments
+and wallet architecture for a mobility platform, so this is fresh: STK push, verified
+callbacks, no double charges, automatic reconciliation.
+
+{{hypothesis}} If getting payments working is on your critical path, I can do it in 7 days
+for a fixed KSh 55,000, half upfront. Want a 15-minute call to see if it fits?
+
+Anthony · +254 700 536 326 · github.com/anthonyalando8
+
+Tell me to stop and I won't write again.
+```
+
+---
+
+## segment: hiring · channel: email
+
+Subject: `Your {{role}} role — contract cover while you hire`
+
+```
+Hi {{first_name}},
+
+I saw you're hiring a {{role}} — {{observation}}.
+
+Filling that seat usually takes a couple of months. If something is blocked in the
+meantime, I can work on contract: Go, Postgres, Redis, M-Pesa integrations, APIs for
+mobile teams. Fixed price per scope, no notice period, and it doesn't interfere with your
+hiring.
+
+{{hypothesis}} Two questions and I'll know if I can help: what's the most urgent thing
+waiting on that hire, and when did you need it live?
+
+Anthony · +254 700 536 326 · github.com/anthonyalando8
+
+Tell me to stop and I won't write again.
+```
+
+Note for the code: `{{role}}` comes from the job-ad signal, not from the model.
+
+---
+
+## segment: sme · channel: email or whatsapp
+
+No technical words in this template. No "API", no "integration", no "backend".
+
+Subject: `Automating your payment confirmations`
+
+```
+Hello {{first_name}},
+
+I noticed {{observation}}.
+
+I build small systems that remove that daily work: payments confirmed automatically and
+matched to the right customer, receipts sent on their own, and one simple report at the end
+of the day. It takes about a week and costs a fixed amount agreed before we start.
+
+Would a quick call tomorrow be useful? I'll tell you honestly whether it's worth doing for
+a business your size.
+
+Anthony Alando · +254 700 536 326
+
+Tell me to stop and I won't write again.
+```
+
+## segment: sme · channel: phone_script (display only)
+
+```
+"Good morning, is this {{first_name}}? My name is Anthony, I build business systems here in
+Nairobi — I'm not selling anything on this call. I noticed {{observation}}. Can I ask, who
+currently checks that payments have come in, and how long does that take each day?"
+
+Then listen. The number they say is the quote.
+```
+
+---
+
+## Follow-ups (all segments)
+
+`followup_1`, due +3 days:
+
+```
+Hi {{first_name}} — following up on the note below in case it got buried. One line is
+enough: is backend/payments work something you'd ever outsource? If not, no problem and I
+won't chase.
+```
+
+`followup_2`, due +8 days — give something instead of asking:
+
+```
+Last note from me. I wrote up how to make M-Pesa payments reliable — the reconciliation
+part most integrations skip. Sending it in case it's useful to whoever handles that for
+you. Good luck with {{company}}.
+```
+
+`referral_ask` — send after any reply, including a no:
+
+```
+Understood, thanks for replying. One favour — is there anyone you know who's stuck on
+payments or a backend right now? A name is all I need.
+```
+
+---
+
+## Objection handling (for the human, shown on the review screen sidebar)
+
+| They say | Response |
+| --- | --- |
+| "Come work for us, we pay end month." | "I'm not available for employment — I'm in a role already. I take project work at a fixed price, half upfront and half on handover. Shall I scope the payments piece on that basis?" |
+| "Can we pay after delivery / net-30?" | "I work half upfront — it's how I hold the delivery date for you. If cash flow is the issue, I can split it into two smaller scopes so you pay as each piece lands." |
+| "Can you do it hourly?" | "Fixed price protects you more than hourly — you know the number before we start, and overruns are my problem." |
+| "Too expensive." | "Understood. What's the smallest version that would still be worth it to you?" Cut scope, never price. |
+| "Do a free test task first." | "I'll do a free 30-minute review and tell you exactly what's wrong — that's the sample. Build work starts on deposit." |
