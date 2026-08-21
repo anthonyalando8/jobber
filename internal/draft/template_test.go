@@ -216,6 +216,65 @@ func TestRelevantSignalsForSegment_UntouchedForNonTechnicalSegments(t *testing.T
 	}
 }
 
+// TestServicePitch_PaymentSiteSignalLeadsWithPayments guards the concrete evidence a company's
+// own site (a paybill number, a checkout, a payment complaint) is the right cue to lead with the
+// M-Pesa/payments pitch.
+func TestServicePitch_PaymentSiteSignalLeadsWithPayments(t *testing.T) {
+	signals := []*store.Signal{{ID: 1, Kind: "paybill_listed", Detail: "Accepts M-Pesa payments"}}
+	if got := servicePitch(signals); got != servicePitchPayments {
+		t.Errorf("servicePitch() = %q, want the payments pitch", got)
+	}
+}
+
+// TestServicePitch_PaymentRoleTextLeadsWithPayments guards a real example: a job ad for
+// "Checkoff Product Scheme Manager" (a payroll-deduction role) has nothing to do with the
+// company's own site — the site had no paybill/checkout signal at all — but is a far stronger,
+// more specific cue for the payments pitch than any generic site signal.
+func TestServicePitch_PaymentRoleTextLeadsWithPayments(t *testing.T) {
+	signals := []*store.Signal{
+		{ID: 1, Kind: "hiring_backend", Detail: "recruiting a Checkoff Product Scheme Manager for TSC, NPS, and County Government Schemes"},
+	}
+	if got := servicePitch(signals); got != servicePitchPayments {
+		t.Errorf("servicePitch() = %q, want the payments pitch for a payroll/checkoff role", got)
+	}
+}
+
+// TestServicePitch_BackendGapSignalLeadsWithBackend guards the other real complaint: a generic
+// "Backend Developer" hiring ad with no payments angle at all was getting the identical
+// M-Pesa-first pitch as a genuinely payments-relevant company.
+func TestServicePitch_BackendGapSignalLeadsWithBackend(t *testing.T) {
+	cases := [][]*store.Signal{
+		{{ID: 1, Kind: "offers_tech_services", Detail: "Site markets web design as a service"}},
+		{{ID: 1, Kind: "tech:react", Detail: "Found react in site code"}},
+	}
+	for _, signals := range cases {
+		if got := servicePitch(signals); got != servicePitchBackend {
+			t.Errorf("servicePitch(%v) = %q, want the backend pitch", signals, got)
+		}
+	}
+}
+
+// TestServicePitch_NoStrongSignalFallsBackToGeneral guards the neutral default for a generic
+// hiring ad with no payments angle and no frontend/tech-service signal either.
+func TestServicePitch_NoStrongSignalFallsBackToGeneral(t *testing.T) {
+	signals := []*store.Signal{{ID: 1, Kind: "hiring_backend", Detail: "hiring a Backend Developer"}}
+	if got := servicePitch(signals); got != servicePitchGeneral {
+		t.Errorf("servicePitch() = %q, want the general fallback pitch", got)
+	}
+}
+
+// TestServicePitch_PaymentSignalTakesPriorityOverBackendGap guards the priority order when both
+// kinds of signal are present — payments evidence is more specific and should win.
+func TestServicePitch_PaymentSignalTakesPriorityOverBackendGap(t *testing.T) {
+	signals := []*store.Signal{
+		{ID: 1, Kind: "tech:react", Detail: "Found react in site code"},
+		{ID: 2, Kind: "paybill_listed", Detail: "Accepts M-Pesa payments"},
+	}
+	if got := servicePitch(signals); got != servicePitchPayments {
+		t.Errorf("servicePitch() = %q, want payments to take priority over a backend-gap signal", got)
+	}
+}
+
 // TestStripLeadingFraming guards a real production bug: a sent email read "I noticed I
 // noticed your website has active e-commerce checkout functionality..." because the model's
 // observation started with "I noticed" despite the template already supplying that opener.

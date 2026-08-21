@@ -45,8 +45,7 @@ I came across {{company}} — {{observation}}.
 
 I'm a backend engineer in Nairobi — Go, Postgres, M-Pesa — and I take on subcontract work
 for agencies: you keep the client relationship, I deliver the server side. Fixed price, one
-to three weeks per job. Where I come in: payments and M-Pesa integrations done properly, an
-API your team can build a frontend against, or a backend piece picked up mid-project.
+to three weeks per job. Where I come in: {{service_pitch}}.
 
 {{hypothesis}} Worth a 15-minute call if something like that comes up?
 
@@ -54,6 +53,15 @@ Anthony · +254 700 536 326 · github.com/anthonyalando8
 
 Tell me to stop and I won't write again.
 ```
+
+`{{service_pitch}}` is filled deterministically by `servicePitch()` in `internal/draft/generate.go`
+based on real signals — never by the model. It leads with payments/M-Pesa only when a signal
+actually supports it (a paybill number, a checkout, or a hiring_backend job ad that's explicitly
+about payments/payroll); leads with the backend/API build-out angle when the company looks
+frontend-only (`offers_tech_services`, a `tech:*` signal) instead; otherwise falls back to the
+original balanced phrasing. Before this, every agency email defaulted to leading with M-Pesa
+regardless of fit — including a real sent draft to a web design company with no payments angle
+at all.
 
 ## segment: agency · channel: linkedin_dm (display only, <300 chars)
 
@@ -120,9 +128,8 @@ Hi {{first_name}},
 I saw you're hiring a {{role}} — {{observation}}.
 
 Filling that seat usually takes a couple of months. If something is blocked in the
-meantime, I can work on contract: Go, Postgres, Redis, M-Pesa integrations, APIs for
-mobile teams. Fixed price per scope, no notice period, and it doesn't interfere with your
-hiring.
+meantime, I can work on contract: {{service_pitch}}. Fixed price per scope, no notice
+period, and it doesn't interfere with your hiring.
 
 {{hypothesis}} Two questions and I'll know if I can help: what's the most urgent thing
 waiting on that hire, and when did you need it live?
@@ -131,6 +138,13 @@ Anthony · +254 700 536 326 · github.com/anthonyalando8
 
 Tell me to stop and I won't write again.
 ```
+
+`{{service_pitch}}` — same deterministic fill as the agency template above. A real example: a
+"Checkoff Product Scheme Manager" job ad (a payroll-deduction role) had no site-level payment
+signal at all, but the role text itself is a far stronger, more specific cue than any generic
+site signal — `servicePitch()` catches it via `paymentRoleKeywords` and leads with M-Pesa/payments
+regardless. A generic "Backend Developer" ad with no payments angle instead gets the neutral
+fallback, not the same M-Pesa-first pitch as a genuinely payments-relevant role.
 
 Note for the code: `{{role}}` comes from the job-ad signal, not from the model.
 

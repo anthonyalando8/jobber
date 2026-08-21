@@ -82,6 +82,65 @@ func relevantSignalsForSegment(segment string, signals []*store.Signal) []*store
 	return filtered
 }
 
+// The three capability lines servicePitch chooses between — hand-written, reviewed sentences,
+// not AI-generated text (the spec's rule that only observation/hypothesis come from the model
+// still holds; this only deterministically picks among a few fixed options).
+const (
+	servicePitchPayments = "payments and M-Pesa integrations done properly — STK push, verified callbacks, no double charges, automatic reconciliation"
+	servicePitchBackend  = "a Go API your frontend or app team can build against — clean endpoints, auth, deployment, the backend half that's missing"
+	servicePitchGeneral  = "payments and M-Pesa integrations, an API your team can build a frontend against, or a backend piece picked up mid-project"
+)
+
+// paymentRoleKeywords catches a hiring_backend job ad that's explicitly about payments or
+// finance work (e.g. "Checkoff Product Scheme Manager") — a far stronger, more specific signal
+// for leading with the M-Pesa/payments pitch than "checkout functionality detected on the
+// marketing site" ever is, and one the generic paybill_listed/payment_complaint site signals
+// wouldn't catch since it comes from the job ad text, not the company's own site.
+var paymentRoleKeywords = []string{
+	"payment", "payroll", "finance", "billing", "reconciliation", "mpesa", "m-pesa",
+	"checkoff", "wallet", "collections", "treasury",
+}
+
+// servicePitch picks which capability to lead the "here's what I can do for you" line with,
+// based on real signals — instead of every email defaulting to M-Pesa/payments regardless of
+// whether that's actually the fit (a company hiring a generic "Backend Developer" with no
+// payments angle at all was getting the same M-Pesa-first pitch as one explicitly hiring for a
+// payments/payroll role). Falls back to the original balanced phrasing when nothing points
+// clearly one way.
+func servicePitch(signals []*store.Signal) string {
+	hasPaymentSignal := false
+	hasBackendGapSignal := false
+
+	for _, s := range signals {
+		switch {
+		case s.Kind == "paybill_listed" || s.Kind == "payment_complaint" || s.Kind == "checkout_present":
+			hasPaymentSignal = true
+		case s.Kind == "hiring_backend" && containsAny(strings.ToLower(s.Detail), paymentRoleKeywords):
+			hasPaymentSignal = true
+		case s.Kind == "offers_tech_services" || strings.HasPrefix(s.Kind, "tech:"):
+			hasBackendGapSignal = true
+		}
+	}
+
+	switch {
+	case hasPaymentSignal:
+		return servicePitchPayments
+	case hasBackendGapSignal:
+		return servicePitchBackend
+	default:
+		return servicePitchGeneral
+	}
+}
+
+func containsAny(s string, subs []string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
 // Generated is the outcome of one GenerateAndSaveDraft call — a struct rather than a growing
 // list of return values now that both the draft state and the send-policy decision need to be
 // reported back to the caller.
@@ -130,11 +189,12 @@ func GenerateAndSaveDraft(ctx context.Context, db *store.DB, ts *TemplateService
 	}
 
 	result, err := ts.GenerateDraft(ctx, DraftInput{
-		Company:   company,
-		FirstName: firstName,
-		Role:      role,
-		Channel:   "email",
-		Signals:   relevantSignalsForSegment(segment, signals),
+		Company:      company,
+		FirstName:    firstName,
+		Role:         role,
+		Channel:      "email",
+		Signals:      relevantSignalsForSegment(segment, signals),
+		ServicePitch: servicePitch(signals),
 	})
 	if err != nil {
 		return nil, err

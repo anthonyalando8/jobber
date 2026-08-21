@@ -25,11 +25,12 @@ func NewTemplateService(aiProvider AIProvider, db *store.DB) *TemplateService {
 
 // DraftInput is everything needed to draft one company's message.
 type DraftInput struct {
-	Company   *store.Company
-	FirstName string // "there" if no named contact
-	Role      string // hiring segment only — from the job-ad signal, never the model
-	Channel   string // email|whatsapp|phone_script
-	Signals   []*store.Signal
+	Company      *store.Company
+	FirstName    string // "there" if no named contact
+	Role         string // hiring segment only — from the job-ad signal, never the model
+	Channel      string // email|whatsapp|phone_script
+	Signals      []*store.Signal
+	ServicePitch string // which capability line to lead with — deterministic, never the model; see servicePitch in generate.go
 }
 
 // Result is either a ready-to-review draft (State == "pending") or a rejection
@@ -107,11 +108,12 @@ func (ts *TemplateService) GenerateDraft(ctx context.Context, in DraftInput) (*R
 	}
 
 	vars := map[string]string{
-		"company":     in.Company.Name,
-		"first_name":  in.FirstName,
-		"observation": obs.Observation,
-		"hypothesis":  obs.Hypothesis,
-		"role":        in.Role,
+		"company":       in.Company.Name,
+		"first_name":    in.FirstName,
+		"observation":   obs.Observation,
+		"hypothesis":    obs.Hypothesis,
+		"role":          in.Role,
+		"service_pitch": in.ServicePitch,
 	}
 
 	subject := ""
