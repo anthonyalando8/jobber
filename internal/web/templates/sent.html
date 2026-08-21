@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sent — Prospector</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        header { background: white; padding: 20px; border-bottom: 1px solid #ddd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px; }
+        h1 { font-size: 24px; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .result-count { font-size: 13px; color: #777; margin-bottom: 14px; }
+        .email-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 14px; overflow: hidden; }
+        .email-head { padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .email-head:hover { background: #fafafa; }
+        .email-main { min-width: 0; }
+        .email-company { font-weight: 700; font-size: 15px; }
+        .email-to { font-size: 12.5px; color: #777; font-family: ui-monospace, monospace; margin-top: 2px; }
+        .email-subject { font-size: 13px; color: #444; margin-top: 3px; }
+        .email-meta { text-align: right; flex-shrink: 0; font-size: 12px; color: #999; }
+        .badge-replied { display: inline-block; margin-top: 4px; background: #e8f5e9; color: #2e7d32; padding: 2px 9px; border-radius: 10px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+        .badge-bounced { display: inline-block; margin-top: 4px; background: #fbe9e8; color: #b3261e; padding: 2px 9px; border-radius: 10px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+        .bounce-note { font-size: 12.5px; color: #b3261e; margin-top: 10px; }
+        .btn-resend { margin-top: 10px; background: #c62828; color: white; border: none; padding: 7px 14px; border-radius: 4px; cursor: pointer; font-size: 12.5px; }
+        .email-body { display: none; padding: 0 18px 18px; border-top: 1px solid #f0f0f0; }
+        .email-body.open { display: block; }
+        .email-body pre { white-space: pre-wrap; font-family: -apple-system, sans-serif; font-size: 13.5px; line-height: 1.6; color: #333; margin-top: 14px; }
+        .email-body .view-company { display: inline-block; margin-top: 12px; font-size: 12.5px; }
+        .empty-state { background: white; border-radius: 8px; padding: 40px; text-align: center; color: #999; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 20px; font-size: 13px; }
+        .pagination a { background: white; border: 1px solid #ddd; padding: 6px 14px; border-radius: 4px; }
+        .pagination a.disabled { color: #ccc; pointer-events: none; border-color: #eee; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Sent</h1>
+            <a href="/">← Back to Dashboard</a>
+        </header>
+
+        <div class="result-count">{{.total}} email{{if ne .total 1}}s{{end}} sent · page {{.page}} of {{.totalPages}}</div>
+
+        {{if .emails}}
+        {{range .emails}}
+        <div class="email-card">
+            <div class="email-head" onclick="this.nextElementSibling.classList.toggle('open')">
+                <div class="email-main">
+                    <div class="email-company">{{.CompanyName}}</div>
+                    <div class="email-to">{{.ToValue}}</div>
+                    {{if .Subject}}<div class="email-subject">{{.Subject}}</div>{{end}}
+                </div>
+                <div class="email-meta">
+                    {{.SentAt.Format "Jan 2, 15:04"}}
+                    {{if .RepliedAt}}<div class="badge-replied">replied</div>{{end}}
+                    {{if .BouncedAt}}<div class="badge-bounced">bounced</div>{{end}}
+                </div>
+            </div>
+            <div class="email-body">
+                <pre>{{.Body}}</pre>
+                <a class="view-company" href="/companies/{{.CompanyID}}">View company →</a>
+                {{if .BouncedAt}}
+                <p class="bounce-note">Bounced{{if .BounceReason}}: {{.BounceReason}}{{end}} — {{.BouncedAt.Format "Jan 2, 2006 15:04"}}</p>
+                {{else}}
+                <div><button type="button" class="btn-resend" onclick="event.stopPropagation(); resendAfterBounce({{.SendLogID}})">Mark bounced &amp; resend to a different address</button></div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+
+        <div class="pagination">
+            {{if .hasPrev}}<a href="{{.prevURL}}">← Prev</a>{{else}}<a class="disabled">← Prev</a>{{end}}
+            <span>Page {{.page}} of {{.totalPages}}</span>
+            {{if .hasNext}}<a href="{{.nextURL}}">Next →</a>{{else}}<a class="disabled">Next →</a>{{end}}
+        </div>
+        {{else}}
+        <div class="empty-state">Nothing sent yet.</div>
+        {{end}}
+    </div>
+
+    <script>
+        function resendAfterBounce(sendLogId) {
+            var reason = prompt('What happened? (e.g. "mailbox doesn\'t exist" from the bounce notice)');
+            if (reason === null) return; // cancelled
+            var form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/sent/' + sendLogId + '/resend';
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'reason';
+            input.value = reason;
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+        }
+    </script>
+</body>
+</html>

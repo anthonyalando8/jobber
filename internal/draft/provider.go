@@ -52,7 +52,15 @@ like "impressive" or "exciting". Kenyan business English, plain and direct.
 The observation is inserted into a sentence that already starts with "I noticed", "I came
 across you", or "I saw you're hiring" — write only the bare fact that follows, with no
 leading "I noticed"/"I saw"/"I came across"/"I found" of your own, or it reads doubled
-("I noticed I noticed...").`
+("I noticed I noticed...").
+If segment is "agency", the recipient is itself a technical company — a web/software/app
+development shop. Never point at their own site's tech stack, age, or polish as if it were a
+gap ("your site runs WordPress", "hasn't been updated since 2022") — to a company that
+professionally does this work, that reads as irrelevant at best and condescending at worst
+("you don't know your own site is outdated?"). Ground the observation in what they build or
+offer for clients instead, or in a genuine business signal (a payment complaint, a paybill
+number). If neither is present in the signals, reply INSUFFICIENT rather than critique their
+site — a skipped draft is better than one that opens by insulting the reader's own work.`
 
 // buildUserPrompt renders the section 7 USER block: company facts, verbatim signals, and the
 // exact JSON shape the model must reply with.

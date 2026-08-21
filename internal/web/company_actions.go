@@ -125,6 +125,7 @@ func (h *Handler) CompanyStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	status := r.FormValue("status")
+	note := strings.TrimSpace(r.FormValue("note"))
 
 	if !allowedStatusUpdates[status] {
 		http.Error(w, "Unknown status: "+status, http.StatusBadRequest)
@@ -143,6 +144,36 @@ func (h *Handler) CompanyStatus(w http.ResponseWriter, r *http.Request) {
 		if err := h.db.MarkRepliedForCompany(ctx, id); err != nil {
 			log.Printf("CompanyStatus: failed to mark replied for company %d: %v", id, err)
 		}
+	}
+
+	// A status is just a label — what the prospect actually said ("asking about M-Pesa rates")
+	// is what makes it useful later. Tagged with the status so the log reads as a history, not
+	// just a pile of loose notes.
+	if note != "" {
+		if err := h.db.AppendCompanyNote(ctx, id, "["+status+"] "+note); err != nil {
+			log.Printf("CompanyStatus: failed to append note for company %d: %v", id, err)
+		}
+	}
+
+	h.logActivity(ctx, "outcome", fmt.Sprintf("Company #%d marked %s", id, status), true)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// CompanyAddNote appends a timestamped note without changing status — for logging something
+// (a call, a follow-up question, context for later) that isn't itself an outcome.
+func (h *Handler) CompanyAddNote(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	note := strings.TrimSpace(r.FormValue("note"))
+
+	if note == "" {
+		http.Error(w, "note required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.db.AppendCompanyNote(ctx, id, note); err != nil {
+		http.Error(w, "Failed to add note", http.StatusInternalServerError)
+		return
 	}
 
 	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)

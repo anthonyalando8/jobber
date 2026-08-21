@@ -78,26 +78,41 @@ func (db *DB) GetCompany(ctx context.Context, id int64) (*Company, error) {
 	return &company, nil
 }
 
-// ListCompanies retrieves companies with optional filtering
-func (db *DB) ListCompanies(ctx context.Context, status, segment string, limit, offset int) ([]*Company, error) {
-	query := `SELECT id, name, domain, source, source_url, segment, score, status, location, notes,
-		        last_researched_at, next_research_at, domain_status, domain_confidence, created_at, updated_at
-		     FROM company WHERE 1=1`
-	args := []interface{}{}
-	argNum := 1
+// companyFilterClause builds the shared WHERE clause for ListCompanies/CountCompanies, so the
+// two never drift apart — a list and its "how many pages" count must agree on what "matches"
+// means. search matches name or domain (case-insensitive substring); the rest are exact.
+func companyFilterClause(status, segment, search string, args []interface{}) (string, []interface{}) {
+	clause := " WHERE 1=1"
+	argNum := len(args) + 1
 
 	if status != "" {
-		query += ` AND status = $` + strconv.Itoa(argNum)
+		clause += ` AND status = $` + strconv.Itoa(argNum)
 		args = append(args, status)
 		argNum++
 	}
-
 	if segment != "" {
-		query += ` AND segment = $` + strconv.Itoa(argNum)
+		clause += ` AND segment = $` + strconv.Itoa(argNum)
 		args = append(args, segment)
 		argNum++
 	}
+	if search != "" {
+		clause += ` AND (name ILIKE $` + strconv.Itoa(argNum) + ` OR domain ILIKE $` + strconv.Itoa(argNum) + `)`
+		args = append(args, "%"+search+"%")
+		argNum++
+	}
+	return clause, args
+}
 
+// ListCompanies retrieves companies with optional status/segment/search filtering — search
+// matches against name or domain, since with the list growing past what fits on one screen,
+// "find the company I'm thinking of" needs to be an actual query, not scrolling.
+func (db *DB) ListCompanies(ctx context.Context, status, segment, search string, limit, offset int) ([]*Company, error) {
+	where, args := companyFilterClause(status, segment, search, nil)
+	query := `SELECT id, name, domain, source, source_url, segment, score, status, location, notes,
+		        last_researched_at, next_research_at, domain_status, domain_confidence, created_at, updated_at
+		     FROM company` + where
+
+	argNum := len(args) + 1
 	query += ` ORDER BY score DESC, created_at DESC LIMIT $` + strconv.Itoa(argNum) + ` OFFSET $` + strconv.Itoa(argNum+1)
 	args = append(args, limit, offset)
 
@@ -122,6 +137,15 @@ func (db *DB) ListCompanies(ctx context.Context, status, segment string, limit, 
 	}
 
 	return companies, rows.Err()
+}
+
+// CountCompanies returns how many companies match the same status/segment/search filters
+// ListCompanies would use — the total behind "page 2 of N" / "137 results".
+func (db *DB) CountCompanies(ctx context.Context, status, segment, search string) (int, error) {
+	where, args := companyFilterClause(status, segment, search, nil)
+	var n int
+	err := db.QueryRow(ctx, `SELECT count(*) FROM company`+where, args...).Scan(&n)
+	return n, err
 }
 
 // ListCompaniesForResearch returns companies eligible for the research (enrichment) worker
@@ -277,10 +301,27 @@ func (db *DB) UpdateCompanyScore(ctx context.Context, id int64, score int, segme
 	return err
 }
 
-// UpdateCompanyNotes updates company notes
+// UpdateCompanyNotes overwrites company notes outright — kept for the rare case that needs to
+// replace the whole field; AppendCompanyNote below is what the UI actually uses day to day.
 func (db *DB) UpdateCompanyNotes(ctx context.Context, id int64, notes string) error {
 	_, err := db.Exec(ctx,
 		`UPDATE company SET notes = $1, updated_at = now() WHERE id = $2`,
 		notes, id)
+	return err
+}
+
+// AppendCompanyNote prepends a timestamped entry to the company's notes — a running log of what
+// actually happened (a reply's content, a call outcome, an objection) rather than a status enum
+// that can't say anything beyond its own label. Newest entry first, so the most recent context is
+// what a human sees at a glance. Built as a single UPDATE (not read-then-write) so two notes
+// added around the same time can't race and clobber each other.
+func (db *DB) AppendCompanyNote(ctx context.Context, id int64, note string) error {
+	entry := time.Now().Format("2006-01-02 15:04") + " — " + note
+	_, err := db.Exec(ctx,
+		`UPDATE company
+		 SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 ELSE $1 || E'\n\n' || notes END,
+		     updated_at = now()
+		 WHERE id = $2`,
+		entry, id)
 	return err
 }

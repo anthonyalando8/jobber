@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -270,7 +271,7 @@ type activityView struct {
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	companies, err := h.db.ListCompanies(ctx, "", "", 1000, 0)
+	companies, err := h.db.ListCompanies(ctx, "", "", "", 1000, 0)
 	if err != nil {
 		log.Printf("Home: failed to list companies: %v", err)
 		http.Error(w, "Failed to load companies", http.StatusInternalServerError)
@@ -338,7 +339,7 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 
 	// Top prospects: highest-scored companies regardless of pipeline stage — informational,
 	// not an action list.
-	topProspects, err := h.db.ListCompanies(ctx, "", "", 6, 0)
+	topProspects, err := h.db.ListCompanies(ctx, "", "", "", 6, 0)
 	if err != nil {
 		log.Printf("Home: failed to load top prospects: %v", err)
 	}
@@ -464,12 +465,20 @@ func plural(n int, singular, plural string) string {
 	return plural
 }
 
-// ListCompanies returns the companies list
+// companiesPageSize is how many rows one /companies page shows — small enough that pagination
+// actually matters once the list grows past a screenful, per the exact complaint that this list
+// had no visible way to search, filter, or page through it as it grew.
+const companiesPageSize = 50
+
+// ListCompanies returns the companies list, filterable by status/segment and searchable by
+// name/domain, with real pagination — page links and a result count, not just a query param
+// nobody could discover.
 func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	status := r.URL.Query().Get("status")
 	segment := r.URL.Query().Get("segment")
+	search := strings.TrimSpace(r.URL.Query().Get("q"))
 	pageStr := r.URL.Query().Get("page")
 	page := 0
 	if pageStr != "" {
@@ -478,23 +487,70 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	limit := 50
+	limit := companiesPageSize
 	offset := page * limit
 
-	companies, err := h.db.ListCompanies(ctx, status, segment, limit, offset)
+	companies, err := h.db.ListCompanies(ctx, status, segment, search, limit, offset)
 	if err != nil {
-		log.Printf("ListCompanies: failed to list companies (status=%s segment=%s page=%d): %v", status, segment, page, err)
+		log.Printf("ListCompanies: failed to list companies (status=%s segment=%s q=%s page=%d): %v", status, segment, search, page, err)
 		http.Error(w, "Failed to load companies", http.StatusInternalServerError)
 		return
 	}
 
+	total, err := h.db.CountCompanies(ctx, status, segment, search)
+	if err != nil {
+		log.Printf("ListCompanies: failed to count companies: %v", err)
+	}
+	totalPages := (total + limit - 1) / limit
+	if totalPages < 1 {
+		totalPages = 1
+	}
+
+	prevURL, nextURL := "", ""
+	if page > 0 {
+		prevURL = companiesURL(status, segment, search, page) // page is already current-1 in 1-based terms
+	}
+	if page+1 < totalPages {
+		nextURL = companiesURL(status, segment, search, page+2)
+	}
+
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "companies.html", map[string]interface{}{
-		"companies": companies,
-		"status":    status,
-		"segment":   segment,
-		"page":      page + 1,
+		"companies":  companies,
+		"status":     status,
+		"segment":    segment,
+		"query":      search,
+		"page":       page + 1,
+		"totalPages": totalPages,
+		"total":      total,
+		"hasPrev":    page > 0,
+		"hasNext":    page+1 < totalPages,
+		"prevURL":    prevURL,
+		"nextURL":    nextURL,
 	})
+}
+
+// companiesURL builds a /companies link preserving the current filters with a different page
+// number — used for the Prev/Next pagination links, computed server-side so the template doesn't
+// need to hand-build (and URL-escape) query strings itself.
+func companiesURL(status, segment, search string, page int) string {
+	v := url.Values{}
+	if status != "" {
+		v.Set("status", status)
+	}
+	if segment != "" {
+		v.Set("segment", segment)
+	}
+	if search != "" {
+		v.Set("q", search)
+	}
+	if page > 1 {
+		v.Set("page", strconv.Itoa(page))
+	}
+	if len(v) == 0 {
+		return "/companies"
+	}
+	return "/companies?" + v.Encode()
 }
 
 // CreateCompany creates a new company
@@ -549,6 +605,11 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	sentEmails, err := h.db.ListSentEmailsForCompany(ctx, id)
+	if err != nil {
+		log.Printf("ViewCompany: failed to load sent emails for %d: %v", id, err)
+	}
+
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "company.html", map[string]interface{}{
 		"company":         company,
@@ -556,6 +617,7 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 		"signals":         signals,
 		"hasPendingDraft": hasPendingDraft,
 		"scoreBreakdown":  scoreBreakdown,
+		"sentEmails":      sentEmails,
 	})
 }
 
@@ -840,7 +902,7 @@ func (h *Handler) AdminEnrich(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Get all new companies
-	companies, err := h.db.ListCompanies(ctx, "new", "", 1000, 0)
+	companies, err := h.db.ListCompanies(ctx, "new", "", "", 1000, 0)
 	if err != nil {
 		http.Error(w, "Failed to list companies: "+err.Error(), http.StatusInternalServerError)
 		log.Printf("AdminEnrich: Failed to list companies: %v", err)

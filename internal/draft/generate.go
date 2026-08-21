@@ -13,20 +13,51 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// relevantSignalsForSegment narrows what grounds the model's observation/hypothesis for
-// hiring/enterprise companies. A company actively hiring a backend developer has already
-// demonstrated engineering awareness — citing a generic "we detected React/WordPress on your
-// marketing site" signal as if it were evidence of a gap produces a non-sequitur pitch ("you
-// may need backend help" to a company visibly building a backend team; a real example: a
+// isNoiseSignalForTechnicalAudience reports whether a signal is about a company's own marketing
+// site — its tech stack, or whether it looks freshly updated — as opposed to a genuine business
+// signal (a real payment complaint, a paybill number, the job ad text itself).
+func isNoiseSignalForTechnicalAudience(kind string) bool {
+	return strings.HasPrefix(kind, "tech:") || kind == "checkout_present" || kind == "active_site" || kind == "stale_site"
+}
+
+// relevantSignalsForSegment narrows what grounds the model's observation/hypothesis once a
+// company has already demonstrated it's the wrong audience for "your own site looks off" as a
+// hook.
+//
+// hiring/enterprise: a company actively hiring a backend developer has already demonstrated
+// engineering awareness — citing a generic "we detected React/WordPress on your marketing site"
+// signal as if it were evidence of a gap produces a non-sequitur pitch (a real example: a
 // company hiring a Backend Developer got drafted a hypothesis about "managing transactions
-// across a split WordPress and React setup", which doesn't follow from anything). The
-// hiring_backend signal — almost always the richest, most specific evidence available, since
-// it's the actual job ad text — and genuinely business-relevant signals (a real payment
-// complaint, a paybill number) still ground the draft; only generic tech-stack/freshness
-// signals detected off the marketing site are cut, and only once a hiring signal makes them
-// redundant. Companies without a hiring_backend signal are untouched — for agency/incubator/sme
-// segments those tech-stack signals are often the only grounding available at all.
+// across a split WordPress and React setup", which doesn't follow from anything). Only filtered
+// once a hiring_backend signal is actually present — otherwise there's nothing to prefer it over.
+//
+// agency: a company that itself builds websites, apps, or software for clients. Its own site
+// running WordPress, or looking a year or two stale, is never a useful hook — at best it's
+// irrelevant (that's not what the pitch is about), at worst it reads as "you don't know your own
+// site is outdated?", which is exactly the kind of email that loses a technical reader (a real
+// sent example: "Your website has not been updated since 2022 and is currently running on
+// WordPress" — to a company that sells web design as a service). Filtered unconditionally for
+// this segment, not gated behind a specific signal — the segment itself is the evidence a
+// capability-focused pitch is what's needed, not a critique. See offers_tech_services
+// (internal/enrich) for the signal meant to replace it as grounding when present; when nothing
+// else is left, GenerateDraft's zero-signals cost guard correctly falls back to needs_manual
+// rather than force a weak or condescending observation.
+//
+// Every other segment (incubator/sme) is untouched — those tech-stack/freshness signals are
+// often the only grounding available at all for a genuinely non-technical business, where "your
+// site hasn't been touched since 2022" is a legitimate, relatable pain point rather than an
+// insult.
 func relevantSignalsForSegment(segment string, signals []*store.Signal) []*store.Signal {
+	if segment == "agency" {
+		var filtered []*store.Signal
+		for _, s := range signals {
+			if !isNoiseSignalForTechnicalAudience(s.Kind) {
+				filtered = append(filtered, s)
+			}
+		}
+		return filtered
+	}
+
 	if segment != "hiring" && segment != "enterprise" {
 		return signals
 	}
@@ -44,10 +75,9 @@ func relevantSignalsForSegment(segment string, signals []*store.Signal) []*store
 
 	var filtered []*store.Signal
 	for _, s := range signals {
-		if strings.HasPrefix(s.Kind, "tech:") || s.Kind == "checkout_present" || s.Kind == "active_site" || s.Kind == "stale_site" {
-			continue
+		if !isNoiseSignalForTechnicalAudience(s.Kind) {
+			filtered = append(filtered, s)
 		}
-		filtered = append(filtered, s)
 	}
 	return filtered
 }

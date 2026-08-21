@@ -336,6 +336,26 @@ func (e *Enricher) extractSignals(html string, pageURL *string) []Signal {
 		signals = append(signals, Signal{"stale_site", "Outdated site (2021-2022)"})
 	}
 
+	// Self-described technical/creative service provider — a company that itself builds
+	// websites, apps, or software for clients. Without this, a real web/software agency's own
+	// signals were only ever tech-stack ("runs WordPress") or freshness ("site hasn't been
+	// updated since 2022") — both of which, aimed at a company that professionally does this
+	// work, read as either irrelevant or condescending ("you don't know your own site is
+	// outdated?"), not as a useful hook. See relevantSignalsForSegment in
+	// internal/draft/generate.go for where this changes what the model is allowed to build an
+	// observation from for the "agency" segment.
+	techServiceKeywords := []string{
+		"web design", "web development", "website design", "software development",
+		"app development", "mobile app development", "digital agency", "digital solutions",
+		"ui/ux", "ux design", "custom software", "software solutions", "software company",
+	}
+	for _, kw := range techServiceKeywords {
+		if strings.Contains(htmlLower, kw) {
+			signals = append(signals, Signal{"offers_tech_services", "Site markets " + kw + " as a service"})
+			break // one hit is enough evidence — no need to pile up near-duplicate signals
+		}
+	}
+
 	return signals
 }
 

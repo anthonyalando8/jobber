@@ -57,6 +57,16 @@
         .add-contact-form select, .add-contact-form input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; }
         .add-contact-form input[name=value] { flex: 1; min-width: 160px; }
         .add-contact-form input[name=person_name], .add-contact-form input[name=role] { width: 110px; }
+        .email-card { border: 1px solid #eee; border-radius: 6px; margin-bottom: 10px; overflow: hidden; }
+        .email-card:last-child { margin-bottom: 0; }
+        .email-head { padding: 12px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .email-head:hover { background: #fafafa; }
+        .email-to { font-size: 12px; color: #777; font-family: ui-monospace, monospace; }
+        .email-subject { font-size: 13.5px; font-weight: 500; margin-top: 2px; }
+        .email-meta { text-align: right; flex-shrink: 0; font-size: 11.5px; color: #999; }
+        .email-body { display: none; padding: 0 14px 14px; border-top: 1px solid #f0f0f0; }
+        .email-body.open { display: block; }
+        .email-body pre { white-space: pre-wrap; font-family: -apple-system, sans-serif; font-size: 13px; line-height: 1.6; color: #333; margin-top: 12px; }
     </style>
 </head>
 <body>
@@ -101,29 +111,74 @@
             </div>
         </div>
 
+        {{if .sentEmails}}
         <div class="card" style="margin-top: 20px;">
-            <h2>Outcome</h2>
-            <form method="POST" action="/companies/{{.company.ID}}/status" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-                <button type="submit" name="status" value="replied">Mark Replied</button>
-                <button type="submit" name="status" value="call">Mark Call Booked</button>
-                <button type="submit" name="status" value="quoted">Mark Quoted</button>
-                <button type="submit" name="status" value="won" style="background:#2e7d32">Mark Won</button>
-                <button type="submit" name="status" value="lost" style="background:#c62828">Mark Lost</button>
-            </form>
-            <form method="POST" action="/companies/{{.company.ID}}/status" style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
-                <select name="status" style="padding:8px; border:1px solid #ddd; border-radius:4px;">
-                    <option value="no_response">No response</option>
-                    <option value="interested">Interested</option>
-                    <option value="not_interested">Not interested</option>
-                    <option value="wrong_contact">Wrong contact</option>
-                    <option value="referred">Referred elsewhere</option>
-                    <option value="meeting">Meeting booked</option>
-                    <option value="proposal">Proposal sent</option>
-                    <option value="skip">Skip</option>
-                </select>
-                <button type="submit" style="background:#666">Set outcome</button>
-            </form>
+            <h2>Sent emails ({{len .sentEmails}})</h2>
+            {{range .sentEmails}}
+            <div class="email-card">
+                <div class="email-head" onclick="this.nextElementSibling.classList.toggle('open')">
+                    <div>
+                        <div class="email-to">{{.ToValue}}</div>
+                        {{if .Subject}}<div class="email-subject">{{.Subject}}</div>{{end}}
+                    </div>
+                    <div class="email-meta">
+                        {{.SentAt.Format "Jan 2, 2006 15:04"}}
+                        {{if .RepliedAt}}<div class="badge sent" style="margin-top:4px;">replied</div>{{end}}
+                        {{if .BouncedAt}}<div class="badge failed" style="margin-top:4px;">bounced</div>{{end}}
+                    </div>
+                </div>
+                <div class="email-body">
+                    <pre>{{.Body}}</pre>
+                    {{if .BouncedAt}}
+                    <p style="font-size:12.5px; color:#c62828; margin-top:10px;">Bounced{{if .BounceReason}}: {{.BounceReason}}{{end}} — {{.BouncedAt.Format "Jan 2, 2006 15:04"}}</p>
+                    {{else}}
+                    <button type="button" onclick="event.stopPropagation(); resendAfterBounce({{.SendLogID}})" style="margin-top:10px; background:#c62828; color:white; border:none; padding:7px 14px; border-radius:4px; cursor:pointer; font-size:12.5px;">Mark bounced &amp; resend to a different address</button>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
 
+        <div class="card" style="margin-top: 20px;">
+            <h2>Record outcome</h2>
+            <form method="POST" action="/companies/{{.company.ID}}/status">
+                <textarea name="note" placeholder="What did they actually say? (optional, but this is what you'll want to remember later)" style="width:100%; min-height:60px; padding:8px; border:1px solid #ddd; border-radius:4px; font-family:inherit; font-size:13px; margin-bottom:10px; resize:vertical;"></textarea>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                    <button type="submit" name="status" value="replied">Mark Replied</button>
+                    <button type="submit" name="status" value="call">Call Booked</button>
+                    <button type="submit" name="status" value="quoted">Quoted</button>
+                    <button type="submit" name="status" value="won" style="background:#2e7d32">Won</button>
+                    <button type="submit" name="status" value="lost" style="background:#c62828">Lost</button>
+                    <select name="status" style="padding:8px; border:1px solid #ddd; border-radius:4px; margin-left:auto;">
+                        <option value="no_response">No response</option>
+                        <option value="interested">Interested</option>
+                        <option value="not_interested">Not interested</option>
+                        <option value="wrong_contact">Wrong contact</option>
+                        <option value="referred">Referred elsewhere</option>
+                        <option value="meeting">Meeting booked</option>
+                        <option value="proposal">Proposal sent</option>
+                        <option value="skip">Skip</option>
+                    </select>
+                    <button type="submit" style="background:#666">Set outcome above</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card" style="margin-top: 20px;">
+            <h2>Notes</h2>
+            {{if .company.Notes}}
+            <div class="notes" style="white-space:pre-wrap; margin-bottom:14px;">{{.company.Notes}}</div>
+            {{else}}
+            <p style="color:#999; font-size:13px; margin-bottom:14px;">Nothing logged yet.</p>
+            {{end}}
+            <form method="POST" action="/companies/{{.company.ID}}/notes" style="display:flex; gap:8px;">
+                <input type="text" name="note" placeholder="Add a note without changing status..." style="flex:1; padding:8px; border:1px solid #ddd; border-radius:4px;" required>
+                <button type="submit">Add</button>
+            </form>
+        </div>
+
+        <div class="card" style="margin-top: 20px;">
             <h2>Suppress (stop contacting)</h2>
             <form method="POST" action="/companies/{{.company.ID}}/suppress" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                 <input type="text" name="value" placeholder="email or domain to suppress" value="{{.company.Domain}}" style="flex:1; min-width:200px; padding:8px; border:1px solid #ddd; border-radius:4px;">
@@ -220,12 +275,6 @@
                         {{if .company.Segment}}<div><strong>Segment:</strong> <span class="badge">{{.company.Segment}}</span></div>{{end}}
                         <div><strong>Added:</strong> {{.company.CreatedAt.Format "2006-01-02"}}</div>
                     </div>
-
-                    {{if .company.Notes}}
-                    <div class="notes" style="margin-top: 15px;">
-                        <strong>Notes:</strong><br/>{{.company.Notes}}
-                    </div>
-                    {{end}}
                 </div>
             </div>
         </div>
@@ -243,6 +292,21 @@
             var form = document.createElement('form');
             form.method = 'POST';
             form.action = '/contacts/' + id + '/mark-bad';
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'reason';
+            input.value = reason;
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        function resendAfterBounce(sendLogId) {
+            var reason = prompt('What happened? (e.g. "mailbox doesn\'t exist" from the bounce notice)');
+            if (reason === null) return; // cancelled
+            var form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/sent/' + sendLogId + '/resend';
             var input = document.createElement('input');
             input.type = 'hidden';
             input.name = 'reason';

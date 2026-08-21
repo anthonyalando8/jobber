@@ -100,6 +100,7 @@ func (ts *TemplateService) GenerateDraft(ctx context.Context, in DraftInput) (*R
 	// never 100% reliable. Strip it deterministically rather than trust compliance, since the
 	// alternative is a literal "I noticed I noticed ..." landing in a sent email.
 	obs.Observation = stripLeadingFraming(obs.Observation)
+	obs.Hypothesis = normalizeSentence(obs.Hypothesis)
 
 	if reason, ok := rejectionReason(obs, validIDs, in.Signals); !ok {
 		return &Result{Channel: in.Channel, State: "needs_manual", Reason: reason, APICalled: true}, nil
@@ -197,6 +198,28 @@ func stripLeadingFraming(s string) string {
 		}
 	}
 	return trimmed
+}
+
+// normalizeSentence ensures the model's hypothesis reads as a complete sentence. Every template
+// inserts {{hypothesis}} at the start of a new sentence (unlike {{observation}}, which is
+// embedded mid-sentence and deliberately left lowercase) — but the model is only ever asked for
+// "<=20 words, the likely problem", with no punctuation or capitalization guarantee. Without
+// this, a lowercase, period-less reply runs straight into the template's next sentence with no
+// separator at all (e.g. "...causing bottlenecks Two questions...").
+func normalizeSentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = []rune(strings.ToUpper(string(r[0])))[0]
+	s = string(r)
+	switch s[len(s)-1] {
+	case '.', '!', '?':
+	default:
+		s += "."
+	}
+	return s
 }
 
 func fillVars(text string, vars map[string]string) string {

@@ -10,9 +10,16 @@
         .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
         header { background: white; padding: 20px; border-bottom: 1px solid #ddd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
         h1 { font-size: 24px; }
-        .filters { display: flex; gap: 10px; margin-bottom: 20px; }
+        .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
         .filters input, .filters select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .filters input[type=text] { flex: 1; min-width: 200px; }
         .filters button { background: #0066cc; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .filters .clear { color: #999; font-size: 13px; }
+        .result-count { font-size: 13px; color: #777; margin-bottom: 10px; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 20px; font-size: 13px; }
+        .pagination a { background: white; border: 1px solid #ddd; padding: 6px 14px; border-radius: 4px; }
+        .pagination a.disabled { color: #ccc; pointer-events: none; border-color: #eee; }
+        .empty-state { background: white; border-radius: 8px; padding: 40px; text-align: center; color: #999; }
         table { width: 100%; background: white; border-collapse: collapse; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         th { background: #f9f9f9; padding: 12px; text-align: left; font-weight: 600; border-bottom: 1px solid #ddd; font-size: 12px; text-transform: uppercase; }
         td { padding: 12px; border-bottom: 1px solid #f0f0f0; }
@@ -42,17 +49,34 @@
             <a href="/" style="color: #0066cc;">← Back to Dashboard</a>
         </header>
 
-        <div class="filters">
-            <select onchange="window.location.href='?status='+this.value">
-                <option value="">All Statuses</option>
-                <option value="new">New</option>
-                <option value="enriched">Enriched</option>
-                <option value="drafted">Drafted</option>
-                <option value="sent">Sent</option>
+        <form class="filters" method="GET" action="/companies">
+            <input type="text" name="q" value="{{.query}}" placeholder="Search name or domain...">
+            <select name="status">
+                <option value="">All statuses</option>
+                <option value="new" {{if eq .status "new"}}selected{{end}}>New</option>
+                <option value="enriched" {{if eq .status "enriched"}}selected{{end}}>Enriched</option>
+                <option value="drafted" {{if eq .status "drafted"}}selected{{end}}>Drafted</option>
+                <option value="sent" {{if eq .status "sent"}}selected{{end}}>Sent</option>
+                <option value="replied" {{if eq .status "replied"}}selected{{end}}>Replied</option>
+                <option value="won" {{if eq .status "won"}}selected{{end}}>Won</option>
+                <option value="lost" {{if eq .status "lost"}}selected{{end}}>Lost</option>
+                <option value="skip" {{if eq .status "skip"}}selected{{end}}>Skipped</option>
             </select>
-            <input type="text" placeholder="Search..." />
-        </div>
+            <select name="segment">
+                <option value="">All segments</option>
+                <option value="agency" {{if eq .segment "agency"}}selected{{end}}>Agency</option>
+                <option value="incubator" {{if eq .segment "incubator"}}selected{{end}}>Incubator</option>
+                <option value="hiring" {{if eq .segment "hiring"}}selected{{end}}>Hiring</option>
+                <option value="enterprise" {{if eq .segment "enterprise"}}selected{{end}}>Enterprise</option>
+                <option value="sme" {{if eq .segment "sme"}}selected{{end}}>SME</option>
+            </select>
+            <button type="submit">Filter</button>
+            {{if or .query .status .segment}}<a class="clear" href="/companies">Clear</a>{{end}}
+        </form>
 
+        <div class="result-count">{{.total}} compan{{if eq .total 1}}y{{else}}ies{{end}} · page {{.page}} of {{.totalPages}}</div>
+
+        {{if .companies}}
         <table>
             <thead>
                 <tr>
@@ -87,6 +111,15 @@
                 {{end}}
             </tbody>
         </table>
+
+        <div class="pagination">
+            {{if .hasPrev}}<a href="{{.prevURL}}">← Prev</a>{{else}}<a class="disabled">← Prev</a>{{end}}
+            <span>Page {{.page}} of {{.totalPages}}</span>
+            {{if .hasNext}}<a href="{{.nextURL}}">Next →</a>{{else}}<a class="disabled">Next →</a>{{end}}
+        </div>
+        {{else}}
+        <div class="empty-state">No companies match{{if or .query .status .segment}} these filters{{end}}.</div>
+        {{end}}
     </div>
 </body>
 </html>

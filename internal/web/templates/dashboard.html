@@ -64,6 +64,8 @@
         .rail { display: grid; grid-template-columns: repeat(8, 1fr); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 22px; overflow: hidden; }
         .rail-item { padding: 14px 16px; border-right: 1px solid var(--line-soft); }
         .rail-item:last-child { border-right: none; }
+        a.rail-item { color: inherit; text-decoration: none; display: block; transition: background 0.1s; }
+        a.rail-item:hover { background: var(--paper); text-decoration: none; }
         .rail-item .label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 600; margin-bottom: 6px; }
         .rail-item .value { font-family: var(--font-display); font-weight: 800; font-size: 24px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
         .rail-item .value.accent-good { color: var(--good); }
@@ -194,13 +196,13 @@
         </div>
 
         <div class="rail">
-            <div class="rail-item"><div class="label">Discovered</div><div class="value">{{.today.Discovered}}</div></div>
+            <a class="rail-item" href="/companies"><div class="label">Discovered</div><div class="value">{{.today.Discovered}}</div></a>
             <div class="rail-item"><div class="label">Researched</div><div class="value">{{.today.Researched}}</div></div>
             <div class="rail-item"><div class="label">High-value</div><div class="value accent-good">{{.today.HighValue}}</div></div>
             <div class="rail-item"><div class="label">Drafts</div><div class="value">{{.today.Drafted}}</div></div>
-            <div class="rail-item"><div class="label">Awaiting review</div><div class="value{{if .pendingReview}} accent-warn{{end}}">{{.pendingReview}}</div></div>
-            <div class="rail-item"><div class="label">Sent</div><div class="value accent-good">{{.today.Sent}}</div></div>
-            <div class="rail-item"><div class="label">Follow-ups due</div><div class="value{{if .today.FollowupsDue}} accent-warn{{end}}">{{.today.FollowupsDue}}</div></div>
+            <a class="rail-item" href="/review"><div class="label">Awaiting review</div><div class="value{{if .pendingReview}} accent-warn{{end}}">{{.pendingReview}}</div></a>
+            <a class="rail-item" href="/sent"><div class="label">Sent</div><div class="value accent-good">{{.today.Sent}}</div></a>
+            <a class="rail-item" href="/followups"><div class="label">Follow-ups due</div><div class="value{{if .today.FollowupsDue}} accent-warn{{end}}">{{.today.FollowupsDue}}</div></a>
             <div class="rail-item"><div class="label">Replies</div><div class="value accent-good">{{.today.Replies}}</div></div>
         </div>
 

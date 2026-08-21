@@ -133,14 +133,15 @@ var signalPoints = map[string]struct {
 	Points int
 	Label  string
 }{
-	"hiring_backend":    {10, "actively hiring a backend role"},
-	"tech:flutter":      {5, "Flutter app detected"},
-	"tech:react":        {5, "React app detected"},
-	"checkout_present":  {3, "checkout/payment functionality on site"},
-	"paybill_listed":    {7, "M-Pesa paybill/till listed"},
-	"payment_complaint": {7, "payment complaint found"},
-	"active_site":       {2, "recently updated site"},
-	"stale_site":        {-3, "site looks outdated"},
+	"hiring_backend":       {10, "actively hiring a backend role"},
+	"tech:flutter":         {5, "Flutter app detected"},
+	"tech:react":           {5, "React app detected"},
+	"checkout_present":     {3, "checkout/payment functionality on site"},
+	"paybill_listed":       {7, "M-Pesa paybill/till listed"},
+	"payment_complaint":    {7, "payment complaint found"},
+	"active_site":          {2, "recently updated site"},
+	"stale_site":           {-3, "site looks outdated"},
+	"offers_tech_services": {4, "markets web/software development services — a potential subcontract partner"},
 }
 
 // calculateScore ranks the company and returns the explainable line items that produced the

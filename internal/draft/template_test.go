@@ -159,14 +159,60 @@ func TestRelevantSignalsForSegment_UntouchedWithoutHiringSignal(t *testing.T) {
 	}
 }
 
-func TestRelevantSignalsForSegment_UntouchedForOtherSegments(t *testing.T) {
+// TestRelevantSignalsForSegment_DropsOwnSiteNoiseForAgency guards a real sent draft that read
+// "Your website has not been updated since 2022 and is currently running on WordPress" — sent to
+// a company that itself sells web design/software development as a service. Pointing at their
+// own site's tech stack or staleness is never a useful hook for that audience; it reads as
+// irrelevant at best, condescending at worst.
+func TestRelevantSignalsForSegment_DropsOwnSiteNoiseForAgency(t *testing.T) {
+	signals := []*store.Signal{
+		{ID: 1, Kind: "tech:wordpress", Detail: "Found wordpress in site code"},
+		{ID: 2, Kind: "stale_site", Detail: "Outdated site (2021-2022)"},
+		{ID: 3, Kind: "checkout_present", Detail: "E-commerce or payment functionality detected"},
+		{ID: 4, Kind: "offers_tech_services", Detail: "Site markets web design as a service"},
+		{ID: 5, Kind: "paybill_listed", Detail: "Accepts M-Pesa payments"},
+	}
+
+	got := relevantSignalsForSegment("agency", signals)
+
+	var kinds []string
+	for _, s := range got {
+		kinds = append(kinds, s.Kind)
+	}
+	for _, dropped := range []string{"tech:wordpress", "stale_site", "checkout_present"} {
+		for _, k := range kinds {
+			if k == dropped {
+				t.Errorf("relevantSignalsForSegment(agency) kept %q, want it dropped unconditionally — kinds: %v", dropped, kinds)
+			}
+		}
+	}
+	foundOffered, foundPaybill := false, false
+	for _, k := range kinds {
+		if k == "offers_tech_services" {
+			foundOffered = true
+		}
+		if k == "paybill_listed" {
+			foundPaybill = true
+		}
+	}
+	if !foundOffered {
+		t.Error("relevantSignalsForSegment(agency) dropped offers_tech_services — real grounding, not own-site noise")
+	}
+	if !foundPaybill {
+		t.Error("relevantSignalsForSegment(agency) dropped paybill_listed — a real business signal, should be kept")
+	}
+}
+
+func TestRelevantSignalsForSegment_UntouchedForNonTechnicalSegments(t *testing.T) {
 	signals := []*store.Signal{
 		{ID: 1, Kind: "hiring_backend", Detail: "hiring a Backend Developer"},
 		{ID: 2, Kind: "tech:react", Detail: "Found react in site code"},
 	}
-	got := relevantSignalsForSegment("agency", signals)
-	if len(got) != len(signals) {
-		t.Errorf("relevantSignalsForSegment(agency) = %v, want untouched — the filter is scoped to hiring/enterprise only", got)
+	for _, segment := range []string{"incubator", "sme"} {
+		got := relevantSignalsForSegment(segment, signals)
+		if len(got) != len(signals) {
+			t.Errorf("relevantSignalsForSegment(%s) = %v, want untouched — tech-stack signals are often the only grounding available for a non-technical business", segment, got)
+		}
 	}
 }
 
@@ -188,6 +234,27 @@ func TestStripLeadingFraming(t *testing.T) {
 	for _, c := range cases {
 		if got := stripLeadingFraming(c.in); got != c.want {
 			t.Errorf("stripLeadingFraming(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestNormalizeSentence(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		// The bug from a real sent draft: a lowercase, period-less hypothesis ran straight into
+		// the template's next sentence with no separator ("...bottlenecks Two questions...").
+		{"integrating and automating backend payment deductions with government payroll systems is causing operational bottlenecks",
+			"Integrating and automating backend payment deductions with government payroll systems is causing operational bottlenecks."},
+		{"this could be slowing down your team", "This could be slowing down your team."},
+		{"already ends with a period.", "Already ends with a period."},
+		{"already a question?", "Already a question?"},
+		{"already excited!", "Already excited!"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := normalizeSentence(c.in); got != c.want {
+			t.Errorf("normalizeSentence(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

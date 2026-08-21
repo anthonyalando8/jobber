@@ -28,6 +28,14 @@ github  github.com/anthonyalando8
 
 ## segment: agency  ·  channel: email
 
+The recipient is itself a technical company — a web/software/app development shop. The
+observation must never point at their own site's tech stack, age, or polish as if it were a gap
+("your site runs WordPress", "hasn't been updated since 2022") — to a company that professionally
+does this work, that reads as irrelevant at best, condescending at worst. See
+`relevantSignalsForSegment` in `internal/draft/generate.go`, which strips tech-stack/staleness
+signals unconditionally for this segment, and the `offers_tech_services` signal
+(`internal/enrich`) that's meant to ground it instead.
+
 Subject: `Backend overflow work — Go / M-Pesa`
 
 ```
@@ -35,15 +43,14 @@ Hi {{first_name}},
 
 I came across {{company}} — {{observation}}.
 
-I'm a backend engineer in Nairobi: Go, Postgres, M-Pesa integrations, APIs for mobile
-teams. I work as a subcontractor for agencies on fixed-price scopes — you keep the client
-relationship, I deliver the server side, one to three weeks per job.
+I'm a backend engineer in Nairobi — Go, Postgres, M-Pesa — and I take on subcontract work
+for agencies: you keep the client relationship, I deliver the server side. Fixed price, one
+to three weeks per job. Where I come in: payments and M-Pesa integrations done properly, an
+API your team can build a frontend against, or a backend piece picked up mid-project.
 
-{{hypothesis}} If a project ever needs payments done properly or an API your Flutter team
-can build against, I'd like to be the person you call. Worth a 15-minute call this week?
+{{hypothesis}} Worth a 15-minute call if something like that comes up?
 
-Anthony
-+254 700 536 326 · antho-tech.netlify.app
+Anthony · +254 700 536 326 · github.com/anthonyalando8
 
 Tell me to stop and I won't write again.
 ```
