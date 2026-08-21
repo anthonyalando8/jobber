@@ -80,7 +80,7 @@ func isLikelyEnterprise(name string) bool {
 func (s *Scorer) classifySegment(company *store.Company, signals []*store.Signal) string {
 	// Rule-based segmentation
 
-	isHiringSignal := company.Source == "jobboard"
+	isHiringSignal := company.Source == "jobboard" || company.Source == "remoteok"
 	for _, sig := range signals {
 		if sig.Kind == "hiring_backend" {
 			isHiringSignal = true
@@ -88,6 +88,12 @@ func (s *Scorer) classifySegment(company *store.Company, signals []*store.Signal
 		}
 	}
 	if isHiringSignal {
+		// remoteok postings are US/international remote roles — a distinct segment from the
+		// Kenyan "hiring" pitch, since the message can't lean on M-Pesa/local-market framing
+		// there. See internal/draft/generate.go's servicePitch and the "hiring_us" template.
+		if company.Source == "remoteok" {
+			return "hiring_us"
+		}
 		if isLikelyEnterprise(company.Name) {
 			return "enterprise"
 		}
@@ -121,6 +127,7 @@ func (s *Scorer) classifySegment(company *store.Company, signals []*store.Signal
 // breakdown in one place, rather than duplicating the segment list twice.
 var segmentBase = map[string]int{
 	"hiring":     10,
+	"hiring_us":  10, // same weight as "hiring" — a different pitch (no M-Pesa framing), not a lower priority
 	"enterprise": 10, // same as "hiring" — an enterprise gets a different pitch, not a lower priority
 	"agency":     8,
 	"incubator":  6,

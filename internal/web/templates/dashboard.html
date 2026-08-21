@@ -260,6 +260,12 @@
                             <div class="status-inline" id="status-jobboard"></div>
                         </div>
                         <div class="step">
+                            <div class="title">Seed RemoteOK (US/international remote)</div>
+                            <div class="desc">Manual only — not in the autonomous discovery loop yet. Needs US_MAILING_ADDRESS set before any draft from this source can actually send (CAN-SPAM).</div>
+                            <button class="btn-run secondary" onclick="runSeed('remoteok')">Seed RemoteOK</button>
+                            <div class="status-inline" id="status-remoteok"></div>
+                        </div>
+                        <div class="step">
                             <div class="title">Enrich new ({{.stats.New}})</div>
                             <button class="btn-run secondary" onclick="runAdmin('enrich')">Run now</button>
                             <div class="status-inline" id="status-enrich"></div>

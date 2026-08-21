@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -58,7 +59,7 @@ func relevantSignalsForSegment(segment string, signals []*store.Signal) []*store
 		return filtered
 	}
 
-	if segment != "hiring" && segment != "enterprise" {
+	if segment != "hiring" && segment != "enterprise" && segment != "hiring_us" {
 		return signals
 	}
 
@@ -82,13 +83,19 @@ func relevantSignalsForSegment(segment string, signals []*store.Signal) []*store
 	return filtered
 }
 
-// The three capability lines servicePitch chooses between — hand-written, reviewed sentences,
-// not AI-generated text (the spec's rule that only observation/hypothesis come from the model
-// still holds; this only deterministically picks among a few fixed options).
+// The capability lines servicePitch chooses between — hand-written, reviewed sentences, not
+// AI-generated text (the spec's rule that only observation/hypothesis come from the model still
+// holds; this only deterministically picks among a few fixed options). The "US" variants exist
+// because M-Pesa is a Kenya-specific payment rail — naming it to a US/international remote
+// employer is meaningless at best, confusing at worst; the underlying skill (payments
+// integration, third-party API work) is the same, just not branded to a rail their market
+// doesn't use.
 const (
-	servicePitchPayments = "payments and M-Pesa integrations done properly — STK push, verified callbacks, no double charges, automatic reconciliation"
-	servicePitchBackend  = "a Go API your frontend or app team can build against — clean endpoints, auth, deployment, the backend half that's missing"
-	servicePitchGeneral  = "payments and M-Pesa integrations, an API your team can build a frontend against, or a backend piece picked up mid-project"
+	servicePitchPayments   = "payments and M-Pesa integrations done properly — STK push, verified callbacks, no double charges, automatic reconciliation"
+	servicePitchBackend    = "a Go API your frontend or app team can build against — clean endpoints, auth, deployment, the backend half that's missing"
+	servicePitchGeneral    = "payments and M-Pesa integrations, an API your team can build a frontend against, or a backend piece picked up mid-project"
+	servicePitchPaymentsUS = "payment integrations done properly — provider callbacks verified, no double charges, automatic reconciliation"
+	servicePitchGeneralUS  = "payment integrations, an API your team can build a frontend against, or a backend piece picked up mid-project"
 )
 
 // paymentRoleKeywords catches a hiring_backend job ad that's explicitly about payments or
@@ -106,8 +113,9 @@ var paymentRoleKeywords = []string{
 // whether that's actually the fit (a company hiring a generic "Backend Developer" with no
 // payments angle at all was getting the same M-Pesa-first pitch as one explicitly hiring for a
 // payments/payroll role). Falls back to the original balanced phrasing when nothing points
-// clearly one way.
-func servicePitch(signals []*store.Signal) string {
+// clearly one way. market == "us" swaps the M-Pesa-branded payments wording for generic
+// "payment integrations" — see the servicePitch* constants above.
+func servicePitch(signals []*store.Signal, market string) string {
 	hasPaymentSignal := false
 	hasBackendGapSignal := false
 
@@ -122,11 +130,16 @@ func servicePitch(signals []*store.Signal) string {
 		}
 	}
 
+	isUS := market == "us"
 	switch {
+	case hasPaymentSignal && isUS:
+		return servicePitchPaymentsUS
 	case hasPaymentSignal:
 		return servicePitchPayments
 	case hasBackendGapSignal:
 		return servicePitchBackend
+	case isUS:
+		return servicePitchGeneralUS
 	default:
 		return servicePitchGeneral
 	}
@@ -159,6 +172,28 @@ type Generated struct {
 // single-company "Generate Draft" button, and the autonomous worker's draft loop, so none of
 // them can drift from the others' needs_manual or policy handling.
 func GenerateAndSaveDraft(ctx context.Context, db *store.DB, ts *TemplateService, policyCfg sendpolicy.Config, company *store.Company, redisClient *redis.Client) (*Generated, error) {
+	segment := "sme"
+	if company.Segment != nil && *company.Segment != "" {
+		segment = *company.Segment
+	}
+
+	// CAN-SPAM requires a valid physical postal address in every commercial email sent to a US
+	// recipient — this is a hard legal requirement, not a style choice, and unlike the Kenya
+	// templates there's no existing line that covers it. Refuse outright rather than send a
+	// non-compliant email; this check must run before any AI call is made (same cost-guard
+	// philosophy as the zero-signals check below — never spend a call on a draft that can't be
+	// sent regardless of what it says).
+	mailingAddress := os.Getenv("US_MAILING_ADDRESS")
+	if segment == "hiring_us" && mailingAddress == "" {
+		reason := "US_MAILING_ADDRESS not configured — required by CAN-SPAM before any US-market email can send"
+		activity.Log(ctx, redisClient, "worker:draft", fmt.Sprintf("Skipped %s: %s", company.Name, reason), false)
+		d, err := db.CreateDraft(ctx, company.ID, nil, "email", "", reason, "", "needs_manual")
+		if err != nil {
+			return nil, err
+		}
+		return &Generated{State: "needs_manual", DraftID: d.ID}, nil
+	}
+
 	activity.Log(ctx, redisClient, "worker:draft", fmt.Sprintf("Drafting for %s…", company.Name), true)
 
 	signals, _ := db.GetSignalsByCompany(ctx, company.ID)
@@ -172,13 +207,8 @@ func GenerateAndSaveDraft(ctx context.Context, db *store.DB, ts *TemplateService
 		}
 	}
 
-	segment := "sme"
-	if company.Segment != nil && *company.Segment != "" {
-		segment = *company.Segment
-	}
-
 	role := ""
-	if segment == "hiring" || segment == "enterprise" {
+	if segment == "hiring" || segment == "enterprise" || segment == "hiring_us" {
 		role = "Backend Developer"
 		for _, s := range signals {
 			if s.Kind == "hiring_backend" {
@@ -188,13 +218,19 @@ func GenerateAndSaveDraft(ctx context.Context, db *store.DB, ts *TemplateService
 		}
 	}
 
+	market := ""
+	if segment == "hiring_us" {
+		market = "us"
+	}
+
 	result, err := ts.GenerateDraft(ctx, DraftInput{
-		Company:      company,
-		FirstName:    firstName,
-		Role:         role,
-		Channel:      "email",
-		Signals:      relevantSignalsForSegment(segment, signals),
-		ServicePitch: servicePitch(signals),
+		Company:        company,
+		FirstName:      firstName,
+		Role:           role,
+		Channel:        "email",
+		Signals:        relevantSignalsForSegment(segment, signals),
+		ServicePitch:   servicePitch(signals, market),
+		MailingAddress: mailingAddress,
 	})
 	if err != nil {
 		return nil, err

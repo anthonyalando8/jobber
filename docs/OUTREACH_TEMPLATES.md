@@ -146,6 +146,41 @@ site signal — `servicePitch()` catches it via `paymentRoleKeywords` and leads 
 regardless. A generic "Backend Developer" ad with no payments angle instead gets the neutral
 fallback, not the same M-Pesa-first pitch as a genuinely payments-relevant role.
 
+---
+
+## segment: hiring_us · channel: email
+
+Same shape as `hiring` above, sourced from RemoteOK (US/international remote postings) instead of
+a Kenyan job board. Two differences, both required rather than stylistic:
+
+- `{{service_pitch}}` is computed with `market="us"`, which drops M-Pesa branding entirely
+  (meaningless to that audience) in favor of generic "payment integrations" wording.
+- The body includes `{{mailing_address}}` and an explicit opt-out line — CAN-SPAM requires a
+  valid physical postal address and a working opt-out mechanism in every commercial email sent to
+  a US recipient, neither of which the Kenya templates needed. `internal/draft/generate.go`
+  refuses to draft this segment at all (skips straight to `needs_manual`, no AI call spent) until
+  `US_MAILING_ADDRESS` is configured — see `.env.example`.
+
+Subject: `Your {{role}} role — contract cover while you hire`
+
+```
+Hi {{first_name}},
+
+I saw you're hiring a {{role}} — {{observation}}.
+
+Filling that seat usually takes a couple of months. If something is blocked in the
+meantime, I can work on contract: {{service_pitch}}. Fixed price per scope, no notice
+period, and it doesn't interfere with your hiring.
+
+{{hypothesis}} Two questions and I'll know if I can help: what's the most urgent thing
+waiting on that hire, and when did you need it live?
+
+Anthony · +254 700 536 326 · github.com/anthonyalando8
+{{mailing_address}}
+
+This is a one-time message about contract work. Reply "stop" and I won't contact you again.
+```
+
 Note for the code: `{{role}}` comes from the job-ad signal, not from the model.
 
 ---

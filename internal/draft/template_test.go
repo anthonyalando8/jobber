@@ -1,6 +1,7 @@
 package draft
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/anthonyalando8/prospector/internal/store"
@@ -221,7 +222,7 @@ func TestRelevantSignalsForSegment_UntouchedForNonTechnicalSegments(t *testing.T
 // M-Pesa/payments pitch.
 func TestServicePitch_PaymentSiteSignalLeadsWithPayments(t *testing.T) {
 	signals := []*store.Signal{{ID: 1, Kind: "paybill_listed", Detail: "Accepts M-Pesa payments"}}
-	if got := servicePitch(signals); got != servicePitchPayments {
+	if got := servicePitch(signals, ""); got != servicePitchPayments {
 		t.Errorf("servicePitch() = %q, want the payments pitch", got)
 	}
 }
@@ -234,7 +235,7 @@ func TestServicePitch_PaymentRoleTextLeadsWithPayments(t *testing.T) {
 	signals := []*store.Signal{
 		{ID: 1, Kind: "hiring_backend", Detail: "recruiting a Checkoff Product Scheme Manager for TSC, NPS, and County Government Schemes"},
 	}
-	if got := servicePitch(signals); got != servicePitchPayments {
+	if got := servicePitch(signals, ""); got != servicePitchPayments {
 		t.Errorf("servicePitch() = %q, want the payments pitch for a payroll/checkoff role", got)
 	}
 }
@@ -248,7 +249,7 @@ func TestServicePitch_BackendGapSignalLeadsWithBackend(t *testing.T) {
 		{{ID: 1, Kind: "tech:react", Detail: "Found react in site code"}},
 	}
 	for _, signals := range cases {
-		if got := servicePitch(signals); got != servicePitchBackend {
+		if got := servicePitch(signals, ""); got != servicePitchBackend {
 			t.Errorf("servicePitch(%v) = %q, want the backend pitch", signals, got)
 		}
 	}
@@ -258,8 +259,29 @@ func TestServicePitch_BackendGapSignalLeadsWithBackend(t *testing.T) {
 // hiring ad with no payments angle and no frontend/tech-service signal either.
 func TestServicePitch_NoStrongSignalFallsBackToGeneral(t *testing.T) {
 	signals := []*store.Signal{{ID: 1, Kind: "hiring_backend", Detail: "hiring a Backend Developer"}}
-	if got := servicePitch(signals); got != servicePitchGeneral {
+	if got := servicePitch(signals, ""); got != servicePitchGeneral {
 		t.Errorf("servicePitch() = %q, want the general fallback pitch", got)
+	}
+}
+
+// TestServicePitch_USMarketDropsMPesaBranding guards the CAN-SPAM/US-market fix: an American
+// remote employer has no reason to care about M-Pesa specifically — market == "us" must swap in
+// the generic payment-integration wording instead, for both the payments and fallback cases.
+func TestServicePitch_USMarketDropsMPesaBranding(t *testing.T) {
+	paymentSignals := []*store.Signal{{ID: 1, Kind: "paybill_listed", Detail: "Accepts M-Pesa payments"}}
+	if got := servicePitch(paymentSignals, "us"); got != servicePitchPaymentsUS {
+		t.Errorf("servicePitch(us) = %q, want the US payments pitch", got)
+	}
+	if strings.Contains(servicePitch(paymentSignals, "us"), "M-Pesa") {
+		t.Error("servicePitch(us) mentions M-Pesa — meaningless to a US/international employer")
+	}
+
+	genericSignals := []*store.Signal{{ID: 1, Kind: "hiring_backend", Detail: "hiring a Backend Developer"}}
+	if got := servicePitch(genericSignals, "us"); got != servicePitchGeneralUS {
+		t.Errorf("servicePitch(us) = %q, want the US general fallback pitch", got)
+	}
+	if strings.Contains(servicePitch(genericSignals, "us"), "M-Pesa") {
+		t.Error("servicePitch(us) fallback mentions M-Pesa — meaningless to a US/international employer")
 	}
 }
 
@@ -270,7 +292,7 @@ func TestServicePitch_PaymentSignalTakesPriorityOverBackendGap(t *testing.T) {
 		{ID: 1, Kind: "tech:react", Detail: "Found react in site code"},
 		{ID: 2, Kind: "paybill_listed", Detail: "Accepts M-Pesa payments"},
 	}
-	if got := servicePitch(signals); got != servicePitchPayments {
+	if got := servicePitch(signals, ""); got != servicePitchPayments {
 		t.Errorf("servicePitch() = %q, want payments to take priority over a backend-gap signal", got)
 	}
 }

@@ -21,6 +21,8 @@ func TestClassifySegment(t *testing.T) {
 		{"a bank that's hiring is enterprise, not hiring", &store.Company{Source: "jobboard", Name: "Equity Bank Kenya"}, nil, "enterprise"},
 		{"an insurer hiring via a signal is enterprise", &store.Company{Source: "manual", Name: "Britam Insurance"}, []*store.Signal{{Kind: "hiring_backend"}}, "enterprise"},
 		{"a bank NOT hiring is not force-classified enterprise", &store.Company{Source: "manual", Name: "Equity Bank Kenya"}, nil, "agency"},
+		{"remoteok source is hiring_us, not hiring", &store.Company{Source: "remoteok", Name: "Acme Software"}, nil, "hiring_us"},
+		{"remoteok source wins over the enterprise-keyword check", &store.Company{Source: "remoteok", Name: "Acme Bank"}, nil, "hiring_us"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

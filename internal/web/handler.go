@@ -74,6 +74,7 @@ func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
 	// Initialize seeders registry
 	seedRegistry := seed.NewRegistry()
 	seedRegistry.Register(seed.NewJobBoardSeeder(crawlUserAgent))
+	seedRegistry.Register(seed.NewRemoteOKSeeder(crawlUserAgent))
 	seedRegistry.Register(seed.NewManualSeeder("", crawlUserAgent))
 
 	// Initialize enricher
