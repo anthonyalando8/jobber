@@ -110,13 +110,16 @@ func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Cl
 			} else {
 				companyName = companySel.Text()
 			}
-			companyName = strings.TrimSpace(companyName)
+			companyName = cleanCompanyName(strings.TrimSpace(companyName))
+			if companyName == "" {
+				return
+			}
 
 			jobLinkSel := s.Find(q.jobLink).First()
 			jobURL, _ := jobLinkSel.Attr("href")
 			jobText := strings.TrimSpace(s.Text())
 
-			if companyName == "" || jobURL == "" {
+			if jobURL == "" {
 				return
 			}
 
@@ -146,6 +149,34 @@ func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Cl
 	}
 
 	return added, nil
+}
+
+// confidentialEmployerPhrases catches the placeholder client name some job boards show when a
+// recruiting agency posts on behalf of an employer without disclosing who it is ("Accounts
+// Assistant at a Reputable Company"). There is no real, identifiable company here — no domain
+// search would ever find one — so these are skipped outright rather than turned into a company
+// record that can never be verified or contacted.
+var confidentialEmployerPhrases = []string{
+	"reputable company", "confidential client", "our client", "leading company", "leading firm",
+}
+
+// cleanCompanyName recovers the real company name from noisy scraped text. Some sources'
+// "company" field is actually the whole listing headline ("<job title> at <Company>") rather
+// than just the company name — a real example: "Procurement Officer at City Eye Hospital" got
+// domain-guessed as "procurementofficercityeyehospital.co.ke", which was never going to resolve.
+// Returns "" for a confidential-employer placeholder, since there's nothing real to extract.
+func cleanCompanyName(raw string) string {
+	name := strings.TrimSpace(raw)
+	lower := strings.ToLower(name)
+	for _, phrase := range confidentialEmployerPhrases {
+		if strings.Contains(lower, phrase) {
+			return ""
+		}
+	}
+	if idx := strings.LastIndex(lower, " at "); idx != -1 {
+		name = strings.TrimSpace(name[idx+len(" at "):])
+	}
+	return name
 }
 
 // extractDomain guesses a starting domain from a company name — just the first, most likely

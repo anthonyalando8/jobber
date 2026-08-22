@@ -40,6 +40,9 @@
         .badge.failed { background: #ffebee; color: #c62828; }
         .badge.manual { background: #eceff1; color: #37474f; }
         .badge.unknown { background: #eceff1; color: #78909c; }
+        .domain-fix { display: flex; gap: 6px; align-items: center; }
+        .domain-fix input { padding: 5px 7px; border: 1px solid #ddd; border-radius: 4px; font-size: 12.5px; width: 170px; }
+        .domain-fix button { background: #0066cc; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -67,11 +70,19 @@
                 <option value="agency" {{if eq .segment "agency"}}selected{{end}}>Agency</option>
                 <option value="incubator" {{if eq .segment "incubator"}}selected{{end}}>Incubator</option>
                 <option value="hiring" {{if eq .segment "hiring"}}selected{{end}}>Hiring</option>
+                <option value="hiring_us" {{if eq .segment "hiring_us"}}selected{{end}}>Hiring (US/remote)</option>
                 <option value="enterprise" {{if eq .segment "enterprise"}}selected{{end}}>Enterprise</option>
                 <option value="sme" {{if eq .segment "sme"}}selected{{end}}>SME</option>
             </select>
+            <select name="domain_status">
+                <option value="">All domain statuses</option>
+                <option value="verified" {{if eq .domainStatus "verified"}}selected{{end}}>Verified</option>
+                <option value="manual" {{if eq .domainStatus "manual"}}selected{{end}}>Manual</option>
+                <option value="candidate" {{if eq .domainStatus "candidate"}}selected{{end}}>Candidate (unverified)</option>
+                <option value="failed" {{if eq .domainStatus "failed"}}selected{{end}}>Failed</option>
+            </select>
             <button type="submit">Filter</button>
-            {{if or .query .status .segment}}<a class="clear" href="/companies">Clear</a>{{end}}
+            {{if or .query .status .segment .domainStatus}}<a class="clear" href="/companies">Clear</a>{{end}}
         </form>
 
         <div class="result-count">{{.total}} compan{{if eq .total 1}}y{{else}}ies{{end}} · page {{.page}} of {{.totalPages}}</div>
@@ -94,7 +105,17 @@
                 {{range .companies}}
                 <tr>
                     <td><strong>{{.Name}}</strong></td>
-                    <td>{{.Domain}}</td>
+                    <td>
+                        {{if or (eq .DomainStatus "failed") (eq .DomainStatus "candidate")}}
+                        <form class="domain-fix" method="POST" action="/companies/{{.ID}}/domain/update">
+                            <input type="hidden" name="return_to" value="{{$.currentURL}}">
+                            <input type="text" name="domain" value="{{.Domain}}" placeholder="real-domain.com" required>
+                            <button type="submit">Fix</button>
+                        </form>
+                        {{else}}
+                        {{.Domain}}
+                        {{end}}
+                    </td>
                     <td><span class="badge {{.DomainStatus}}">{{.DomainStatus}}</span></td>
                     <td>
                         {{if .Segment}}

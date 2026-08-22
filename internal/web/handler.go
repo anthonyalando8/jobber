@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/anthonyalando8/prospector/internal/aibudget"
+	"github.com/anthonyalando8/prospector/internal/domainsearch"
 	"github.com/anthonyalando8/prospector/internal/draft"
 	"github.com/anthonyalando8/prospector/internal/enrich"
 	"github.com/anthonyalando8/prospector/internal/score"
@@ -37,6 +38,7 @@ type Handler struct {
 	enricher           *enrich.Enricher
 	scorer             *score.Scorer
 	verifier           verify.Verifier
+	domainSearcher     *domainsearch.Searcher
 	aiBudget           *aibudget.Budget
 	sendPolicy         sendpolicy.Config
 	smtpHost           string
@@ -86,6 +88,18 @@ func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
 	// Initialize domain verifier — see internal/verify for why a guessed domain never reaches
 	// the enricher directly.
 	verifier := verify.NewHeuristicVerifier(crawlUserAgent)
+
+	// Search-based domain resolver for companies stuck at domain_status='failed' — every guessed
+	// candidate from verify.CandidateDomains already exhausted. Enabled() reports false (and
+	// every caller skips gracefully) when the two env vars aren't set — no API key is not an
+	// error, same as an unconfigured AI provider.
+	domainSearchDailyLimit := 90
+	if v := os.Getenv("GOOGLE_SEARCH_DAILY_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			domainSearchDailyLimit = n
+		}
+	}
+	domainSearcher := domainsearch.NewSearcher(redisConn, os.Getenv("GOOGLE_SEARCH_API_KEY"), os.Getenv("GOOGLE_SEARCH_CX"), domainSearchDailyLimit)
 
 	// Get SMTP settings from env
 	smtpHost := os.Getenv("SMTP_HOST")
@@ -199,6 +213,7 @@ func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
 		enricher:           enricher,
 		scorer:             scorer,
 		verifier:           verifier,
+		domainSearcher:     domainSearcher,
 		aiBudget:           aiBudget,
 		sendPolicy:         policyCfg,
 		smtpHost:           smtpHost,
@@ -229,6 +244,9 @@ func (h *Handler) Scorer() *score.Scorer { return h.scorer }
 
 // Verifier returns the domain verifier this handler uses.
 func (h *Handler) Verifier() verify.Verifier { return h.verifier }
+
+// DomainSearcher returns the search-based domain resolver this handler uses.
+func (h *Handler) DomainSearcher() *domainsearch.Searcher { return h.domainSearcher }
 
 // DraftService returns the draft template service this handler uses.
 func (h *Handler) DraftService() *draft.TemplateService { return h.draftService }
@@ -272,7 +290,7 @@ type activityView struct {
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	companies, err := h.db.ListCompanies(ctx, "", "", "", 1000, 0)
+	companies, err := h.db.ListCompanies(ctx, "", "", "", "", 1000, 0)
 	if err != nil {
 		log.Printf("Home: failed to list companies: %v", err)
 		http.Error(w, "Failed to load companies", http.StatusInternalServerError)
@@ -340,7 +358,7 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 
 	// Top prospects: highest-scored companies regardless of pipeline stage — informational,
 	// not an action list.
-	topProspects, err := h.db.ListCompanies(ctx, "", "", "", 6, 0)
+	topProspects, err := h.db.ListCompanies(ctx, "", "", "", "", 6, 0)
 	if err != nil {
 		log.Printf("Home: failed to load top prospects: %v", err)
 	}
@@ -425,9 +443,11 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 			}
 			return nextAvailable.Format("15:04")
 		}(),
-		"autoSendEnabled": h.sendPolicy.Enabled,
-		"topProspects":    topProspects,
-		"reviewPreview":   reviewPreview,
+		"autoSendEnabled":     h.sendPolicy.Enabled,
+		"topProspects":        topProspects,
+		"reviewPreview":       reviewPreview,
+		"domainSearchEnabled": h.domainSearcher.Enabled(),
+		"domainSearchPaused":  h.domainSearcher.IsPaused(ctx),
 	})
 }
 
@@ -479,6 +499,7 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 
 	status := r.URL.Query().Get("status")
 	segment := r.URL.Query().Get("segment")
+	domainStatus := r.URL.Query().Get("domain_status")
 	search := strings.TrimSpace(r.URL.Query().Get("q"))
 	pageStr := r.URL.Query().Get("page")
 	page := 0
@@ -491,14 +512,14 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 	limit := companiesPageSize
 	offset := page * limit
 
-	companies, err := h.db.ListCompanies(ctx, status, segment, search, limit, offset)
+	companies, err := h.db.ListCompanies(ctx, status, segment, domainStatus, search, limit, offset)
 	if err != nil {
-		log.Printf("ListCompanies: failed to list companies (status=%s segment=%s q=%s page=%d): %v", status, segment, search, page, err)
+		log.Printf("ListCompanies: failed to list companies (status=%s segment=%s domain_status=%s q=%s page=%d): %v", status, segment, domainStatus, search, page, err)
 		http.Error(w, "Failed to load companies", http.StatusInternalServerError)
 		return
 	}
 
-	total, err := h.db.CountCompanies(ctx, status, segment, search)
+	total, err := h.db.CountCompanies(ctx, status, segment, domainStatus, search)
 	if err != nil {
 		log.Printf("ListCompanies: failed to count companies: %v", err)
 	}
@@ -509,38 +530,46 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 
 	prevURL, nextURL := "", ""
 	if page > 0 {
-		prevURL = companiesURL(status, segment, search, page) // page is already current-1 in 1-based terms
+		prevURL = companiesURL(status, segment, domainStatus, search, page) // page is already current-1 in 1-based terms
 	}
 	if page+1 < totalPages {
-		nextURL = companiesURL(status, segment, search, page+2)
+		nextURL = companiesURL(status, segment, domainStatus, search, page+2)
 	}
+	// currentURL is where the inline "fix domain" form (per failed-domain row) redirects back
+	// to — so correcting a domain from a filtered/paged view doesn't lose that filter/page.
+	currentURL := companiesURL(status, segment, domainStatus, search, page+1)
 
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "companies.html", map[string]interface{}{
-		"companies":  companies,
-		"status":     status,
-		"segment":    segment,
-		"query":      search,
-		"page":       page + 1,
-		"totalPages": totalPages,
-		"total":      total,
-		"hasPrev":    page > 0,
-		"hasNext":    page+1 < totalPages,
-		"prevURL":    prevURL,
-		"nextURL":    nextURL,
+		"companies":    companies,
+		"status":       status,
+		"segment":      segment,
+		"domainStatus": domainStatus,
+		"query":        search,
+		"page":         page + 1,
+		"totalPages":   totalPages,
+		"total":        total,
+		"hasPrev":      page > 0,
+		"hasNext":      page+1 < totalPages,
+		"prevURL":      prevURL,
+		"nextURL":      nextURL,
+		"currentURL":   currentURL,
 	})
 }
 
 // companiesURL builds a /companies link preserving the current filters with a different page
 // number — used for the Prev/Next pagination links, computed server-side so the template doesn't
 // need to hand-build (and URL-escape) query strings itself.
-func companiesURL(status, segment, search string, page int) string {
+func companiesURL(status, segment, domainStatus, search string, page int) string {
 	v := url.Values{}
 	if status != "" {
 		v.Set("status", status)
 	}
 	if segment != "" {
 		v.Set("segment", segment)
+	}
+	if domainStatus != "" {
+		v.Set("domain_status", domainStatus)
 	}
 	if search != "" {
 		v.Set("q", search)
@@ -903,7 +932,7 @@ func (h *Handler) AdminEnrich(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Get all new companies
-	companies, err := h.db.ListCompanies(ctx, "new", "", "", 1000, 0)
+	companies, err := h.db.ListCompanies(ctx, "new", "", "", "", 1000, 0)
 	if err != nil {
 		http.Error(w, "Failed to list companies: "+err.Error(), http.StatusInternalServerError)
 		log.Printf("AdminEnrich: Failed to list companies: %v", err)
@@ -1064,6 +1093,65 @@ func (h *Handler) AdminDraft(w http.ResponseWriter, r *http.Request) {
 	log.Printf("AdminDraft: Generated %d drafts, %d needs_manual, %d auto-sent (errors: %d)", drafted, needsManual, autoSent, errors)
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"drafted":%d,"needs_manual":%d,"auto_sent":%d,"errors":%d}`, drafted, needsManual, autoSent, errors)
+}
+
+// domainResolveBatchSize caps one manual trigger's batch — generous since it's human-initiated,
+// but still bounded so a single click can't burn the entire daily search budget at once.
+const domainResolveBatchSize = 20
+
+// AdminResolveDomains manually triggers the same domain-resolution pass the autonomous worker
+// runs on its own schedule — for companies stuck at domain_status='failed' after every guessed
+// candidate (verify.CandidateDomains) already came up empty.
+func (h *Handler) AdminResolveDomains(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if !h.domainSearcher.Enabled() {
+		h.logActivity(ctx, "domain_resolve", "Failed: GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_CX not configured", false)
+		http.Error(w, "Domain search not configured — set GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX", http.StatusInternalServerError)
+		return
+	}
+
+	resolved, attempted, err := domainsearch.ResolveFailedDomains(ctx, h.db, h.verifier, h.domainSearcher, h.redis, domainResolveBatchSize)
+	if err != nil {
+		h.logActivity(ctx, "domain_resolve", "Failed: "+err.Error(), false)
+		http.Error(w, "Domain resolution failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	detail := fmt.Sprintf("Resolved %d of %d attempted", resolved, attempted)
+	if attempted == 0 {
+		detail = "No failed-domain companies waiting, today's search budget is used up, or it's paused"
+	}
+	h.logActivity(ctx, "domain_resolve", detail, resolved > 0 || attempted == 0)
+
+	log.Printf("AdminResolveDomains: resolved %d of %d attempted", resolved, attempted)
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"resolved":%d,"attempted":%d}`, resolved, attempted)
+}
+
+// DomainSearchPause hits the runtime kill-switch for the search-based domain resolver — for
+// when a mistake is noticed (a wrong domain getting accepted, quota burning faster than
+// expected) and it needs to stop before the next scheduled tick, not after editing .env and
+// restarting the process.
+func (h *Handler) DomainSearchPause(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := h.domainSearcher.Pause(ctx); err != nil {
+		http.Error(w, "Failed to pause: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.logActivity(ctx, "domain_resolve", "Paused domain search (manual)", false)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// DomainSearchResume clears the runtime kill-switch.
+func (h *Handler) DomainSearchResume(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := h.domainSearcher.Resume(ctx); err != nil {
+		http.Error(w, "Failed to resume: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.logActivity(ctx, "domain_resolve", "Resumed domain search (manual)", true)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // checkMinInterval reports whether MIN_SEND_INTERVAL_SECONDS has elapsed since the last send.

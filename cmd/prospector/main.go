@@ -91,6 +91,7 @@ func main() {
 		r.Post("/companies/{id}/notes", handler.CompanyAddNote)
 		r.Post("/companies/{id}/suppress", handler.Suppress)
 		r.Post("/companies/{id}/domain/verify", handler.CompanyVerifyDomain)
+		r.Post("/companies/{id}/domain/update", handler.CompanyUpdateDomain)
 		r.Post("/companies/{id}/generate-draft", handler.CompanyDraft)
 		r.Post("/companies/{id}/contacts", handler.ContactAdd)
 		r.Post("/contacts/{contactID}/update", handler.ContactUpdate)
@@ -121,6 +122,9 @@ func main() {
 		r.Post("/admin/seed/{source}", handler.AdminSeed)
 		r.Post("/admin/enrich", handler.AdminEnrich)
 		r.Post("/admin/draft", handler.AdminDraft)
+		r.Post("/admin/resolve-domains", handler.AdminResolveDomains)
+		r.Post("/admin/domain-search/pause", handler.DomainSearchPause)
+		r.Post("/admin/domain-search/resume", handler.DomainSearchResume)
 		// Single-company enrich can, worst case, take up to 7 sequential page fetches at 10s
 		// each — long enough to want the same generous timeout as the batch version.
 		r.Post("/companies/{id}/enrich", handler.CompanyEnrich)
@@ -150,10 +154,15 @@ func main() {
 			workerCfg.DraftInterval = time.Duration(n) * time.Second
 		}
 	}
+	if v := os.Getenv("DOMAIN_RESOLVE_INTERVAL_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workerCfg.DomainResolveInterval = time.Duration(n) * time.Minute
+		}
+	}
 
 	// handler already parsed AUTO_SEND_* into SendPolicy() — reused here rather than re-reading
 	// the same env vars a second time, same reasoning as Enricher()/Scorer()/etc above.
-	scheduler := worker.NewScheduler(db, redisConn, handler.Enricher(), handler.Scorer(), handler.SeedRegistry(), handler.Verifier(),
+	scheduler := worker.NewScheduler(db, redisConn, handler.Enricher(), handler.Scorer(), handler.SeedRegistry(), handler.Verifier(), handler.DomainSearcher(),
 		handler.DraftService(), handler.HasAIProvider(), handler.AIBudget(), handler.SendPolicy(), handler, workerCfg)
 
 	workerCtx, cancelWorker := context.WithCancel(context.Background())

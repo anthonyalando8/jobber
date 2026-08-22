@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthonyalando8/prospector/internal/activity"
 	"github.com/anthonyalando8/prospector/internal/aibudget"
+	"github.com/anthonyalando8/prospector/internal/domainsearch"
 	"github.com/anthonyalando8/prospector/internal/draft"
 	"github.com/anthonyalando8/prospector/internal/enrich"
 	"github.com/anthonyalando8/prospector/internal/score"
@@ -44,58 +45,63 @@ const verifyBatchSize = 10
 // Config holds the tunables review.md §5 and §33 ask to be configurable, with the doc's own
 // suggested defaults.
 type Config struct {
-	DiscoveryInterval time.Duration // default 20m
-	ResearchInterval  time.Duration // default 30s
-	ResearchTTL       time.Duration // default 24h — how long before a researched company is eligible again
-	DraftInterval     time.Duration // default 60s — how often the loop *checks*; aibudget decides whether it actually drafts
+	DiscoveryInterval     time.Duration // default 20m
+	ResearchInterval      time.Duration // default 30s
+	ResearchTTL           time.Duration // default 24h — how long before a researched company is eligible again
+	DraftInterval         time.Duration // default 60s — how often the loop *checks*; aibudget decides whether it actually drafts
+	DomainResolveInterval time.Duration // default 30m — how often the loop *checks*; domainsearch's own daily budget decides whether it actually spends a query
 }
 
 // DefaultConfig returns review.md's suggested defaults.
 func DefaultConfig() Config {
 	return Config{
-		DiscoveryInterval: 20 * time.Minute,
-		ResearchInterval:  30 * time.Second,
-		ResearchTTL:       24 * time.Hour,
-		DraftInterval:     60 * time.Second,
+		DiscoveryInterval:     20 * time.Minute,
+		ResearchInterval:      30 * time.Second,
+		ResearchTTL:           24 * time.Hour,
+		DraftInterval:         60 * time.Second,
+		DomainResolveInterval: 30 * time.Minute,
 	}
 }
 
 // Scheduler owns the autonomous loops. It holds the same dependencies web.Handler holds,
 // constructed once in main.go and handed to both — not a second copy of the pipeline.
 type Scheduler struct {
-	db           *store.DB
-	redis        *redis.Client
-	enricher     *enrich.Enricher
-	scorer       *score.Scorer
-	seedRegistry *seed.Registry
-	verifier     verify.Verifier
-	draftService *draft.TemplateService
-	hasAI        bool
-	budget       *aibudget.Budget
-	policyCfg    sendpolicy.Config
-	sender       Sender
-	cfg          Config
+	db             *store.DB
+	redis          *redis.Client
+	enricher       *enrich.Enricher
+	scorer         *score.Scorer
+	seedRegistry   *seed.Registry
+	verifier       verify.Verifier
+	domainSearcher *domainsearch.Searcher
+	draftService   *draft.TemplateService
+	hasAI          bool
+	budget         *aibudget.Budget
+	policyCfg      sendpolicy.Config
+	sender         Sender
+	cfg            Config
 
-	discoveryBusy atomic.Bool
-	researchBusy  atomic.Bool
-	draftBusy     atomic.Bool
+	discoveryBusy     atomic.Bool
+	researchBusy      atomic.Bool
+	draftBusy         atomic.Bool
+	domainResolveBusy atomic.Bool
 }
 
 // NewScheduler creates a scheduler. Nothing runs until Run is called.
-func NewScheduler(db *store.DB, redisConn *redis.Client, enricher *enrich.Enricher, scorer *score.Scorer, seedRegistry *seed.Registry, verifier verify.Verifier, draftService *draft.TemplateService, hasAI bool, budget *aibudget.Budget, policyCfg sendpolicy.Config, sender Sender, cfg Config) *Scheduler {
+func NewScheduler(db *store.DB, redisConn *redis.Client, enricher *enrich.Enricher, scorer *score.Scorer, seedRegistry *seed.Registry, verifier verify.Verifier, domainSearcher *domainsearch.Searcher, draftService *draft.TemplateService, hasAI bool, budget *aibudget.Budget, policyCfg sendpolicy.Config, sender Sender, cfg Config) *Scheduler {
 	return &Scheduler{
-		db:           db,
-		redis:        redisConn,
-		enricher:     enricher,
-		scorer:       scorer,
-		seedRegistry: seedRegistry,
-		verifier:     verifier,
-		draftService: draftService,
-		hasAI:        hasAI,
-		budget:       budget,
-		policyCfg:    policyCfg,
-		sender:       sender,
-		cfg:          cfg,
+		db:             db,
+		redis:          redisConn,
+		enricher:       enricher,
+		scorer:         scorer,
+		seedRegistry:   seedRegistry,
+		verifier:       verifier,
+		domainSearcher: domainSearcher,
+		draftService:   draftService,
+		hasAI:          hasAI,
+		budget:         budget,
+		policyCfg:      policyCfg,
+		sender:         sender,
+		cfg:            cfg,
 	}
 }
 
@@ -104,10 +110,11 @@ func NewScheduler(db *store.DB, redisConn *redis.Client, enricher *enrich.Enrich
 // until ctx is cancelled. wg lets the caller wait for every loop to actually finish its
 // current tick before the process exits (graceful shutdown).
 func (s *Scheduler) Run(ctx context.Context, wg *sync.WaitGroup) {
-	wg.Add(3)
+	wg.Add(4)
 	go s.loop(ctx, wg, "discovery", s.cfg.DiscoveryInterval, s.discoveryTick)
 	go s.loop(ctx, wg, "research", s.cfg.ResearchInterval, s.researchTick)
 	go s.loop(ctx, wg, "draft", s.cfg.DraftInterval, s.draftTick)
+	go s.loop(ctx, wg, "domain-resolve", s.cfg.DomainResolveInterval, s.domainResolveTick)
 }
 
 // loop runs tick immediately, then again every interval, until ctx is cancelled. A busy tick
@@ -330,6 +337,36 @@ func (s *Scheduler) draftTick(ctx context.Context) {
 			activity.Log(ctx, s.redis, "worker:auto_send", fmt.Sprintf("auto-sent to %s (score %d)", company.Name, company.Score), true)
 		}
 	}
+}
+
+// domainResolveBatchSize caps how many companies one tick's search budget goes toward — a
+// generous batch is harmless since domainsearch.Allow() stops the loop early once today's real
+// query budget (Google's free tier) runs out, regardless of this number.
+const domainResolveBatchSize = 5
+
+// domainResolveTick asks internal/domainsearch to find a real domain for companies stuck at
+// domain_status='failed' — every guessed candidate from verify.CandidateDomains already
+// exhausted during the normal verify loop. A no-op when GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_CX
+// aren't configured, the same way draftTick is a no-op without an AI provider.
+func (s *Scheduler) domainResolveTick(ctx context.Context) {
+	if s.domainSearcher == nil || !s.domainSearcher.Enabled() {
+		return
+	}
+	if !s.domainResolveBusy.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.domainResolveBusy.Store(false)
+
+	resolved, attempted, err := domainsearch.ResolveFailedDomains(ctx, s.db, s.verifier, s.domainSearcher, s.redis, domainResolveBatchSize)
+	if err != nil {
+		log.Printf("worker: domain-resolve: %v", err)
+		return
+	}
+	if attempted == 0 {
+		return // nothing waiting, or today's budget already spent — quiet, not worth logging every tick
+	}
+
+	activity.Log(ctx, s.redis, "worker:domain_resolve", fmt.Sprintf("resolved %d of %d attempted", resolved, attempted), resolved > 0)
 }
 
 func pluralY(n int) string {

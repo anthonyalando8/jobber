@@ -202,6 +202,51 @@ func (h *Handler) CompanyVerifyDomain(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
+// CompanyUpdateDomain corrects a wrong domain outright — CompanyVerifyDomain above only ever
+// confirms whatever domain is already on file, which doesn't help when the domain itself is
+// wrong (the common case for a company stuck at domain_status='failed': every guessed candidate
+// simply didn't resolve to the real site). Setting it here immediately marks it "manual" — a
+// human just looked this up themselves, same trust level as typing it in on the add-company form.
+// Redirects back to whatever page submitted it (the company detail page, or the companies list's
+// inline triage form), so /companies?domain_status=failed keeps its filter/page after a fix.
+func (h *Handler) CompanyUpdateDomain(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	domain := strings.TrimSpace(r.FormValue("domain"))
+	returnTo := r.FormValue("return_to")
+
+	if domain == "" {
+		http.Error(w, "domain required", http.StatusBadRequest)
+		return
+	}
+
+	company, err := h.db.GetCompany(ctx, id)
+	if err != nil {
+		http.Error(w, "Company not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.db.UpdateCompanyDomain(ctx, id, domain); err != nil {
+		http.Error(w, "Failed to update domain", http.StatusInternalServerError)
+		return
+	}
+	if err := h.db.UpdateCompanyDomainStatus(ctx, id, "manual", 1.0); err != nil {
+		http.Error(w, "Failed to update domain status", http.StatusInternalServerError)
+		return
+	}
+
+	h.logActivity(ctx, "verify", fmt.Sprintf("Corrected %s's domain to %s", company.Name, domain), true)
+
+	// Only ever redirect back to a relative path on this app — returnTo is user-supplied form
+	// input, and a bare "http://..." or "//host/..." value would otherwise let this become an
+	// open redirect.
+	if strings.HasPrefix(returnTo, "/") && !strings.HasPrefix(returnTo, "//") {
+		http.Redirect(w, r, returnTo, http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
 // Suppress adds an email or domain to the suppression list — the other end of the "tell me to
 // stop and I won't write again" line every sent email carries. Without this the promise had
 // nothing behind it: the table and the send-time check existed, but nothing ever wrote to it.

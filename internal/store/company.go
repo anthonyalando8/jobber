@@ -81,7 +81,7 @@ func (db *DB) GetCompany(ctx context.Context, id int64) (*Company, error) {
 // companyFilterClause builds the shared WHERE clause for ListCompanies/CountCompanies, so the
 // two never drift apart — a list and its "how many pages" count must agree on what "matches"
 // means. search matches name or domain (case-insensitive substring); the rest are exact.
-func companyFilterClause(status, segment, search string, args []interface{}) (string, []interface{}) {
+func companyFilterClause(status, segment, domainStatus, search string, args []interface{}) (string, []interface{}) {
 	clause := " WHERE 1=1"
 	argNum := len(args) + 1
 
@@ -95,6 +95,11 @@ func companyFilterClause(status, segment, search string, args []interface{}) (st
 		args = append(args, segment)
 		argNum++
 	}
+	if domainStatus != "" {
+		clause += ` AND domain_status = $` + strconv.Itoa(argNum)
+		args = append(args, domainStatus)
+		argNum++
+	}
 	if search != "" {
 		clause += ` AND (name ILIKE $` + strconv.Itoa(argNum) + ` OR domain ILIKE $` + strconv.Itoa(argNum) + `)`
 		args = append(args, "%"+search+"%")
@@ -103,11 +108,11 @@ func companyFilterClause(status, segment, search string, args []interface{}) (st
 	return clause, args
 }
 
-// ListCompanies retrieves companies with optional status/segment/search filtering — search
-// matches against name or domain, since with the list growing past what fits on one screen,
-// "find the company I'm thinking of" needs to be an actual query, not scrolling.
-func (db *DB) ListCompanies(ctx context.Context, status, segment, search string, limit, offset int) ([]*Company, error) {
-	where, args := companyFilterClause(status, segment, search, nil)
+// ListCompanies retrieves companies with optional status/segment/domain_status/search
+// filtering — search matches against name or domain, since with the list growing past what fits
+// on one screen, "find the company I'm thinking of" needs to be an actual query, not scrolling.
+func (db *DB) ListCompanies(ctx context.Context, status, segment, domainStatus, search string, limit, offset int) ([]*Company, error) {
+	where, args := companyFilterClause(status, segment, domainStatus, search, nil)
 	query := `SELECT id, name, domain, source, source_url, segment, score, status, location, notes,
 		        last_researched_at, next_research_at, domain_status, domain_confidence, created_at, updated_at
 		     FROM company` + where
@@ -139,13 +144,45 @@ func (db *DB) ListCompanies(ctx context.Context, status, segment, search string,
 	return companies, rows.Err()
 }
 
-// CountCompanies returns how many companies match the same status/segment/search filters
-// ListCompanies would use — the total behind "page 2 of N" / "137 results".
-func (db *DB) CountCompanies(ctx context.Context, status, segment, search string) (int, error) {
-	where, args := companyFilterClause(status, segment, search, nil)
+// CountCompanies returns how many companies match the same status/segment/domain_status/search
+// filters ListCompanies would use — the total behind "page 2 of N" / "137 results".
+func (db *DB) CountCompanies(ctx context.Context, status, segment, domainStatus, search string) (int, error) {
+	where, args := companyFilterClause(status, segment, domainStatus, search, nil)
 	var n int
 	err := db.QueryRow(ctx, `SELECT count(*) FROM company`+where, args...).Scan(&n)
 	return n, err
+}
+
+// ListCompaniesForDomainResolution returns companies stuck at domain_status='failed' — every
+// guessed candidate (verify.CandidateDomains) already exhausted during the normal verify loop.
+// Ordered by score so a limited daily search-API budget (internal/domainsearch) goes to the best
+// prospects first, not whichever failed most recently.
+func (db *DB) ListCompaniesForDomainResolution(ctx context.Context, limit int) ([]*Company, error) {
+	rows, err := db.Query(ctx,
+		`SELECT id, name, domain, source, source_url, segment, score, status, location, notes,
+		        last_researched_at, next_research_at, domain_status, domain_confidence, created_at, updated_at
+		 FROM company
+		 WHERE domain_status = 'failed'
+		 ORDER BY score DESC, created_at ASC
+		 LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var companies []*Company
+	for rows.Next() {
+		var company Company
+		if err := rows.Scan(
+			&company.ID, &company.Name, &company.Domain, &company.Source, &company.SourceURL,
+			&company.Segment, &company.Score, &company.Status, &company.Location, &company.Notes,
+			&company.LastResearchedAt, &company.NextResearchAt, &company.DomainStatus, &company.DomainConfidence,
+			&company.CreatedAt, &company.UpdatedAt); err != nil {
+			return nil, err
+		}
+		companies = append(companies, &company)
+	}
+	return companies, rows.Err()
 }
 
 // ListCompaniesForResearch returns companies eligible for the research (enrichment) worker

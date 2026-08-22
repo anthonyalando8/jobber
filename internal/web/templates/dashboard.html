@@ -275,6 +275,27 @@
                             <button class="btn-run secondary" onclick="runAdmin('draft')">Run now</button>
                             <div class="status-inline" id="status-draft"></div>
                         </div>
+                        <div class="step">
+                            <div class="title">Resolve failed domains
+                                {{if .domainSearchEnabled}}
+                                    {{if .domainSearchPaused}}<span class="warn-note" style="margin-top:0;">— paused</span>{{end}}
+                                {{end}}
+                            </div>
+                            <div class="desc">Searches for a real domain when name-guessing already failed. Needs GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_CX set, and runs automatically every 30 minutes once configured — this is for an on-demand batch in between.</div>
+                            <button class="btn-run secondary" onclick="runAdmin('resolve-domains')">Run now</button>
+                            {{if .domainSearchEnabled}}
+                                {{if .domainSearchPaused}}
+                                <form method="POST" action="/admin/domain-search/resume" style="display:inline">
+                                    <button type="submit" class="btn-run secondary">Resume</button>
+                                </form>
+                                {{else}}
+                                <form method="POST" action="/admin/domain-search/pause" style="display:inline">
+                                    <button type="submit" class="btn-run secondary" style="background:var(--bad);">Pause</button>
+                                </form>
+                                {{end}}
+                            {{end}}
+                            <div class="status-inline" id="status-resolve-domains"></div>
+                        </div>
                     </div>
                 </details>
             </div>
