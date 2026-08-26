@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -186,6 +187,108 @@ func (db *DB) ListReviewQueue(ctx context.Context, limit int) ([]ReviewQueueItem
 		items = append(items, it)
 	}
 	return items, rows.Err()
+}
+
+// DraftListItem is one row of the /drafts screen — every draft regardless of state, unlike
+// ListReviewQueue which only surfaces the pending-and-not-blocked subset. This is the direct
+// answer to "a draft already exists for this company but I can't find it anywhere" — a blocked
+// or needs_manual draft has real content (or a real rejection reason) worth seeing, not just a
+// dashboard count with nowhere to click through to.
+type DraftListItem struct {
+	DraftID        int64
+	CompanyID      int64
+	CompanyName    string
+	CompanyDomain  string
+	CompanyScore   int
+	Channel        string
+	Subject        *string
+	Body           string
+	State          string
+	Decision       *string
+	DecisionReason *string
+	CreatedAt      time.Time
+}
+
+// DraftFilter is every dimension /drafts can filter by.
+type DraftFilter struct {
+	State string // "" = any: pending|needs_manual|sent|approved|discarded
+	// CreatedSince is one of "5m", "1h", "today", "7d", or "" for no filter.
+	CreatedSince string
+	// Search matches company name or domain, case-insensitive substring.
+	Search string
+}
+
+func draftFilterClause(f DraftFilter, args []interface{}) (string, []interface{}) {
+	clause := " WHERE 1=1"
+	argNum := len(args) + 1
+
+	if f.State != "" {
+		clause += ` AND d.state = $` + strconv.Itoa(argNum)
+		args = append(args, f.State)
+		argNum++
+	}
+	switch f.CreatedSince {
+	case "5m":
+		clause += ` AND d.created_at >= now() - interval '5 minutes'`
+	case "1h":
+		clause += ` AND d.created_at >= now() - interval '1 hour'`
+	case "today":
+		clause += ` AND d.created_at >= date_trunc('day', now())`
+	case "7d":
+		clause += ` AND d.created_at >= now() - interval '7 days'`
+	}
+	if f.Search != "" {
+		clause += ` AND (c.name ILIKE $` + strconv.Itoa(argNum) + ` OR c.domain ILIKE $` + strconv.Itoa(argNum) + `)`
+		args = append(args, "%"+f.Search+"%")
+		argNum++
+	}
+	return clause, args
+}
+
+// ListDrafts returns every draft matching f, newest first, with the company already joined in.
+func (db *DB) ListDrafts(ctx context.Context, f DraftFilter, limit, offset int) ([]*DraftListItem, error) {
+	where, args := draftFilterClause(f, nil)
+	query := `SELECT d.id, c.id, c.name, c.domain, c.score, d.channel, d.subject, d.body, d.state, d.decision, d.decision_reason, d.created_at
+	           FROM draft d JOIN company c ON c.id = d.company_id` + where
+
+	argNum := len(args) + 1
+	query += ` ORDER BY d.created_at DESC LIMIT $` + strconv.Itoa(argNum) + ` OFFSET $` + strconv.Itoa(argNum+1)
+	args = append(args, limit, offset)
+
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*DraftListItem
+	for rows.Next() {
+		var it DraftListItem
+		if err := rows.Scan(&it.DraftID, &it.CompanyID, &it.CompanyName, &it.CompanyDomain, &it.CompanyScore,
+			&it.Channel, &it.Subject, &it.Body, &it.State, &it.Decision, &it.DecisionReason, &it.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, &it)
+	}
+	return items, rows.Err()
+}
+
+// CountDrafts returns how many drafts match f — the total behind /drafts' pagination.
+func (db *DB) CountDrafts(ctx context.Context, f DraftFilter) (int, error) {
+	where, args := draftFilterClause(f, nil)
+	var n int
+	err := db.QueryRow(ctx, `SELECT count(*) FROM draft d JOIN company c ON c.id = d.company_id`+where, args...).Scan(&n)
+	return n, err
+}
+
+// DiscardDraft marks a draft discarded — the one thing that frees a company up for a fresh
+// GenerateAndSaveDraft attempt (CompanyDraft/ListCompaniesForDrafting both refuse to draft a
+// company that already has any non-discarded draft). Used for a needs_manual draft that's worth
+// retrying (e.g. after fixing a missing contact), or a blocked one where the block reason no
+// longer applies (domain since verified, contact since added).
+func (db *DB) DiscardDraft(ctx context.Context, id int64) error {
+	_, err := db.Exec(ctx, `UPDATE draft SET state = 'discarded' WHERE id = $1`, id)
+	return err
 }
 
 // ListDraftsByState retrieves drafts in a given state

@@ -176,6 +176,8 @@
             </div>
             <nav class="top-nav">
                 <a href="/companies">Companies</a>
+                <a href="/drafts">Drafts</a>
+                <a href="/templates">Templates</a>
                 <a href="/followups">Follow-ups{{if .today.FollowupsDue}} ({{.today.FollowupsDue}}){{end}}</a>
                 <a href="/review" class="pill-link{{if .pendingReview}} attn{{end}}">Review{{if .pendingReview}} · {{.pendingReview}}{{end}}</a>
             </nav>
@@ -199,7 +201,7 @@
             <a class="rail-item" href="/companies"><div class="label">Discovered</div><div class="value">{{.today.Discovered}}</div></a>
             <div class="rail-item"><div class="label">Researched</div><div class="value">{{.today.Researched}}</div></div>
             <div class="rail-item"><div class="label">High-value</div><div class="value accent-good">{{.today.HighValue}}</div></div>
-            <div class="rail-item"><div class="label">Drafts</div><div class="value">{{.today.Drafted}}</div></div>
+            <a class="rail-item" href="/drafts"><div class="label">Drafts</div><div class="value">{{.today.Drafted}}</div></a>
             <a class="rail-item" href="/review"><div class="label">Awaiting review</div><div class="value{{if .pendingReview}} accent-warn{{end}}">{{.pendingReview}}</div></a>
             <a class="rail-item" href="/sent"><div class="label">Sent</div><div class="value accent-good">{{.today.Sent}}</div></a>
             <a class="rail-item" href="/followups"><div class="label">Follow-ups due</div><div class="value{{if .today.FollowupsDue}} accent-warn{{end}}">{{.today.FollowupsDue}}</div></a>
@@ -260,10 +262,10 @@
                             <div class="status-inline" id="status-jobboard"></div>
                         </div>
                         <div class="step">
-                            <div class="title">Seed RemoteOK (US/international remote)</div>
-                            <div class="desc">Manual only — not in the autonomous discovery loop yet. Needs US_MAILING_ADDRESS set before any draft from this source can actually send (CAN-SPAM).</div>
-                            <button class="btn-run secondary" onclick="runSeed('remoteok')">Seed RemoteOK</button>
-                            <div class="status-inline" id="status-remoteok"></div>
+                            <div class="title">Seed US/international remote (RemoteOK, We Work Remotely, Remotive, Himalayas)</div>
+                            <div class="desc">Manual only — not in the autonomous discovery loop yet. Needs US_MAILING_ADDRESS set before any draft from these sources can actually send (CAN-SPAM).</div>
+                            <button class="btn-run secondary" onclick="runAdmin('seed-us-jobs')">Seed all 4</button>
+                            <div class="status-inline" id="status-seed-us-jobs"></div>
                         </div>
                         <div class="step">
                             <div class="title">Enrich new ({{.stats.New}})</div>

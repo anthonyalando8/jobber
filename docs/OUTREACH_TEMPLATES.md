@@ -43,11 +43,11 @@ Hi {{first_name}},
 
 I came across {{company}} — {{observation}}.
 
-I'm a backend engineer in Nairobi — Go, Postgres, M-Pesa — and I take on subcontract work
-for agencies: you keep the client relationship, I deliver the server side. Fixed price, one
-to three weeks per job. Where I come in: {{service_pitch}}.
+I'm a backend engineer in Nairobi (Go, Postgres, M-Pesa), and I take on subcontract work
+for agencies. You keep the client relationship, I handle the server side — usually one to
+three weeks per job, fixed price. What I'd actually help with: {{service_pitch}}.
 
-{{hypothesis}} Worth a 15-minute call if something like that comes up?
+{{hypothesis}} Worth a quick 15-minute call if something like that comes up?
 
 Anthony · +254 700 536 326 · github.com/anthonyalando8
 
@@ -104,12 +104,12 @@ Hi {{first_name}},
 
 {{observation}}.
 
-I'm a backend engineer — Go, Postgres, M-Pesa. I've just finished designing the payments
-and wallet architecture for a mobility platform, so this is fresh: STK push, verified
-callbacks, no double charges, automatic reconciliation.
+I'm a backend engineer — Go, Postgres, M-Pesa. I just finished the payments and wallet
+architecture for a mobility platform, so this is fresh: STK push and verified callbacks,
+built so nobody gets double-charged and everything reconciles on its own.
 
 {{hypothesis}} If getting payments working is on your critical path, I can do it in 7 days
-for a fixed KSh 55,000, half upfront. Want a 15-minute call to see if it fits?
+for a fixed KSh 55,000, half upfront. Want a quick call to see if it fits?
 
 Anthony · +254 700 536 326 · github.com/anthonyalando8
 
@@ -127,12 +127,12 @@ Hi {{first_name}},
 
 I saw you're hiring a {{role}} — {{observation}}.
 
-Filling that seat usually takes a couple of months. If something is blocked in the
-meantime, I can work on contract: {{service_pitch}}. Fixed price per scope, no notice
-period, and it doesn't interfere with your hiring.
+Filling that seat usually takes a couple of months. If something's blocked in the
+meantime, I can cover it on contract: {{service_pitch}}. Fixed price, no notice period —
+it won't get in the way of your hiring.
 
-{{hypothesis}} Two questions and I'll know if I can help: what's the most urgent thing
-waiting on that hire, and when did you need it live?
+{{hypothesis}} Two things would tell me if I can help: what's most urgent right now, and
+when do you need it live?
 
 Anthony · +254 700 536 326 · github.com/anthonyalando8
 
@@ -168,12 +168,12 @@ Hi {{first_name}},
 
 I saw you're hiring a {{role}} — {{observation}}.
 
-Filling that seat usually takes a couple of months. If something is blocked in the
-meantime, I can work on contract: {{service_pitch}}. Fixed price per scope, no notice
-period, and it doesn't interfere with your hiring.
+Filling that seat usually takes a couple of months. If something's blocked in the
+meantime, I can cover it on contract: {{service_pitch}}. Fixed price, no notice period —
+it won't get in the way of your hiring.
 
-{{hypothesis}} Two questions and I'll know if I can help: what's the most urgent thing
-waiting on that hire, and when did you need it live?
+{{hypothesis}} Two things would tell me if I can help: what's most urgent right now, and
+when do you need it live?
 
 Anthony · +254 700 536 326 · github.com/anthonyalando8
 {{mailing_address}}
@@ -182,6 +182,37 @@ This is a one-time message about contract work. Reply "stop" and I won't contact
 ```
 
 Note for the code: `{{role}}` comes from the job-ad signal, not from the model.
+
+---
+
+## segment: enterprise · channel: email
+
+A bank/insurer/university/hospital/government-scale institution hiring the role in
+`{{role}}` — `isLikelyEnterprise` (`internal/score/scorer.go`) routes these here instead of
+`hiring`, since the ordinary "contract cover while you hire" pitch reads oddly at that scale:
+a company with its own HR department and procurement process doesn't need help filling one
+seat. Narrower angle instead — one specific technical problem (M-Pesa reconciliation),
+positioned as a comparison-of-notes, not a pitch to replace the hire.
+
+Subject: `Not about your {{role}} role — a narrower question`
+
+```
+Hi {{first_name}},
+
+I saw {{company}} is hiring for {{role}} — {{observation}}.
+
+I'm not trying to compete with that hire. I work on one narrow problem some backend teams
+still find painful even with a full team in place: M-Pesa reconciliation — making sure STK
+push callbacks match the right transaction reliably, even at volume, without anyone getting
+double-charged. I built this recently for a mobility platform's payments stack.
+
+{{hypothesis}} If that specific piece is ever a headache on your side, happy to compare
+notes — no pitch, just an outside view from someone who's solved it before.
+
+Anthony · +254 700 536 326 · github.com/anthonyalando8
+
+Tell me to stop and I won't write again.
+```
 
 ---
 

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Templates — Prospector</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        header { background: white; padding: 20px; border-bottom: 1px solid #ddd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px; }
+        h1 { font-size: 24px; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .saved-banner { background: #e8f5e9; color: #2e7d32; padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13.5px; font-weight: 500; }
+        .intro { font-size: 13px; color: #777; margin-bottom: 20px; line-height: 1.5; }
+        .segment-group { margin-bottom: 28px; }
+        .segment-group > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #ddd; }
+        .tmpl-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 14px; overflow: hidden; }
+        .tmpl-head { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f0f0; }
+        .tmpl-head .chan { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #0066cc; }
+        .tmpl-head .badge { font-size: 10px; text-transform: uppercase; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: #eceff1; color: #607d8b; }
+        .tmpl-body { padding: 16px; }
+        .vars-line { font-size: 11.5px; color: #999; margin-bottom: 10px; }
+        .vars-line code { background: #f0f4ff; color: #003d99; padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; margin-right: 4px; }
+        label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: #999; margin-bottom: 4px; margin-top: 10px; }
+        label:first-of-type { margin-top: 0; }
+        input[type=text] { width: 100%; padding: 9px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13.5px; }
+        textarea { width: 100%; min-height: 220px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: -apple-system, sans-serif; font-size: 13.5px; line-height: 1.6; resize: vertical; }
+        .actions { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+        button { background: #0066cc; color: white; padding: 8px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        button:hover { background: #0052a3; }
+        .charcount { font-size: 11px; color: #999; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Templates</h1>
+            <a href="/">← Back to Dashboard</a>
+        </header>
+
+        {{if .saved}}<div class="saved-banner">Saved — the next draft for this segment will use the updated copy.</div>{{end}}
+
+        <div class="intro">
+            Edit the literal copy every draft is built from. <code>{{"{{"}}observation{{"}}"}}</code> and <code>{{"{{"}}hypothesis{{"}}"}}</code> are the only parts the AI ever writes — everything else here is fixed text you control directly. Changes save straight to the database and take effect on the very next draft — no restart needed.
+        </div>
+
+        {{$currentSegment := ""}}
+        {{range .templates}}
+        {{if ne .Segment $currentSegment}}
+            {{if $currentSegment}}</div>{{end}}
+            <div class="segment-group">
+            <h2>{{.Segment}}</h2>
+            {{$currentSegment = .Segment}}
+        {{end}}
+
+        <div class="tmpl-card">
+            <div class="tmpl-head">
+                <span class="chan">{{.Channel}}{{if .RoleFilter}} · {{.RoleFilter}}{{end}}</span>
+                {{if .DisplayOnly}}<span class="badge">display only — copy/paste, never auto-sent</span>{{end}}
+            </div>
+            <div class="tmpl-body">
+                <form method="POST" action="/templates/{{.ID}}/update" onsubmit="return confirmSave(this)">
+                    <div class="vars-line">Available: {{range .Vars}}<code>{{.}}</code>{{end}}</div>
+
+                    {{if .Subject}}
+                    <label>Subject</label>
+                    <input type="text" name="subject" value="{{.Subject}}">
+                    {{else if eq .Channel "email"}}
+                    <label>Subject</label>
+                    <input type="text" name="subject" value="" placeholder="(no subject set)">
+                    {{end}}
+
+                    <label>Body</label>
+                    <textarea name="body" oninput="updateCount(this)">{{.Body}}</textarea>
+                    <div class="charcount"></div>
+
+                    <div class="actions">
+                        <button type="submit">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {{end}}
+        {{if $currentSegment}}</div>{{end}}
+    </div>
+
+    <script>
+        function updateCount(el) {
+            var counter = el.nextElementSibling;
+            if (counter) counter.textContent = el.value.length + ' characters';
+        }
+        document.querySelectorAll('textarea').forEach(updateCount);
+
+        function confirmSave(form) {
+            return true; // straightforward save, no destructive action to confirm
+        }
+    </script>
+</body>
+</html>

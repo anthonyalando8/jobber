@@ -77,6 +77,9 @@ func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
 	seedRegistry := seed.NewRegistry()
 	seedRegistry.Register(seed.NewJobBoardSeeder(crawlUserAgent))
 	seedRegistry.Register(seed.NewRemoteOKSeeder(crawlUserAgent))
+	seedRegistry.Register(seed.NewWeWorkRemotelySeeder(crawlUserAgent))
+	seedRegistry.Register(seed.NewRemotiveSeeder(crawlUserAgent))
+	seedRegistry.Register(seed.NewHimalayasSeeder(crawlUserAgent))
 	seedRegistry.Register(seed.NewManualSeeder("", crawlUserAgent))
 
 	// Initialize enricher
@@ -284,13 +287,23 @@ type activityView struct {
 	IsWorker bool
 }
 
+// companyDraftView shadows Draft's *string fields with plain strings (empty when nil) — same
+// reasoning as drafts.go's draftView: html/template can't compare a *string with eq/ne (requires
+// a basic kind) or print one meaningfully (prints the address, not the value).
+type companyDraftView struct {
+	*store.Draft
+	Subject        string
+	Decision       string
+	DecisionReason string
+}
+
 // Home renders the dashboard — an operational cockpit (review.md §38-40) now that discovery,
 // research, scoring and drafting run continuously in the background rather than only on a
 // button click.
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	companies, err := h.db.ListCompanies(ctx, "", "", "", "", 1000, 0)
+	companies, err := h.db.ListCompanies(ctx, store.CompanyFilter{}, 1000, 0)
 	if err != nil {
 		log.Printf("Home: failed to list companies: %v", err)
 		http.Error(w, "Failed to load companies", http.StatusInternalServerError)
@@ -358,7 +371,7 @@ func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 
 	// Top prospects: highest-scored companies regardless of pipeline stage — informational,
 	// not an action list.
-	topProspects, err := h.db.ListCompanies(ctx, "", "", "", "", 6, 0)
+	topProspects, err := h.db.ListCompanies(ctx, store.CompanyFilter{}, 6, 0)
 	if err != nil {
 		log.Printf("Home: failed to load top prospects: %v", err)
 	}
@@ -491,16 +504,20 @@ func plural(n int, singular, plural string) string {
 // had no visible way to search, filter, or page through it as it grew.
 const companiesPageSize = 50
 
-// ListCompanies returns the companies list, filterable by status/segment and searchable by
-// name/domain, with real pagination — page links and a result count, not just a query param
-// nobody could discover.
+// ListCompanies returns the companies list, filterable by status/segment/domain status/market/
+// recency and searchable by name/domain, with real pagination — numbered page links and a
+// result count, not just a query param nobody could discover.
 func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	status := r.URL.Query().Get("status")
-	segment := r.URL.Query().Get("segment")
-	domainStatus := r.URL.Query().Get("domain_status")
-	search := strings.TrimSpace(r.URL.Query().Get("q"))
+	f := store.CompanyFilter{
+		Status:       r.URL.Query().Get("status"),
+		Segment:      r.URL.Query().Get("segment"),
+		DomainStatus: r.URL.Query().Get("domain_status"),
+		Market:       r.URL.Query().Get("market"),
+		CreatedSince: r.URL.Query().Get("created"),
+		Search:       strings.TrimSpace(r.URL.Query().Get("q")),
+	}
 	pageStr := r.URL.Query().Get("page")
 	page := 0
 	if pageStr != "" {
@@ -512,14 +529,14 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 	limit := companiesPageSize
 	offset := page * limit
 
-	companies, err := h.db.ListCompanies(ctx, status, segment, domainStatus, search, limit, offset)
+	companies, err := h.db.ListCompanies(ctx, f, limit, offset)
 	if err != nil {
-		log.Printf("ListCompanies: failed to list companies (status=%s segment=%s domain_status=%s q=%s page=%d): %v", status, segment, domainStatus, search, page, err)
+		log.Printf("ListCompanies: failed to list companies (%+v page=%d): %v", f, page, err)
 		http.Error(w, "Failed to load companies", http.StatusInternalServerError)
 		return
 	}
 
-	total, err := h.db.CountCompanies(ctx, status, segment, domainStatus, search)
+	total, err := h.db.CountCompanies(ctx, f)
 	if err != nil {
 		log.Printf("ListCompanies: failed to count companies: %v", err)
 	}
@@ -527,52 +544,118 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 	if totalPages < 1 {
 		totalPages = 1
 	}
+	currentPage := page + 1
+
+	urlFor := func(p int) string { return companiesURL(f, p) }
 
 	prevURL, nextURL := "", ""
 	if page > 0 {
-		prevURL = companiesURL(status, segment, domainStatus, search, page) // page is already current-1 in 1-based terms
+		prevURL = urlFor(currentPage - 1)
 	}
-	if page+1 < totalPages {
-		nextURL = companiesURL(status, segment, domainStatus, search, page+2)
+	if currentPage < totalPages {
+		nextURL = urlFor(currentPage + 1)
 	}
 	// currentURL is where the inline "fix domain" form (per failed-domain row) redirects back
 	// to — so correcting a domain from a filtered/paged view doesn't lose that filter/page.
-	currentURL := companiesURL(status, segment, domainStatus, search, page+1)
+	currentURL := urlFor(currentPage)
 
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "companies.html", map[string]interface{}{
 		"companies":    companies,
-		"status":       status,
-		"segment":      segment,
-		"domainStatus": domainStatus,
-		"query":        search,
-		"page":         page + 1,
+		"status":       f.Status,
+		"segment":      f.Segment,
+		"domainStatus": f.DomainStatus,
+		"market":       f.Market,
+		"created":      f.CreatedSince,
+		"query":        f.Search,
+		"page":         currentPage,
 		"totalPages":   totalPages,
 		"total":        total,
 		"hasPrev":      page > 0,
-		"hasNext":      page+1 < totalPages,
+		"hasNext":      currentPage < totalPages,
 		"prevURL":      prevURL,
 		"nextURL":      nextURL,
 		"currentURL":   currentURL,
+		"pageLinks":    paginationWindow(currentPage, totalPages, urlFor),
 	})
 }
 
+// paginationLink is one entry in the numbered pagination strip — either a real page number
+// (Ellipsis false) or a "…" gap marker.
+type paginationLink struct {
+	Number   int
+	URL      string
+	Current  bool
+	Ellipsis bool
+}
+
+// paginationWindow returns which page numbers to render as clickable links so a jump straight to
+// "page 4" doesn't require clicking Next three times — always page 1 and the last page, plus a
+// small window around the current page, with "…" markers for any gap. Keeps the strip short even
+// once there are hundreds of pages.
+func paginationWindow(current, total int, urlFor func(page int) string) []paginationLink {
+	if total <= 1 {
+		return nil
+	}
+	const window = 2
+
+	add := func(links []paginationLink, n int) []paginationLink {
+		return append(links, paginationLink{Number: n, URL: urlFor(n), Current: n == current})
+	}
+	addEllipsis := func(links []paginationLink) []paginationLink {
+		return append(links, paginationLink{Ellipsis: true})
+	}
+
+	start := current - window
+	if start < 1 {
+		start = 1
+	}
+	end := current + window
+	if end > total {
+		end = total
+	}
+
+	var links []paginationLink
+	if start > 1 {
+		links = add(links, 1)
+		if start > 2 {
+			links = addEllipsis(links)
+		}
+	}
+	for n := start; n <= end; n++ {
+		links = add(links, n)
+	}
+	if end < total {
+		if end < total-1 {
+			links = addEllipsis(links)
+		}
+		links = add(links, total)
+	}
+	return links
+}
+
 // companiesURL builds a /companies link preserving the current filters with a different page
-// number — used for the Prev/Next pagination links, computed server-side so the template doesn't
-// need to hand-build (and URL-escape) query strings itself.
-func companiesURL(status, segment, domainStatus, search string, page int) string {
+// number — used for pagination links, computed server-side so the template doesn't need to
+// hand-build (and URL-escape) query strings itself.
+func companiesURL(f store.CompanyFilter, page int) string {
 	v := url.Values{}
-	if status != "" {
-		v.Set("status", status)
+	if f.Status != "" {
+		v.Set("status", f.Status)
 	}
-	if segment != "" {
-		v.Set("segment", segment)
+	if f.Segment != "" {
+		v.Set("segment", f.Segment)
 	}
-	if domainStatus != "" {
-		v.Set("domain_status", domainStatus)
+	if f.DomainStatus != "" {
+		v.Set("domain_status", f.DomainStatus)
 	}
-	if search != "" {
-		v.Set("q", search)
+	if f.Market != "" {
+		v.Set("market", f.Market)
+	}
+	if f.CreatedSince != "" {
+		v.Set("created", f.CreatedSince)
+	}
+	if f.Search != "" {
+		v.Set("q", f.Search)
 	}
 	if page > 1 {
 		v.Set("page", strconv.Itoa(page))
@@ -621,11 +704,23 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 	contacts, _ := h.db.GetContactsByCompany(ctx, id)
 	signals, _ := h.db.GetSignalsByCompany(ctx, id)
 
-	// /review is the one canonical review/send screen (the separate draft-view/approve
-	// screen was removed) — only point there when there's actually something pending.
-	hasPendingDraft := false
-	if latest, err := h.db.GetLatestDraftForCompany(ctx, id); err == nil && latest != nil && latest.State == "pending" {
-		hasPendingDraft = true
+	// A draft in any state except "discarded" counts as "live" — CompanyDraft refuses to
+	// generate a new one while that's true, so the page must show what's actually blocking it
+	// (a blocked or needs_manual draft has real content/a real reason worth seeing, not just a
+	// "Generate Draft" button that would fail if clicked) rather than only recognizing "pending".
+	var currentDraft *companyDraftView
+	if latest, err := h.db.GetLatestDraftForCompany(ctx, id); err == nil && latest != nil && latest.State != "discarded" {
+		dv := companyDraftView{Draft: latest}
+		if latest.Subject != nil {
+			dv.Subject = *latest.Subject
+		}
+		if latest.Decision != nil {
+			dv.Decision = *latest.Decision
+		}
+		if latest.DecisionReason != nil {
+			dv.DecisionReason = *latest.DecisionReason
+		}
+		currentDraft = &dv
 	}
 
 	var scoreBreakdown []score.Line
@@ -642,12 +737,12 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "company.html", map[string]interface{}{
-		"company":         company,
-		"contacts":        contacts,
-		"signals":         signals,
-		"hasPendingDraft": hasPendingDraft,
-		"scoreBreakdown":  scoreBreakdown,
-		"sentEmails":      sentEmails,
+		"company":        company,
+		"contacts":       contacts,
+		"signals":        signals,
+		"currentDraft":   currentDraft,
+		"scoreBreakdown": scoreBreakdown,
+		"sentEmails":     sentEmails,
 	})
 }
 
@@ -927,12 +1022,45 @@ func (h *Handler) AdminSeed(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `{"source":"%s","added":%d,"duration":"%v"}`, result.Source, result.Added, result.Duration)
 }
 
+// usJobSourceNames are every seeder AdminSeedUSJobs runs together — one click instead of four,
+// matching "apply to as many sources as possible" rather than making the operator trigger each
+// US/international remote job board separately.
+var usJobSourceNames = []string{"remoteok", "weworkremotely", "remotive", "himalayas"}
+
+// AdminSeedUSJobs runs every US/international remote job board seeder in one go and reports a
+// combined total — the individual sources are still reachable one at a time via
+// /admin/seed/{source} (e.g. for retrying just one that failed), this is the convenience button.
+func (h *Handler) AdminSeedUSJobs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	totalAdded := 0
+	var failedSources []string
+	for _, source := range usJobSourceNames {
+		result, err := h.seedRegistry.Run(ctx, source, h.db, h.redis)
+		if err != nil {
+			log.Printf("AdminSeedUSJobs: %s failed: %v", source, err)
+			failedSources = append(failedSources, source)
+			continue
+		}
+		totalAdded += result.Added
+	}
+
+	detail := fmt.Sprintf("Added %d compan%s across %d US/international source%s", totalAdded, plural(totalAdded, "y", "ies"), len(usJobSourceNames), plural(len(usJobSourceNames), "", "s"))
+	if len(failedSources) > 0 {
+		detail += fmt.Sprintf(" — %s failed, check server logs", strings.Join(failedSources, ", "))
+	}
+	h.logActivity(ctx, "seed:us_jobs", detail, totalAdded > 0)
+
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"added":%d,"failed":%d}`, totalAdded, len(failedSources))
+}
+
 // AdminEnrich enriches all new companies
 func (h *Handler) AdminEnrich(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Get all new companies
-	companies, err := h.db.ListCompanies(ctx, "new", "", "", "", 1000, 0)
+	companies, err := h.db.ListCompanies(ctx, store.CompanyFilter{Status: "new"}, 1000, 0)
 	if err != nil {
 		http.Error(w, "Failed to list companies: "+err.Error(), http.StatusInternalServerError)
 		log.Printf("AdminEnrich: Failed to list companies: %v", err)

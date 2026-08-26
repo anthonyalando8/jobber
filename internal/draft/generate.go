@@ -85,17 +85,20 @@ func relevantSignalsForSegment(segment string, signals []*store.Signal) []*store
 
 // The capability lines servicePitch chooses between — hand-written, reviewed sentences, not
 // AI-generated text (the spec's rule that only observation/hypothesis come from the model still
-// holds; this only deterministically picks among a few fixed options). The "US" variants exist
-// because M-Pesa is a Kenya-specific payment rail — naming it to a US/international remote
-// employer is meaningless at best, confusing at worst; the underlying skill (payments
-// integration, third-party API work) is the same, just not branded to a rail their market
-// doesn't use.
+// holds; this only deterministically picks among a few fixed options). Written as connected
+// prose deliberately, not a comma-spliced feature list ("STK push, verified callbacks, no double
+// charges, automatic reconciliation") — that reads like a spec sheet dropped into a sentence, the
+// single most common "this was clearly AI-written" tell across every template before this pass.
+// The "US" variants exist because M-Pesa is a Kenya-specific payment rail — naming it to a
+// US/international remote employer is meaningless at best, confusing at worst; the underlying
+// skill (payments integration, third-party API work) is the same, just not branded to a rail
+// their market doesn't use.
 const (
-	servicePitchPayments   = "payments and M-Pesa integrations done properly — STK push, verified callbacks, no double charges, automatic reconciliation"
-	servicePitchBackend    = "a Go API your frontend or app team can build against — clean endpoints, auth, deployment, the backend half that's missing"
-	servicePitchGeneral    = "payments and M-Pesa integrations, an API your team can build a frontend against, or a backend piece picked up mid-project"
-	servicePitchPaymentsUS = "payment integrations done properly — provider callbacks verified, no double charges, automatic reconciliation"
-	servicePitchGeneralUS  = "payment integrations, an API your team can build a frontend against, or a backend piece picked up mid-project"
+	servicePitchPayments   = "getting payments and M-Pesa integrations actually working — the kind where callbacks are verified and nobody's charged twice"
+	servicePitchBackend    = "a Go API your frontend or app team can actually build against, auth and deployment included"
+	servicePitchGeneral    = "payments and M-Pesa work, an API your team can build a frontend against, or picking up a backend piece mid-project"
+	servicePitchPaymentsUS = "getting payment integrations actually working — the kind where callbacks are verified and nobody's charged twice"
+	servicePitchGeneralUS  = "payments work, an API your team can build a frontend against, or picking up a backend piece mid-project"
 )
 
 // paymentRoleKeywords catches a hiring_backend job ad that's explicitly about payments or

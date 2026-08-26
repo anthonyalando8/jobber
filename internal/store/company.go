@@ -78,41 +78,84 @@ func (db *DB) GetCompany(ctx context.Context, id int64) (*Company, error) {
 	return &company, nil
 }
 
+// usSourceNames are every seeder pulling US/international remote job postings — duplicated here
+// (rather than imported from internal/score, which would create an import cycle back into
+// store) since it's just a fixed list of source strings, not shared logic.
+var usSourceNames = []string{"remoteok", "weworkremotely", "remotive", "himalayas"}
+
+// CompanyFilter is every dimension /companies can filter by. Grouped into a struct rather than a
+// growing list of positional string args — six filter dimensions as positional strings is where
+// that stops being readable (was already at four before Market/CreatedSince).
+type CompanyFilter struct {
+	Status       string
+	Segment      string
+	DomainStatus string
+	// Market is "us" (the four US/international job-board sources) or "kenya" (everything
+	// else) — filtered by source, not segment, deliberately: a freshly-seeded company has no
+	// segment yet (that's only assigned once scored), so a segment-based filter would hide
+	// brand-new US-sourced companies until the research loop got to them.
+	Market string
+	// CreatedSince is one of "5m", "1h", "today", "7d", or "" for no filter.
+	CreatedSince string
+	// Search matches name or domain, case-insensitive substring.
+	Search string
+}
+
 // companyFilterClause builds the shared WHERE clause for ListCompanies/CountCompanies, so the
 // two never drift apart — a list and its "how many pages" count must agree on what "matches"
-// means. search matches name or domain (case-insensitive substring); the rest are exact.
-func companyFilterClause(status, segment, domainStatus, search string, args []interface{}) (string, []interface{}) {
+// means.
+func companyFilterClause(f CompanyFilter, args []interface{}) (string, []interface{}) {
 	clause := " WHERE 1=1"
 	argNum := len(args) + 1
 
-	if status != "" {
+	if f.Status != "" {
 		clause += ` AND status = $` + strconv.Itoa(argNum)
-		args = append(args, status)
+		args = append(args, f.Status)
 		argNum++
 	}
-	if segment != "" {
+	if f.Segment != "" {
 		clause += ` AND segment = $` + strconv.Itoa(argNum)
-		args = append(args, segment)
+		args = append(args, f.Segment)
 		argNum++
 	}
-	if domainStatus != "" {
+	if f.DomainStatus != "" {
 		clause += ` AND domain_status = $` + strconv.Itoa(argNum)
-		args = append(args, domainStatus)
+		args = append(args, f.DomainStatus)
 		argNum++
 	}
-	if search != "" {
+	switch f.Market {
+	case "us":
+		clause += ` AND source = ANY($` + strconv.Itoa(argNum) + `)`
+		args = append(args, usSourceNames)
+		argNum++
+	case "kenya":
+		clause += ` AND NOT (source = ANY($` + strconv.Itoa(argNum) + `))`
+		args = append(args, usSourceNames)
+		argNum++
+	}
+	switch f.CreatedSince {
+	case "5m":
+		clause += ` AND created_at >= now() - interval '5 minutes'`
+	case "1h":
+		clause += ` AND created_at >= now() - interval '1 hour'`
+	case "today":
+		clause += ` AND created_at >= date_trunc('day', now())`
+	case "7d":
+		clause += ` AND created_at >= now() - interval '7 days'`
+	}
+	if f.Search != "" {
 		clause += ` AND (name ILIKE $` + strconv.Itoa(argNum) + ` OR domain ILIKE $` + strconv.Itoa(argNum) + `)`
-		args = append(args, "%"+search+"%")
+		args = append(args, "%"+f.Search+"%")
 		argNum++
 	}
 	return clause, args
 }
 
-// ListCompanies retrieves companies with optional status/segment/domain_status/search
-// filtering — search matches against name or domain, since with the list growing past what fits
-// on one screen, "find the company I'm thinking of" needs to be an actual query, not scrolling.
-func (db *DB) ListCompanies(ctx context.Context, status, segment, domainStatus, search string, limit, offset int) ([]*Company, error) {
-	where, args := companyFilterClause(status, segment, domainStatus, search, nil)
+// ListCompanies retrieves companies matching f — search matches against name or domain, since
+// with the list growing past what fits on one screen, "find the company I'm thinking of" needs
+// to be an actual query, not scrolling.
+func (db *DB) ListCompanies(ctx context.Context, f CompanyFilter, limit, offset int) ([]*Company, error) {
+	where, args := companyFilterClause(f, nil)
 	query := `SELECT id, name, domain, source, source_url, segment, score, status, location, notes,
 		        last_researched_at, next_research_at, domain_status, domain_confidence, created_at, updated_at
 		     FROM company` + where
@@ -144,10 +187,10 @@ func (db *DB) ListCompanies(ctx context.Context, status, segment, domainStatus, 
 	return companies, rows.Err()
 }
 
-// CountCompanies returns how many companies match the same status/segment/domain_status/search
-// filters ListCompanies would use — the total behind "page 2 of N" / "137 results".
-func (db *DB) CountCompanies(ctx context.Context, status, segment, domainStatus, search string) (int, error) {
-	where, args := companyFilterClause(status, segment, domainStatus, search, nil)
+// CountCompanies returns how many companies match f — the total behind "page 2 of N" / "137
+// results".
+func (db *DB) CountCompanies(ctx context.Context, f CompanyFilter) (int, error) {
+	where, args := companyFilterClause(f, nil)
 	var n int
 	err := db.QueryRow(ctx, `SELECT count(*) FROM company`+where, args...).Scan(&n)
 	return n, err

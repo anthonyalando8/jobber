@@ -38,6 +38,14 @@
         .badge.failed { background: #ffebee; color: #c62828; }
         .badge.manual { background: #eceff1; color: #37474f; }
         .badge.unknown { background: #eceff1; color: #78909c; }
+        .badge.pending { background: #e3f2fd; color: #1976d2; }
+        .badge.needs_manual { background: #fff3e0; color: #e65100; }
+        .badge.blocked { background: #ffebee; color: #c62828; }
+        .badge.review_required { background: #fff3e0; color: #b06000; }
+        .badge.auto_send { background: #f1eaf9; color: #6b3fa0; }
+        .badge.discarded { background: #eceff1; color: #607d8b; }
+        .draft-reason { background: #fff3e0; color: #b06000; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-top: 12px; }
+        .draft-body-text { white-space: pre-wrap; font-family: -apple-system, sans-serif; font-size: 13.5px; line-height: 1.6; color: #333; background: #f9f9f9; padding: 12px 14px; border-radius: 6px; margin-top: 10px; }
         .contact-item.bad { opacity: 0.65; }
         .contact-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
         .contact-main { flex: 1; min-width: 0; }
@@ -86,9 +94,6 @@
                 <div><strong>Status:</strong> <span class="badge {{.company.Status}}">{{.company.Status}}</span></div>
             </div>
             <div class="actions">
-                {{if .hasPendingDraft}}
-                <a href="/review">Review Draft</a>
-                {{end}}
                 {{if or (eq .company.DomainStatus "candidate") (eq .company.DomainStatus "failed") (eq .company.DomainStatus "unknown")}}
                 <form method="POST" action="/companies/{{.company.ID}}/domain/verify" style="display:inline">
                     <button type="submit" title="Confirm by eye that {{.company.Domain}} really is this company's site">Mark domain verified</button>
@@ -99,7 +104,7 @@
                     <button type="submit">Enrich</button>
                 </form>
                 {{end}}
-                {{if eq .company.Status "enriched"}}
+                {{if and (eq .company.Status "enriched") (not .currentDraft)}}
                 <form method="POST" action="/companies/{{.company.ID}}/generate-draft" style="display:inline">
                     <button type="submit">Generate Draft</button>
                 </form>
@@ -110,6 +115,44 @@
                 </form>
             </div>
         </div>
+
+        {{if .currentDraft}}
+        <div class="card" style="margin-top: 20px;">
+            <h2>Current draft</h2>
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+                {{if .currentDraft.Subject}}<div style="font-weight:600; font-size:14.5px;">{{.currentDraft.Subject}}</div>{{end}}
+                <div>
+                    <span class="badge {{.currentDraft.State}}">{{.currentDraft.State}}</span>
+                    {{if .currentDraft.Decision}} <span class="badge {{.currentDraft.Decision}}">{{.currentDraft.Decision}}</span>{{end}}
+                </div>
+            </div>
+
+            {{if eq .currentDraft.State "needs_manual"}}
+            <div class="draft-reason">Skipped: {{.currentDraft.Body}}</div>
+            {{else}}
+            <div class="draft-body-text">{{.currentDraft.Body}}</div>
+            {{if .currentDraft.DecisionReason}}<div class="draft-reason">Decision reason: {{.currentDraft.DecisionReason}}</div>{{end}}
+            {{end}}
+
+            <div class="actions" style="margin-top:14px;">
+                {{if eq .currentDraft.State "pending"}}
+                    {{if ne .currentDraft.Decision "blocked"}}
+                    <a href="/review?draft={{.currentDraft.ID}}">Open in Review</a>
+                    {{else}}
+                    <form method="POST" action="/drafts/{{.currentDraft.ID}}/discard" onsubmit="return confirm('Discard this blocked draft? This frees the company up for a fresh draft attempt.')" style="display:inline">
+                        <input type="hidden" name="return_to" value="/companies/{{.company.ID}}">
+                        <button type="submit" style="background:#c62828">Discard &amp; allow retry</button>
+                    </form>
+                    {{end}}
+                {{else if eq .currentDraft.State "needs_manual"}}
+                    <form method="POST" action="/drafts/{{.currentDraft.ID}}/discard" onsubmit="return confirm('Discard this draft? This frees the company up for a fresh draft attempt.')" style="display:inline">
+                        <input type="hidden" name="return_to" value="/companies/{{.company.ID}}">
+                        <button type="submit" style="background:#c62828">Discard &amp; allow retry</button>
+                    </form>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
 
         {{if .sentEmails}}
         <div class="card" style="margin-top: 20px;">

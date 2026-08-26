@@ -76,11 +76,18 @@ func isLikelyEnterprise(name string) bool {
 	return false
 }
 
+// usJobSources are every seeder pulling US/international remote job postings — a distinct
+// segment from the Kenyan "hiring" pitch, since the message can't lean on M-Pesa/local-market
+// framing there. See internal/draft/generate.go's servicePitch and the "hiring_us" template.
+var usJobSources = map[string]bool{
+	"remoteok": true, "weworkremotely": true, "remotive": true, "himalayas": true,
+}
+
 // classifySegment determines the company segment
 func (s *Scorer) classifySegment(company *store.Company, signals []*store.Signal) string {
 	// Rule-based segmentation
 
-	isHiringSignal := company.Source == "jobboard" || company.Source == "remoteok"
+	isHiringSignal := company.Source == "jobboard" || usJobSources[company.Source]
 	for _, sig := range signals {
 		if sig.Kind == "hiring_backend" {
 			isHiringSignal = true
@@ -88,10 +95,7 @@ func (s *Scorer) classifySegment(company *store.Company, signals []*store.Signal
 		}
 	}
 	if isHiringSignal {
-		// remoteok postings are US/international remote roles — a distinct segment from the
-		// Kenyan "hiring" pitch, since the message can't lean on M-Pesa/local-market framing
-		// there. See internal/draft/generate.go's servicePitch and the "hiring_us" template.
-		if company.Source == "remoteok" {
+		if usJobSources[company.Source] {
 			return "hiring_us"
 		}
 		if isLikelyEnterprise(company.Name) {

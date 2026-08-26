@@ -43,6 +43,9 @@
         .domain-fix { display: flex; gap: 6px; align-items: center; }
         .domain-fix input { padding: 5px 7px; border: 1px solid #ddd; border-radius: 4px; font-size: 12.5px; width: 170px; }
         .domain-fix button { background: #0066cc; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+        .pagination a.page-num { min-width: 32px; text-align: center; }
+        .pagination a.page-num.current { background: #0066cc; color: white; border-color: #0066cc; font-weight: 600; pointer-events: none; }
+        .pagination .ellipsis { color: #999; padding: 0 4px; }
     </style>
 </head>
 <body>
@@ -81,8 +84,20 @@
                 <option value="candidate" {{if eq .domainStatus "candidate"}}selected{{end}}>Candidate (unverified)</option>
                 <option value="failed" {{if eq .domainStatus "failed"}}selected{{end}}>Failed</option>
             </select>
+            <select name="market">
+                <option value="">Kenya + US/international</option>
+                <option value="kenya" {{if eq .market "kenya"}}selected{{end}}>Kenya only</option>
+                <option value="us" {{if eq .market "us"}}selected{{end}}>US/international only</option>
+            </select>
+            <select name="created">
+                <option value="">Any time</option>
+                <option value="5m" {{if eq .created "5m"}}selected{{end}}>Last 5 minutes</option>
+                <option value="1h" {{if eq .created "1h"}}selected{{end}}>Last hour</option>
+                <option value="today" {{if eq .created "today"}}selected{{end}}>Today</option>
+                <option value="7d" {{if eq .created "7d"}}selected{{end}}>Last 7 days</option>
+            </select>
             <button type="submit">Filter</button>
-            {{if or .query .status .segment .domainStatus}}<a class="clear" href="/companies">Clear</a>{{end}}
+            {{if or .query .status .segment .domainStatus .market .created}}<a class="clear" href="/companies">Clear</a>{{end}}
         </form>
 
         <div class="result-count">{{.total}} compan{{if eq .total 1}}y{{else}}ies{{end}} · page {{.page}} of {{.totalPages}}</div>
@@ -135,11 +150,15 @@
 
         <div class="pagination">
             {{if .hasPrev}}<a href="{{.prevURL}}">← Prev</a>{{else}}<a class="disabled">← Prev</a>{{end}}
-            <span>Page {{.page}} of {{.totalPages}}</span>
+            {{range .pageLinks}}
+                {{if .Ellipsis}}<span class="ellipsis">…</span>
+                {{else}}<a class="page-num{{if .Current}} current{{end}}" href="{{.URL}}">{{.Number}}</a>
+                {{end}}
+            {{end}}
             {{if .hasNext}}<a href="{{.nextURL}}">Next →</a>{{else}}<a class="disabled">Next →</a>{{end}}
         </div>
         {{else}}
-        <div class="empty-state">No companies match{{if or .query .status .segment}} these filters{{end}}.</div>
+        <div class="empty-state">No companies match{{if or .query .status .segment .domainStatus .market .created}} these filters{{end}}.</div>
         {{end}}
     </div>
 </body>

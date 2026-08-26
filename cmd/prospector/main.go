@@ -108,6 +108,12 @@ func main() {
 
 		r.Get("/followups", handler.Followups)
 		r.Post("/followups/send", handler.ReviewFollowupSend)
+
+		r.Get("/templates", handler.Templates)
+		r.Post("/templates/{id}/update", handler.TemplateUpdate)
+
+		r.Get("/drafts", handler.Drafts)
+		r.Post("/drafts/{id}/discard", handler.DraftDiscard)
 	})
 
 	// Admin routes run a synchronous batch (crawl every new company, one at a time, with a
@@ -120,6 +126,7 @@ func main() {
 		r.Use(middleware.Timeout(10 * time.Minute))
 
 		r.Post("/admin/seed/{source}", handler.AdminSeed)
+		r.Post("/admin/seed-us-jobs", handler.AdminSeedUSJobs)
 		r.Post("/admin/enrich", handler.AdminEnrich)
 		r.Post("/admin/draft", handler.AdminDraft)
 		r.Post("/admin/resolve-domains", handler.AdminResolveDomains)

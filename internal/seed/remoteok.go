@@ -22,23 +22,6 @@ import (
 // just US/remote-market.
 const remoteOKAPIURL = "https://remoteok.com/api"
 
-// remoteOKRelevantPhrases narrows RemoteOK's full feed (every category — design, marketing,
-// sales, hospitality, ...) down to roles this tool can credibly pitch backend/full-stack
-// contract work against. Matched against the job *title* only, deliberately — RemoteOK's `tags`
-// field is unreliable for this: spot-checking the live feed found "golang" attached to postings
-// like "General Cleaner", "Store Manager", and "Front Office Executive" that have nothing to do
-// with software (tags there appear to serve site-wide browse/discovery, not per-posting
-// relevance). Pitching a cleaning job "you're hiring a Backend Developer" would be a far worse
-// credibility hit than any of the site-content grounding issues fixed earlier — title text is
-// what a poster actually wrote about the role, not an auto-suggested category.
-var remoteOKRelevantPhrases = []string{
-	"backend", "back-end", "back end", "full stack", "fullstack", "golang", "go developer",
-	"python developer", "api developer", "software engineer", "software developer",
-	"backend engineer", "backend developer", "django developer", "node developer",
-	"javascript developer", "typescript developer", "platform engineer", "devops engineer",
-	"site reliability", "infrastructure engineer",
-}
-
 // RemoteOKSeeder pulls remote job postings from RemoteOK's public API — individual companies
 // (often startups) hiring remote engineers, not a marketplace of one-off gigs.
 type RemoteOKSeeder struct {
@@ -63,16 +46,6 @@ type remoteOKJob struct {
 	Description string   `json:"description"`
 	URL         string   `json:"url"`
 	Location    string   `json:"location"`
-}
-
-func (j remoteOKJob) isRelevant() bool {
-	positionLower := strings.ToLower(j.Position)
-	for _, phrase := range remoteOKRelevantPhrases {
-		if strings.Contains(positionLower, phrase) {
-			return true
-		}
-	}
-	return false
 }
 
 // Seed fetches RemoteOK's public feed, keeps backend/full-stack-relevant postings, and creates a
@@ -106,7 +79,7 @@ func (r *RemoteOKSeeder) Seed(ctx context.Context, db *store.DB, redisConn *redi
 
 	added := 0
 	for _, job := range jobs {
-		if job.Company == "" || job.Position == "" || !job.isRelevant() {
+		if job.Company == "" || job.Position == "" || !isRelevantJobTitle(job.Position) {
 			continue
 		}
 
