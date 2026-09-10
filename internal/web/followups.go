@@ -145,7 +145,7 @@ func (h *Handler) ReviewFollowupSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.executeSend(ctx, sl.CompanyID, newDraft.ID, true, ""); err != nil {
+	if err := h.executeSend(ctx, sl.CompanyID, newDraft.ID, true, "", false); err != nil {
 		msg := err.Error()
 		status := http.StatusInternalServerError
 		if se, ok := err.(*sendError); ok {

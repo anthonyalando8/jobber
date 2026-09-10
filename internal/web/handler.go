@@ -265,7 +265,7 @@ func (h *Handler) SendPolicy() sendpolicy.Config { return h.sendPolicy }
 // else uses (review.md: "there must still be exactly ONE sending implementation"). Satisfies
 // worker.Sender without worker needing to import this package.
 func (h *Handler) ExecuteSend(ctx context.Context, companyID, draftID int64) error {
-	return h.executeSend(ctx, companyID, draftID, false, "")
+	return h.executeSend(ctx, companyID, draftID, false, "", false)
 }
 
 // HasAIProvider reports whether an AI provider is actually configured — drafting is a no-op,
@@ -704,6 +704,10 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 	contacts, _ := h.db.GetContactsByCompany(ctx, id)
 	signals, _ := h.db.GetSignalsByCompany(ctx, id)
 
+	// html/template's eq/ne require a "basic kind" and can't compare a *string directly, so this
+	// is precomputed here rather than in the template — same reasoning as companyDraftView below.
+	isApplicationMode := company.Segment != nil && *company.Segment == "application"
+
 	// A draft in any state except "discarded" counts as "live" — CompanyDraft refuses to
 	// generate a new one while that's true, so the page must show what's actually blocking it
 	// (a blocked or needs_manual draft has real content/a real reason worth seeing, not just a
@@ -723,6 +727,13 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 		currentDraft = &dv
 	}
 
+	// sendpolicy's blocked branches each return exactly one reason (see policy.go), so this
+	// prefix check is unambiguous — true only when the draft's sole block reason is the score
+	// threshold, never suppression/no-contact/domain/placeholder, which "Send anyway" must never
+	// bypass. Precomputed here, not in the template, for the same reason isApplicationMode is.
+	isScoreBlockedDraft := currentDraft != nil && currentDraft.Decision == "blocked" &&
+		strings.HasPrefix(currentDraft.DecisionReason, "score_below_review_threshold")
+
 	var scoreBreakdown []score.Line
 	if len(company.ScoreBreakdown) > 0 {
 		if err := json.Unmarshal(company.ScoreBreakdown, &scoreBreakdown); err != nil {
@@ -737,12 +748,14 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "company.html", map[string]interface{}{
-		"company":        company,
-		"contacts":       contacts,
-		"signals":        signals,
-		"currentDraft":   currentDraft,
-		"scoreBreakdown": scoreBreakdown,
-		"sentEmails":     sentEmails,
+		"company":             company,
+		"contacts":            contacts,
+		"signals":             signals,
+		"currentDraft":        currentDraft,
+		"isApplicationMode":   isApplicationMode,
+		"isScoreBlockedDraft": isScoreBlockedDraft,
+		"scoreBreakdown":      scoreBreakdown,
+		"sentEmails":          sentEmails,
 	})
 }
 
@@ -764,7 +777,7 @@ func (e *sendError) Error() string { return e.msg }
 // it skips creating a fresh send_log row / rescheduling follow-up dates, since the caller
 // (ReviewFollowupSend) marks the existing thread's followup_N_sent_at instead of starting a
 // new one.
-func (h *Handler) executeSend(ctx context.Context, companyID, draftID int64, isFollowup bool, toOverride string) error {
+func (h *Handler) executeSend(ctx context.Context, companyID, draftID int64, isFollowup bool, toOverride string, overrideScoreBlock bool) error {
 	company, err := h.db.GetCompany(ctx, companyID)
 	if err != nil {
 		return &sendError{http.StatusNotFound, "Company not found"}
@@ -779,12 +792,28 @@ func (h *Handler) executeSend(ctx context.Context, companyID, draftID int64, isF
 		return &sendError{http.StatusConflict, "Draft is not pending — it may have already been sent"}
 	}
 
-	// Final safety net: the send policy already decided this draft shouldn't go out (a bad
-	// domain, suppression, a placeholder it somehow still had). Re-check here so nothing — a
-	// stale form resubmit, a direct POST — can push a BLOCKED draft through regardless of how
-	// it was decided.
+	// Final safety net: the send policy already decided this draft shouldn't go out. Re-check
+	// here so nothing — a stale form resubmit, a direct POST — can push a BLOCKED draft through
+	// regardless of how it was decided. score_below_review_threshold is the one reason a human
+	// can deliberately override (overrideScoreBlock, wired from the company/review pages' "Send
+	// anyway" button) — it's a confidence judgment about a possibly-wrong automated score, not a
+	// technical/compliance fact. Every other blocked reason (domain_unverified, no_contact,
+	// suppressed, recent_contact_same_domain, placeholder_remaining) stays a hard stop no
+	// override can bypass — those aren't judgment calls. sendpolicy.Evaluate's blocked branches
+	// each return exactly one reason, so this prefix check is unambiguous.
 	if dft.Decision != nil && *dft.Decision == string(sendpolicy.Blocked) {
-		return &sendError{http.StatusForbidden, "This draft was blocked by the send policy — see its decision reason"}
+		reason := ""
+		if dft.DecisionReason != nil {
+			reason = *dft.DecisionReason
+		}
+		isScoreBlock := strings.HasPrefix(reason, "score_below_review_threshold")
+		if !overrideScoreBlock || !isScoreBlock {
+			msg := "This draft was blocked by the send policy — see its decision reason"
+			if isScoreBlock {
+				msg = "This draft was blocked for a low score (" + reason + ") — use \"Send anyway\" to override, or fix the score first"
+			}
+			return &sendError{http.StatusForbidden, msg}
+		}
 	}
 
 	if err := draft.ValidateTemplate(dft.Body); err != nil {
@@ -902,8 +931,9 @@ func (h *Handler) SendDraft(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	draftID, _ := strconv.ParseInt(r.FormValue("draft_id"), 10, 64)
 	toEmail := strings.TrimSpace(r.FormValue("to_email"))
+	overrideScoreBlock := r.FormValue("override_score_block") == "1"
 
-	if err := h.executeSend(ctx, id, draftID, false, toEmail); err != nil {
+	if err := h.executeSend(ctx, id, draftID, false, toEmail, overrideScoreBlock); err != nil {
 		if se, ok := err.(*sendError); ok {
 			http.Error(w, se.msg, se.status)
 		} else {

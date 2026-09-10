@@ -50,9 +50,25 @@ specific, concrete observation, reply exactly: INSUFFICIENT.
 Never invent clients, revenue, team size, or technology. No flattery, no adjectives
 like "impressive" or "exciting". Kenyan business English, plain and direct.
 The observation is inserted into a sentence that already starts with "I noticed", "I came
-across you", or "I saw you're hiring" — write only the bare fact that follows, with no
-leading "I noticed"/"I saw"/"I came across"/"I found" of your own, or it reads doubled
-("I noticed I noticed...").
+across you", "I saw you're hiring a <role>", or "I saw <company> is hiring for <role>" — write
+only the bare fact that follows, with no leading "I noticed"/"I saw"/"I came across"/"I found"
+of your own, or it reads doubled ("I noticed I noticed..."). That lead-in already names the
+company and the role, so never repeat either one, and never restate the fact that they're
+hiring/recruiting ("recruiting for X", "hiring for X", "looking for a X" — that's the same
+sentence saying itself twice). Give one new, specific detail instead — what the listing
+emphasizes, a stack requirement, team or product context — grounded in the signals.
+Because your text continues directly after that dash, it must read as one complete clause with
+its own subject, not a bare verb picking up where the lead-in left off: write "they're expanding
+into fintech", not just "are expanding into fintech" (missing "they're" leaves it a dangling
+fragment — "I saw you're hiring a Software Engineer — are building a stack" is broken; "...— they're
+building a stack" reads right).
+Do not use em dashes (—) anywhere in your reply. Use a comma or a period instead, or split it
+into two sentences. Plain, direct, the way someone would type a quick email, not formatted prose.
+Never observe on how the job was posted or how to apply — which job board it's on, whether they
+use an applicant tracking system, a recruiting agency's name. That may be true and present in the
+signals, but it says nothing about the role or the company, and reads as a strange thing to
+notice. Ground the observation in what the role or company actually does, needs, or is building
+instead; if the signals only support a logistics detail like that, reply INSUFFICIENT.
 If segment is "agency", the recipient is itself a technical company — a web/software/app
 development shop. Never point at their own site's tech stack, age, or polish as if it were a
 gap ("your site runs WordPress", "hasn't been updated since 2022") — to a company that

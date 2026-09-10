@@ -109,13 +109,22 @@
                     {{if eq .State "pending"}}
                         {{if ne .Decision "blocked"}}
                         <a class="btn" href="/review?draft={{.DraftID}}">Open in Review</a>
-                        {{else}}
+                        {{end}}
+                        <form method="POST" action="/companies/{{.CompanyID}}/generate-draft" onsubmit="return confirm('Discard this draft and generate a fresh one? The AI budget spends another call.')">
+                            <input type="hidden" name="regenerate" value="1">
+                            <button type="submit" style="background:#7b1fa2">Regenerate</button>
+                        </form>
+                        {{if eq .Decision "blocked"}}
                         <form method="POST" action="/drafts/{{.DraftID}}/discard" onsubmit="return confirm('Discard this blocked draft? This frees the company up for a fresh draft attempt.')">
                             <input type="hidden" name="return_to" value="{{$.currentURL}}">
                             <button type="submit" class="danger">Discard &amp; allow retry</button>
                         </form>
                         {{end}}
                     {{else if eq .State "needs_manual"}}
+                        <form method="POST" action="/companies/{{.CompanyID}}/generate-draft" onsubmit="return confirm('Discard this draft and generate a fresh one? The AI budget spends another call.')">
+                            <input type="hidden" name="regenerate" value="1">
+                            <button type="submit" style="background:#7b1fa2">Regenerate</button>
+                        </form>
                         <form method="POST" action="/drafts/{{.DraftID}}/discard" onsubmit="return confirm('Discard this draft? This frees the company up for a fresh draft attempt.')">
                             <input type="hidden" name="return_to" value="{{$.currentURL}}">
                             <button type="submit" class="danger">Discard &amp; allow retry</button>

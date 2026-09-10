@@ -357,6 +357,27 @@ func (db *DB) UpdateCompanyDomain(ctx context.Context, id int64, domain string) 
 	return err
 }
 
+// SetCompanySegment force-sets a company's segment — the one path that puts it there other than
+// score.Scorer's rule-based classifySegment, used for "application" mode (company.html's manual
+// override to draft as a genuine job candidate instead of a contract pitch — see
+// internal/score/scorer.go, which treats "application" as sticky against re-scoring).
+func (db *DB) SetCompanySegment(ctx context.Context, id int64, segment string) error {
+	_, err := db.Exec(ctx,
+		`UPDATE company SET segment = $1, updated_at = now() WHERE id = $2`,
+		segment, id)
+	return err
+}
+
+// ClearCompanySegment resets a company back to no segment at all, so the next score pass
+// re-derives it from scratch via classifySegment's ordinary rules — the undo for
+// SetCompanySegment's "application" override.
+func (db *DB) ClearCompanySegment(ctx context.Context, id int64) error {
+	_, err := db.Exec(ctx,
+		`UPDATE company SET segment = NULL, updated_at = now() WHERE id = $1`,
+		id)
+	return err
+}
+
 // UpdateCompanyStatus updates the status of a company
 func (db *DB) UpdateCompanyStatus(ctx context.Context, id int64, status string) error {
 	_, err := db.Exec(ctx,

@@ -17,10 +17,12 @@ func templateVarsFor(segment string) []string {
 	switch segment {
 	case "hiring", "hiring_us", "enterprise":
 		vars = append(vars, "{{role}}", "{{service_pitch}}")
+	case "application":
+		vars = append(vars, "{{role}}")
 	case "agency":
 		vars = append(vars, "{{service_pitch}}")
 	}
-	if segment == "hiring_us" {
+	if segment == "hiring_us" || segment == "application" {
 		vars = append(vars, "{{mailing_address}}")
 	}
 	return vars

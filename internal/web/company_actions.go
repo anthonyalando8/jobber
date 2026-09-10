@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthonyalando8/prospector/internal/draft"
+	"github.com/anthonyalando8/prospector/internal/score"
 	"github.com/anthonyalando8/prospector/internal/sendpolicy"
 	"github.com/go-chi/chi/v5"
 )
@@ -80,8 +82,21 @@ func (h *Handler) CompanyDraft(w http.ResponseWriter, r *http.Request) {
 
 	existing, _ := h.db.GetLatestDraftForCompany(ctx, id)
 	if existing != nil && existing.State != "discarded" {
-		http.Error(w, "A draft already exists for this company — discard it first", http.StatusConflict)
-		return
+		// "Regenerate" (drafts.html and company.html both post here with regenerate=1) is a
+		// one-click discard-then-redraft for a draft whose copy came out wrong — e.g. the model
+		// restated the company/role instead of adding a new detail — without a separate trip to
+		// /drafts first. Never regenerate over a "sent" draft: that's a real email already
+		// delivered, not a mistake to overwrite.
+		if r.FormValue("regenerate") == "1" && existing.State != "sent" {
+			if err := h.db.DiscardDraft(ctx, existing.ID); err != nil {
+				http.Error(w, "Failed to discard the existing draft before regenerating", http.StatusInternalServerError)
+				return
+			}
+			h.logActivity(ctx, "draft", fmt.Sprintf("Discarded draft #%d for company #%d to regenerate", existing.ID, id), false)
+		} else {
+			http.Error(w, "A draft already exists for this company — discard it first", http.StatusConflict)
+			return
+		}
 	}
 
 	// A human explicitly chose this one company, so the score/cooldown heuristics that gate
@@ -244,6 +259,116 @@ func (h *Handler) CompanyUpdateDomain(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, returnTo, http.StatusSeeOther)
 		return
 	}
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// CompanyApplyMode switches a company to the "application" segment — a human judgment call for
+// a company too large for the "let me cover this on contract while you hire" pitch to make
+// sense, so the next draft reads as a genuine job application instead (see
+// internal/store/migrations/0015_application_segment.sql and classifySegment's sticky check).
+// A live, non-discarded draft still has to be discarded/regenerated separately — switching the
+// segment alone doesn't rewrite an existing draft.
+func (h *Handler) CompanyApplyMode(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	company, err := h.db.GetCompany(ctx, id)
+	if err != nil {
+		http.Error(w, "Company not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.db.SetCompanySegment(ctx, id, "application"); err != nil {
+		http.Error(w, "Failed to set segment", http.StatusInternalServerError)
+		return
+	}
+
+	h.logActivity(ctx, "segment", fmt.Sprintf("Switched %s to application mode", company.Name), true)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// CompanySegmentReset undoes CompanyApplyMode — clears the manual override and re-scores, so
+// classifySegment picks the segment back up from its ordinary rules.
+func (h *Handler) CompanySegmentReset(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	company, err := h.db.GetCompany(ctx, id)
+	if err != nil {
+		http.Error(w, "Company not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.db.ClearCompanySegment(ctx, id); err != nil {
+		http.Error(w, "Failed to clear segment", http.StatusInternalServerError)
+		return
+	}
+
+	// Reload so Score() sees segment=NULL, not the stale in-memory value that got it here.
+	company, err = h.db.GetCompany(ctx, id)
+	if err == nil {
+		if err := h.scorer.Score(ctx, company, h.db); err != nil {
+			log.Printf("CompanySegmentReset: re-score failed for %s: %v", company.Name, err)
+		}
+	}
+
+	h.logActivity(ctx, "segment", "Reset "+company.Name+" to auto-detected segment", true)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// CompanyScoreOverride force-sets a company's score — for the automated scorer's rule-based
+// heuristic getting it visibly wrong (a bank scored 22, say: it obviously runs on real systems
+// and may well need a developer, the scorer just didn't have a signal to say so). This is a
+// judgment override, not a data fix, so the reason is recorded both as a note (the human-readable
+// history) and as the new score breakdown's one line (so the company page's own "why this
+// score" display stays honest about where the number came from) rather than silently replacing
+// classifySegment's explanation.
+func (h *Handler) CompanyScoreOverride(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	company, err := h.db.GetCompany(ctx, id)
+	if err != nil {
+		http.Error(w, "Company not found", http.StatusNotFound)
+		return
+	}
+
+	newScore, err := strconv.Atoi(strings.TrimSpace(r.FormValue("score")))
+	if err != nil || newScore < 0 || newScore > 100 {
+		http.Error(w, "score must be a whole number from 0 to 100", http.StatusBadRequest)
+		return
+	}
+	reason := strings.TrimSpace(r.FormValue("reason"))
+
+	segment := ""
+	if company.Segment != nil {
+		segment = *company.Segment
+	}
+
+	label := "manually set"
+	if reason != "" {
+		label += ": " + reason
+	}
+	breakdownJSON, err := json.Marshal([]score.Line{{Label: label, Points: newScore}})
+	if err != nil {
+		http.Error(w, "Failed to encode score breakdown", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.db.UpdateCompanyScore(ctx, id, newScore, segment, breakdownJSON); err != nil {
+		http.Error(w, "Failed to update score", http.StatusInternalServerError)
+		return
+	}
+
+	note := fmt.Sprintf("Score manually changed from %d to %d", company.Score, newScore)
+	if reason != "" {
+		note += ": " + reason
+	}
+	if err := h.db.AppendCompanyNote(ctx, id, note); err != nil {
+		log.Printf("CompanyScoreOverride: failed to append note for company %d: %v", id, err)
+	}
+
+	h.logActivity(ctx, "score", fmt.Sprintf("%s score manually set to %d (was %d)", company.Name, newScore, company.Score), true)
 	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 

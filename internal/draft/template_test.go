@@ -16,7 +16,7 @@ func testSignals() []*store.Signal {
 
 func TestRejectionReason_Insufficient(t *testing.T) {
 	obs := &ObserveResult{Insufficient: true}
-	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals())
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "")
 	if ok {
 		t.Error("rejectionReason() ok=true for an INSUFFICIENT response, want ok=false (must reject)")
 	}
@@ -24,7 +24,7 @@ func TestRejectionReason_Insufficient(t *testing.T) {
 
 func TestRejectionReason_EmptySignalIDs(t *testing.T) {
 	obs := &ObserveResult{Observation: "hiring a backend developer", SignalIDs: nil}
-	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals())
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "")
 	if ok {
 		t.Error("rejectionReason() ok=true with no signal_ids cited, want ok=false — an ungrounded draft must never pass")
 	}
@@ -32,7 +32,7 @@ func TestRejectionReason_EmptySignalIDs(t *testing.T) {
 
 func TestRejectionReason_CitesNonexistentSignal(t *testing.T) {
 	obs := &ObserveResult{Observation: "hiring a backend developer", SignalIDs: []int64{999}}
-	_, ok := rejectionReason(obs, map[int64]bool{1: true, 2: true}, testSignals())
+	_, ok := rejectionReason(obs, map[int64]bool{1: true, 2: true}, testSignals(), "Acme", "")
 	if ok {
 		t.Error("rejectionReason() ok=true citing a signal id that doesn't exist on this company, want ok=false")
 	}
@@ -44,7 +44,7 @@ func TestRejectionReason_ObservationTooLong(t *testing.T) {
 		longObs += "word "
 	}
 	obs := &ObserveResult{Observation: longObs, Hypothesis: "short", SignalIDs: []int64{1}}
-	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals())
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "")
 	if ok {
 		t.Error("rejectionReason() ok=true for a 30-word observation, want ok=false (limit is 25 words)")
 	}
@@ -56,7 +56,7 @@ func TestRejectionReason_HypothesisTooLong(t *testing.T) {
 		longHyp += "word "
 	}
 	obs := &ObserveResult{Observation: "short observation", Hypothesis: longHyp, SignalIDs: []int64{1}}
-	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals())
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "")
 	if ok {
 		t.Error("rejectionReason() ok=true for a 25-word hypothesis, want ok=false (limit is 20 words)")
 	}
@@ -66,7 +66,7 @@ func TestRejectionReason_InventedNumberIsRejected(t *testing.T) {
 	// The signals mention "12" (team of 12) — a number that doesn't appear anywhere in the
 	// signals at all must be caught as a fabrication.
 	obs := &ObserveResult{Observation: "the company has 500 employees", Hypothesis: "short", SignalIDs: []int64{1}}
-	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals())
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "")
 	if ok {
 		t.Error("rejectionReason() ok=true for an observation stating a number (500) not present in any signal, want ok=false")
 	}
@@ -74,17 +74,114 @@ func TestRejectionReason_InventedNumberIsRejected(t *testing.T) {
 
 func TestRejectionReason_NumberPresentInSignalsIsAccepted(t *testing.T) {
 	obs := &ObserveResult{Observation: "hiring a team of 12 backend developers", Hypothesis: "short", SignalIDs: []int64{1}}
-	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals())
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "")
 	if !ok {
 		t.Error("rejectionReason() ok=false for an observation citing a number (12) that's verbatim in the cited signal, want ok=true")
 	}
 }
 
 func TestRejectionReason_CleanObservationPasses(t *testing.T) {
+	// Role is deliberately empty here — "hiring a Django backend developer" is a legitimate,
+	// informative fact for a template whose framing sentence never already says "hiring" (sme/
+	// agency), so it must not trip the hiring-restatement guard, which is role-gated for exactly
+	// that reason.
 	obs := &ObserveResult{Observation: "hiring a Django backend developer", Hypothesis: "likely needs backend help", SignalIDs: []int64{1}}
-	reason, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals())
+	reason, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "")
 	if !ok {
 		t.Errorf("rejectionReason() ok=false for a clean, grounded observation, want ok=true (reason: %q)", reason)
+	}
+}
+
+func TestRejectionReason_RestatesHiringFactIsRejectedForRoleTemplate(t *testing.T) {
+	// The AAR Insurance case that motivated this guard: "I saw AAR Insurance is hiring for Data
+	// Transformations Lead — are recruiting for an AI & Data Transformations Lead at AAR
+	// Insurance." — the observation just restates what the template's own lead-in already said.
+	obs := &ObserveResult{Observation: "are recruiting for an AI & Data Transformations Lead at AAR Insurance", Hypothesis: "short", SignalIDs: []int64{1}}
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "AAR Insurance", "Data Transformations Lead")
+	if ok {
+		t.Error("rejectionReason() ok=true for an observation restating the hiring fact for a role-based template, want ok=false")
+	}
+}
+
+func TestRejectionReason_HiringLanguageAllowedWithoutRole(t *testing.T) {
+	// Same wording, but role="" (sme/agency templates never state "hiring" ahead of the
+	// observation) — the phrase itself isn't the problem, restating an already-stated fact is.
+	obs := &ObserveResult{Observation: "recruiting for a data role after a recent funding round", Hypothesis: "short", SignalIDs: []int64{1}}
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "")
+	if !ok {
+		t.Error("rejectionReason() ok=false for hiring language when role=\"\" (nothing already stated it), want ok=true")
+	}
+}
+
+func TestRejectionReason_RestatesCompanyNameIsRejected(t *testing.T) {
+	obs := &ObserveResult{Observation: "AAR Insurance recently posted a new job listing", Hypothesis: "short", SignalIDs: []int64{1}}
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "AAR Insurance", "")
+	if ok {
+		t.Error("rejectionReason() ok=true for an observation restating the company name, want ok=false")
+	}
+}
+
+func TestRejectionReason_DroppedSubjectFragmentIsRejected(t *testing.T) {
+	// Real example that motivated this guard: "I saw you're hiring a Software Engineer — are
+	// building a fully integrated stack..." — the model dropped "they're" and left a bare
+	// auxiliary verb where the framing sentence needed a subject.
+	obs := &ObserveResult{Observation: "are building a fully integrated stack that combines software, manufacturing, and AI", Hypothesis: "short", SignalIDs: []int64{1}}
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "Software Engineer")
+	if ok {
+		t.Error("rejectionReason() ok=true for an observation starting with a bare auxiliary verb (dropped subject), want ok=false")
+	}
+}
+
+func TestRejectionReason_SubjectPresentIsAccepted(t *testing.T) {
+	// Same fact, subject restored — must pass.
+	obs := &ObserveResult{Observation: "they're building a fully integrated stack that combines software, manufacturing, and AI", Hypothesis: "short", SignalIDs: []int64{1}}
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Acme", "Software Engineer")
+	if !ok {
+		t.Error("rejectionReason() ok=false for an observation with a proper subject, want ok=true")
+	}
+}
+
+func TestRejectionReason_HiringLogisticsObservationIsRejected(t *testing.T) {
+	// Real example that motivated this guard: "I'd like to apply for the Backend Developer role
+	// at Co-operative Bank of Kenya — the recruitment drive is managed through MyJobMag rather
+	// than an internal applicant tracking system." — technically grounded, but says nothing
+	// about the role or company, and reads oddly in an application or a contract pitch alike.
+	obs := &ObserveResult{Observation: "the recruitment drive is managed through MyJobMag rather than an internal applicant tracking system", Hypothesis: "short", SignalIDs: []int64{1}}
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Co-operative Bank of Kenya", "Backend Developer")
+	if ok {
+		t.Error("rejectionReason() ok=true for an observation about hiring logistics/platform, want ok=false")
+	}
+}
+
+func TestRejectionReason_RoleContentObservationIsAccepted(t *testing.T) {
+	// A genuine fact about the role itself must still pass.
+	obs := &ObserveResult{Observation: "the listing calls for experience with distributed transaction systems", Hypothesis: "short", SignalIDs: []int64{1}}
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Co-operative Bank of Kenya", "Backend Developer")
+	if !ok {
+		t.Error("rejectionReason() ok=false for a genuine role-content observation, want ok=true")
+	}
+}
+
+func TestTrimTrailingPeriod(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"an internal applicant tracking system.", "an internal applicant tracking system"},
+		{"no trailing period here", "no trailing period here"},
+		{"trailing period and space. ", "trailing period and space"},
+	}
+	for _, c := range cases {
+		if got := trimTrailingPeriod(c.in); got != c.want {
+			t.Errorf("trimTrailingPeriod(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestRejectionReason_ShortCompanyNameNotFalsePositive(t *testing.T) {
+	// "Aha" is under the 4-character trust threshold — too likely to coincidentally appear as a
+	// normal English substring ("...team aha moment...") to reject on.
+	obs := &ObserveResult{Observation: "posted a checkout error on their support forum", Hypothesis: "short", SignalIDs: []int64{1}}
+	_, ok := rejectionReason(obs, map[int64]bool{1: true}, testSignals(), "Aha", "")
+	if !ok {
+		t.Error("rejectionReason() ok=false for a 3-character company name with no real restatement, want ok=true")
 	}
 }
 
@@ -315,6 +412,23 @@ func TestStripLeadingFraming(t *testing.T) {
 	for _, c := range cases {
 		if got := stripLeadingFraming(c.in); got != c.want {
 			t.Errorf("stripLeadingFraming(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestNormalizeDashes guards the "lots of dashes" complaint: the model kept reaching for an em
+// dash despite the prompt asking it not to — normalized to the comma a person would actually type.
+func TestNormalizeDashes(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"getting payments working — the kind where nobody's double-charged", "getting payments working, the kind where nobody's double-charged"},
+		{"no em dash here at all", "no em dash here at all"},
+		{"a—b", "a,b"}, // no surrounding spaces — still caught
+	}
+	for _, c := range cases {
+		if got := normalizeDashes(c.in); got != c.want {
+			t.Errorf("normalizeDashes(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

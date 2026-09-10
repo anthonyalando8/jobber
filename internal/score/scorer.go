@@ -76,18 +76,29 @@ func isLikelyEnterprise(name string) bool {
 	return false
 }
 
-// usJobSources are every seeder pulling US/international remote job postings — a distinct
+// UsJobSources are every seeder pulling US/international remote job postings — a distinct
 // segment from the Kenyan "hiring" pitch, since the message can't lean on M-Pesa/local-market
-// framing there. See internal/draft/generate.go's servicePitch and the "hiring_us" template.
-var usJobSources = map[string]bool{
+// framing there. See internal/draft/generate.go's servicePitch, its CAN-SPAM mailing-address
+// guard, and the "hiring_us" template — all three key off this same source list, not off
+// whatever segment ends up assigned, since "application" mode (a human's manual override) can
+// put a US-sourced company on a different segment without changing which market it's in.
+var UsJobSources = map[string]bool{
 	"remoteok": true, "weworkremotely": true, "remotive": true, "himalayas": true,
 }
 
 // classifySegment determines the company segment
 func (s *Scorer) classifySegment(company *store.Company, signals []*store.Signal) string {
+	// "application" is a human's deliberate choice (company.html's segment override, for a
+	// company too large for the "let me cover this while you hire" contract pitch to make sense)
+	// — never something this rule-based classifier assigns on its own, so once set it must stick
+	// regardless of what the hiring-signal rules below would otherwise pick.
+	if company.Segment != nil && *company.Segment == "application" {
+		return "application"
+	}
+
 	// Rule-based segmentation
 
-	isHiringSignal := company.Source == "jobboard" || usJobSources[company.Source]
+	isHiringSignal := company.Source == "jobboard" || UsJobSources[company.Source]
 	for _, sig := range signals {
 		if sig.Kind == "hiring_backend" {
 			isHiringSignal = true
@@ -95,7 +106,7 @@ func (s *Scorer) classifySegment(company *store.Company, signals []*store.Signal
 		}
 	}
 	if isHiringSignal {
-		if usJobSources[company.Source] {
+		if UsJobSources[company.Source] {
 			return "hiring_us"
 		}
 		if isLikelyEnterprise(company.Name) {

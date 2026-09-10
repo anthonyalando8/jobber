@@ -184,10 +184,11 @@ func (h *Handler) ReviewSend(w http.ResponseWriter, r *http.Request) {
 	companyID, _ := strconv.ParseInt(r.FormValue("company_id"), 10, 64)
 	skippedList := r.FormValue("skipped")
 	toEmail := strings.TrimSpace(r.FormValue("to_email"))
+	overrideScoreBlock := r.FormValue("override_score_block") == "1"
 
 	saveEditIfChanged(h, r, draftID)
 
-	if err := h.executeSend(ctx, companyID, draftID, false, toEmail); err != nil {
+	if err := h.executeSend(ctx, companyID, draftID, false, toEmail, overrideScoreBlock); err != nil {
 		msg := err.Error()
 
 		// Re-show the same draft with the error and whatever the operator typed still in

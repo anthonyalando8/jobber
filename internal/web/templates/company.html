@@ -138,13 +138,29 @@
                 {{if eq .currentDraft.State "pending"}}
                     {{if ne .currentDraft.Decision "blocked"}}
                     <a href="/review?draft={{.currentDraft.ID}}">Open in Review</a>
-                    {{else}}
+                    {{end}}
+                    <form method="POST" action="/companies/{{.company.ID}}/generate-draft" onsubmit="return confirm('Discard this draft and generate a fresh one? The AI budget spends another call.')" style="display:inline">
+                        <input type="hidden" name="regenerate" value="1">
+                        <button type="submit" style="background:#7b1fa2">Regenerate</button>
+                    </form>
+                    {{if eq .currentDraft.Decision "blocked"}}
                     <form method="POST" action="/drafts/{{.currentDraft.ID}}/discard" onsubmit="return confirm('Discard this blocked draft? This frees the company up for a fresh draft attempt.')" style="display:inline">
                         <input type="hidden" name="return_to" value="/companies/{{.company.ID}}">
                         <button type="submit" style="background:#c62828">Discard &amp; allow retry</button>
                     </form>
+                    {{if .isScoreBlockedDraft}}
+                    <form method="POST" action="/companies/{{.company.ID}}/send" onsubmit="return confirm('Send this draft despite the low score? Only do this after checking the company yourself — this overrides an automated quality check.')" style="display:inline">
+                        <input type="hidden" name="draft_id" value="{{.currentDraft.ID}}">
+                        <input type="hidden" name="override_score_block" value="1">
+                        <button type="submit" style="background:#2e7d32">Send anyway</button>
+                    </form>
+                    {{end}}
                     {{end}}
                 {{else if eq .currentDraft.State "needs_manual"}}
+                    <form method="POST" action="/companies/{{.company.ID}}/generate-draft" onsubmit="return confirm('Discard this draft and generate a fresh one? The AI budget spends another call.')" style="display:inline">
+                        <input type="hidden" name="regenerate" value="1">
+                        <button type="submit" style="background:#7b1fa2">Regenerate</button>
+                    </form>
                     <form method="POST" action="/drafts/{{.currentDraft.ID}}/discard" onsubmit="return confirm('Discard this draft? This frees the company up for a fresh draft attempt.')" style="display:inline">
                         <input type="hidden" name="return_to" value="/companies/{{.company.ID}}">
                         <button type="submit" style="background:#c62828">Discard &amp; allow retry</button>
@@ -316,7 +332,27 @@
                     <div style="font-size: 14px; line-height: 1.8;">
                         {{if .company.Location}}<div><strong>Location:</strong> {{.company.Location}}</div>{{end}}
                         {{if .company.Segment}}<div><strong>Segment:</strong> <span class="badge">{{.company.Segment}}</span></div>{{end}}
+                        <div><strong>Score:</strong> {{.company.Score}} <a href="#" onclick="toggleEdit('score'); return false;" style="font-size:12px; margin-left:6px;">edit</a></div>
                         <div><strong>Added:</strong> {{.company.CreatedAt.Format "2006-01-02"}}</div>
+                    </div>
+                    <form id="edit-score" class="contact-edit-form" method="POST" action="/companies/{{.company.ID}}/score" style="margin-top:8px;">
+                        <input type="number" name="score" min="0" max="100" value="{{.company.Score}}" style="width:70px;" required>
+                        <input type="text" name="reason" placeholder="Why? (e.g. a bank clearly needs backend devs)" style="flex:1; min-width:220px;">
+                        <button type="submit">Save</button>
+                    </form>
+                    <p style="font-size:11.5px; color:#999; margin-top:4px;">The automated score is a heuristic — override it when it's clearly wrong (e.g. a large, systems-heavy company scored low for lack of scraped signals).</p>
+                    <div style="margin-top:14px; padding-top:14px; border-top:1px solid #f0f0f0; font-size:12.5px; color:#777;">
+                        {{if .isApplicationMode}}
+                        <p>Drafting as a genuine job application instead of a contract pitch.</p>
+                        <form method="POST" action="/companies/{{.company.ID}}/segment/reset" onsubmit="return confirm('Switch back to the auto-detected segment? A live draft is untouched — regenerate separately if you want it rewritten.')" style="margin-top:8px;">
+                            <button type="submit" class="btn-link" style="background:none; border:1px solid #ddd; color:#555; padding:5px 10px; border-radius:4px; font-size:12px; cursor:pointer;">Switch back to auto-detected segment</button>
+                        </form>
+                        {{else}}
+                        <p>Too big for a "let me cover this while you hire" contract pitch? Draft as a real application instead.</p>
+                        <form method="POST" action="/companies/{{.company.ID}}/apply-mode" onsubmit="return confirm('Switch this company to application mode? The next draft will read as a genuine job application, not a contract pitch.')" style="margin-top:8px;">
+                            <button type="submit" class="btn-link" style="background:none; border:1px solid #ddd; color:#555; padding:5px 10px; border-radius:4px; font-size:12px; cursor:pointer;">Switch to application mode</button>
+                        </form>
+                        {{end}}
                     </div>
                 </div>
             </div>

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anthonyalando8/prospector/internal/activity"
+	"github.com/anthonyalando8/prospector/internal/score"
 	"github.com/anthonyalando8/prospector/internal/sendpolicy"
 	"github.com/anthonyalando8/prospector/internal/store"
 	"github.com/redis/go-redis/v9"
@@ -59,7 +60,7 @@ func relevantSignalsForSegment(segment string, signals []*store.Signal) []*store
 		return filtered
 	}
 
-	if segment != "hiring" && segment != "enterprise" && segment != "hiring_us" {
+	if segment != "hiring" && segment != "enterprise" && segment != "hiring_us" && segment != "application" {
 		return signals
 	}
 
@@ -94,10 +95,10 @@ func relevantSignalsForSegment(segment string, signals []*store.Signal) []*store
 // skill (payments integration, third-party API work) is the same, just not branded to a rail
 // their market doesn't use.
 const (
-	servicePitchPayments   = "getting payments and M-Pesa integrations actually working — the kind where callbacks are verified and nobody's charged twice"
+	servicePitchPayments   = "getting payments and M-Pesa integrations to actually work, with callbacks verified and nobody charged twice"
 	servicePitchBackend    = "a Go API your frontend or app team can actually build against, auth and deployment included"
 	servicePitchGeneral    = "payments and M-Pesa work, an API your team can build a frontend against, or picking up a backend piece mid-project"
-	servicePitchPaymentsUS = "getting payment integrations actually working — the kind where callbacks are verified and nobody's charged twice"
+	servicePitchPaymentsUS = "getting payment integrations to actually work, with callbacks verified and nobody charged twice"
 	servicePitchGeneralUS  = "payments work, an API your team can build a frontend against, or picking up a backend piece mid-project"
 )
 
@@ -182,12 +183,16 @@ func GenerateAndSaveDraft(ctx context.Context, db *store.DB, ts *TemplateService
 
 	// CAN-SPAM requires a valid physical postal address in every commercial email sent to a US
 	// recipient — this is a hard legal requirement, not a style choice, and unlike the Kenya
-	// templates there's no existing line that covers it. Refuse outright rather than send a
-	// non-compliant email; this check must run before any AI call is made (same cost-guard
-	// philosophy as the zero-signals check below — never spend a call on a draft that can't be
-	// sent regardless of what it says).
+	// templates there's no existing line that covers it. Keyed off the company's source, not its
+	// segment: "application" mode (a human's manual override, see classifySegment) can put a
+	// US-sourced company on a different segment without changing which market it's actually in,
+	// and the guard must still apply. Refuse outright rather than send a non-compliant email;
+	// this check must run before any AI call is made (same cost-guard philosophy as the
+	// zero-signals check below — never spend a call on a draft that can't be sent regardless of
+	// what it says).
+	isUSSource := score.UsJobSources[company.Source]
 	mailingAddress := os.Getenv("US_MAILING_ADDRESS")
-	if segment == "hiring_us" && mailingAddress == "" {
+	if isUSSource && mailingAddress == "" {
 		reason := "US_MAILING_ADDRESS not configured — required by CAN-SPAM before any US-market email can send"
 		activity.Log(ctx, redisClient, "worker:draft", fmt.Sprintf("Skipped %s: %s", company.Name, reason), false)
 		d, err := db.CreateDraft(ctx, company.ID, nil, "email", "", reason, "", "needs_manual")
@@ -211,7 +216,7 @@ func GenerateAndSaveDraft(ctx context.Context, db *store.DB, ts *TemplateService
 	}
 
 	role := ""
-	if segment == "hiring" || segment == "enterprise" || segment == "hiring_us" {
+	if segment == "hiring" || segment == "enterprise" || segment == "hiring_us" || segment == "application" {
 		role = "Backend Developer"
 		for _, s := range signals {
 			if s.Kind == "hiring_backend" {
@@ -222,7 +227,7 @@ func GenerateAndSaveDraft(ctx context.Context, db *store.DB, ts *TemplateService
 	}
 
 	market := ""
-	if segment == "hiring_us" {
+	if isUSSource {
 		market = "us"
 	}
 

@@ -97,6 +97,14 @@ func (ts *TemplateService) GenerateDraft(ctx context.Context, in DraftInput) (*R
 		return nil, fmt.Errorf("observe failed: %w", err)
 	}
 
+	// The prompt asks the model not to use em dashes at all (the recurring "this reads
+	// AI-written" tell — see migration 0014_dash_reduction.sql, which fixed the same thing in the
+	// fixed template prose) but that's a style ask, not a grounding one — no reason to throw away
+	// an otherwise well-grounded observation over punctuation the model ignored. Normalize it
+	// instead of rejecting.
+	obs.Observation = normalizeDashes(obs.Observation)
+	obs.Hypothesis = normalizeDashes(obs.Hypothesis)
+
 	// The system prompt tells the model not to prefix the observation with "I noticed"/"I
 	// saw"/etc — every template already supplies that framing — but a prompt instruction is
 	// never 100% reliable. Strip it deterministically rather than trust compliance, since the
@@ -104,7 +112,9 @@ func (ts *TemplateService) GenerateDraft(ctx context.Context, in DraftInput) (*R
 	obs.Observation = stripLeadingFraming(obs.Observation)
 	obs.Hypothesis = normalizeSentence(obs.Hypothesis)
 
-	if reason, ok := rejectionReason(obs, validIDs, in.Signals); !ok {
+	obs.Observation = trimTrailingPeriod(obs.Observation)
+
+	if reason, ok := rejectionReason(obs, validIDs, in.Signals, in.Company.Name, in.Role); !ok {
 		return &Result{Channel: in.Channel, State: "needs_manual", Reason: reason, APICalled: true}, nil
 	}
 
@@ -144,8 +154,10 @@ func (ts *TemplateService) GenerateDraft(ctx context.Context, in DraftInput) (*R
 }
 
 // rejectionReason applies the section 7 rejection rules. ok is false when the draft must become
-// needs_manual.
-func rejectionReason(obs *ObserveResult, validIDs map[int64]bool, signals []*store.Signal) (reason string, ok bool) {
+// needs_manual. companyName/role are the two facts every hiring-style template's framing
+// sentence already states right before {{observation}} is inserted — used to catch the model
+// restating them instead of adding something new (see restatesHiring/restatesCompanyName).
+func rejectionReason(obs *ObserveResult, validIDs map[int64]bool, signals []*store.Signal, companyName, role string) (reason string, ok bool) {
 	if obs.Insufficient {
 		return "model returned INSUFFICIENT", false
 	}
@@ -166,7 +178,109 @@ func rejectionReason(obs *ObserveResult, validIDs map[int64]bool, signals []*sto
 	if n, found := foreignNumber(obs.Observation, signals); found {
 		return fmt.Sprintf("observation states a number (%s) not present in the signals", n), false
 	}
+	// role is only ever set for hiring/enterprise/hiring_us (generate.go) — exactly the templates
+	// whose framing sentence already says "hiring a/for <role>". A restated hiring fact there
+	// reads as a flat repeat: "I saw AAR Insurance is hiring for Data Transformations Lead — are
+	// recruiting for an AI & Data Transformations Lead at AAR Insurance." Reject rather than send
+	// it — the system prompt already asks the model not to do this, but isn't 100% reliable.
+	if role != "" && restatesHiring(obs.Observation) {
+		return "observation restates the hiring/role fact the template's framing sentence already states", false
+	}
+	if restatesCompanyName(obs.Observation, companyName) {
+		return "observation restates the company name the template's framing sentence already states", false
+	}
+	if startsWithSubjectlessAuxVerb(obs.Observation) {
+		return "observation starts with a bare verb and no subject (a dropped-subject fragment, e.g. \"— are building...\" instead of \"— they're building...\")", false
+	}
+	if mentionsHiringLogistics(obs.Observation) {
+		return "observation is about the recruiting process/platform, not the role or company — not meaningful content for the email", false
+	}
 	return "", true
+}
+
+// hiringLogisticsPhrases catches a real production bug: a job posting's own text often mentions
+// which board it's on or how applications are handled ("apply via MyJobMag", "managed through
+// our applicant tracking system") — a real, grounded fact per the signals, but meaningless
+// content for either a contract pitch or a job application ("I saw you're hiring a Backend
+// Developer — the recruitment drive is managed through MyJobMag rather than an internal
+// applicant tracking system" tells the reader nothing about the role). Reject rather than let a
+// technically-true but pointless observation through.
+var hiringLogisticsPhrases = []string{
+	"applicant tracking system", "recruitment drive", "recruitment agency", "recruiting agency",
+	"job board", "jobboard", "managed through", "posted via", "posted on", "apply via", "apply through",
+	"myjobmag", "brightermonday", "linkedin", "indeed.com", "glassdoor",
+}
+
+func mentionsHiringLogistics(observation string) bool {
+	lower := strings.ToLower(observation)
+	for _, phrase := range hiringLogisticsPhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeDashes replaces the model's em dashes with a comma — the same "reads AI-written" tell
+// the fixed template copy was audited for (migration 0014_dash_reduction.sql). This is a
+// punctuation fix, not a grounding one, so it's normalized rather than rejected — a well-grounded
+// observation is too useful to throw away over a dash the prompt already asks it not to use.
+func normalizeDashes(s string) string {
+	s = strings.ReplaceAll(s, " — ", ", ")
+	s = strings.ReplaceAll(s, "—", ",")
+	return s
+}
+
+// subjectlessAuxVerbs are English auxiliary/modal verbs that only ever open a clause when a
+// subject precedes them ("they're", "it's", "the listing"...). Every template inserts
+// {{observation}} as the tail of an existing clause ("I noticed X.", "...hiring a {{role}} —
+// X."), so an observation that itself starts with one of these reads as a dropped-subject
+// fragment: "I saw you're hiring a Software Engineer — are building a fully integrated stack"
+// instead of "...— they're building a fully integrated stack".
+var subjectlessAuxVerbs = map[string]bool{
+	"am": true, "is": true, "are": true, "was": true, "were": true,
+	"have": true, "has": true, "had": true,
+	"do": true, "does": true, "did": true,
+	"will": true, "would": true, "can": true, "could": true,
+	"should": true, "must": true, "may": true, "might": true,
+}
+
+func startsWithSubjectlessAuxVerb(s string) bool {
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return false
+	}
+	first := strings.ToLower(strings.Trim(fields[0], ".,!?;:"))
+	return subjectlessAuxVerbs[first]
+}
+
+// hiringRestatementPhrases are ways the model says "they're hiring for this role" again — the
+// same fact a hiring/enterprise/hiring_us template's own lead-in sentence already states.
+var hiringRestatementPhrases = []string{
+	"hiring for", "hiring a", "is hiring", "are hiring", "recruiting for", "looking to hire", "looking for a",
+}
+
+func restatesHiring(observation string) bool {
+	lower := strings.ToLower(observation)
+	for _, phrase := range hiringRestatementPhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// restatesCompanyName reports whether observation names the company again — every template that
+// supplies {{company}} does so immediately before {{observation}} ("I saw {{company}} is
+// hiring...", "I came across {{company}} — {{observation}}."), so repeating it reads like "I saw
+// Acme — Acme is...". Names under 4 characters are skipped — too short to trust as a deliberate
+// match rather than a coincidental substring.
+func restatesCompanyName(observation, companyName string) bool {
+	name := strings.TrimSpace(companyName)
+	if len(name) < 4 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(observation), strings.ToLower(name))
 }
 
 // leadingFramingPhrases are openers every template already supplies around {{observation}}
@@ -224,6 +338,14 @@ func normalizeSentence(s string) string {
 		s += "."
 	}
 	return s
+}
+
+// trimTrailingPeriod strips a trailing "." (and any trailing whitespace) from the model's
+// observation. Every template already ends the observation's sentence with its own literal "."
+// — a real production bug: the model's own text sometimes ends with a period too, landing a
+// stray ".." in a sent email ("...applicant tracking system..").
+func trimTrailingPeriod(s string) string {
+	return strings.TrimRight(strings.TrimSpace(s), ".")
 }
 
 func fillVars(text string, vars map[string]string) string {
