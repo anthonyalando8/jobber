@@ -13,7 +13,7 @@ type Contact struct {
 	Value      string
 	PersonName *string
 	Role       *string
-	Quality    int // named 3 > role-based 2 > info@ 1
+	Quality    int    // named 3 > role-based 2 > info@ 1
 	Status     string // active|bad — "bad" means auto-pick (send-time recipient selection,
 	// GetBestEmailContact) skips it, without losing the record
 	BadReason *string
@@ -24,9 +24,17 @@ type Contact struct {
 // name/role/quality. status/bad_reason/bad_at are left untouched on conflict — a human's "this
 // is dead" mark on an existing contact must survive re-enrichment finding the same address again.
 func (db *DB) CreateContact(ctx context.Context, companyID int64, kind, value string, personName, role *string, quality int) (*Contact, error) {
+	// Normalize and validate before anything is stored. A value that is not an address never
+	// becomes an email contact, so the downstream checks are defence in depth rather than the
+	// only thing standing between a scraped fragment and a recipient list.
+	clean, err := NormalizeContactValue(kind, value)
+	if err != nil {
+		return nil, err
+	}
+	value = clean
 	c := &Contact{CompanyID: companyID, Kind: kind, Value: value, PersonName: personName, Role: role, Quality: quality}
 
-	err := db.QueryRow(ctx,
+	err = db.QueryRow(ctx,
 		`INSERT INTO contact (company_id, kind, value, person_name, role, quality)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (company_id, kind, value) DO UPDATE SET person_name = EXCLUDED.person_name, role = EXCLUDED.role, quality = EXCLUDED.quality

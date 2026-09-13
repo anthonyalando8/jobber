@@ -33,6 +33,16 @@ func (db *DB) Close() {
 	db.pool.Close()
 }
 
+// CheckSchema runs before workers and HTTP handlers can touch application data.
+func (db *DB) CheckSchema(ctx context.Context) error {
+	conn, err := db.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	return CheckSchema(ctx, conn.Conn())
+}
+
 // Query executes a query that returns multiple rows
 func (db *DB) Query(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
 	return db.pool.Query(ctx, query, args...)
@@ -51,4 +61,13 @@ func (db *DB) Exec(ctx context.Context, query string, args ...interface{}) (pgco
 // Begin begins a transaction
 func (db *DB) Begin(ctx context.Context) (pgx.Tx, error) {
 	return db.pool.Begin(ctx)
+}
+
+// SchemaVersion reports the highest applied tracked migration. Send readiness is computed from
+// it at startup rather than assumed, so a binary that expects newer tables than the database has
+// refuses to send instead of failing partway through a transmission.
+func (db *DB) SchemaVersion(ctx context.Context) (int, error) {
+	var version int
+	err := db.pool.QueryRow(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&version)
+	return version, err
 }

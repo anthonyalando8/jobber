@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthonyalando8/prospector/internal/activity"
@@ -27,12 +28,27 @@ const attemptCooldown = 6 * time.Hour
 // found nothing"; this is "don't refetch a page whose content is probably unchanged."
 const pageCacheTTL = 24 * time.Hour
 
-// Enricher extracts contacts and signals from websites
+// memoryCacheTTL and memoryCacheMax bound the in-process page cache. The previous version was
+// an unsynchronized map that never expired and never shrank, so a long-running worker could
+// feed indefinitely stale content into research — and race against the HTTP enrich path while
+// doing it. Phase 3 reads this content as evidence, so neither is acceptable any more.
+const memoryCacheTTL = 15 * time.Minute
+const memoryCacheMax = 512
+
+type cachedPage struct {
+	body      []byte
+	fetchedAt time.Time
+}
+
+// Enricher extracts contacts and evidence from websites. Everything it retrieves is treated as
+// untrusted data: it is stored as quoted evidence and is never turned into an instruction.
 type Enricher struct {
 	redis      *redis.Client
 	crawlDelay time.Duration
 	userAgent  string
-	pageCache  map[string][]byte // in-process hit for a URL fetched earlier in this process's life
+
+	mu        sync.Mutex
+	pageCache map[string]cachedPage
 }
 
 // NewEnricher creates a new enricher
@@ -41,8 +57,46 @@ func NewEnricher(redis *redis.Client, crawlDelayMS int, userAgent string) *Enric
 		redis:      redis,
 		crawlDelay: time.Duration(crawlDelayMS) * time.Millisecond,
 		userAgent:  userAgent,
-		pageCache:  make(map[string][]byte),
+		pageCache:  make(map[string]cachedPage),
 	}
+}
+
+// cacheGet returns a fresh in-process entry. Expired entries are dropped rather than served.
+func (e *Enricher) cacheGet(url string) ([]byte, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	entry, ok := e.pageCache[url]
+	if !ok {
+		return nil, false
+	}
+	if time.Since(entry.fetchedAt) >= memoryCacheTTL {
+		delete(e.pageCache, url)
+		return nil, false
+	}
+	return entry.body, true
+}
+
+// cachePut stores an entry, evicting expired ones and, if still at capacity, the oldest, so a
+// long crawl cannot grow this map without bound.
+func (e *Enricher) cachePut(url string, body []byte) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.pageCache) >= memoryCacheMax {
+		oldest, oldestAt := "", time.Now()
+		for key, entry := range e.pageCache {
+			if time.Since(entry.fetchedAt) >= memoryCacheTTL {
+				delete(e.pageCache, key)
+				continue
+			}
+			if entry.fetchedAt.Before(oldestAt) {
+				oldest, oldestAt = key, entry.fetchedAt
+			}
+		}
+		if len(e.pageCache) >= memoryCacheMax && oldest != "" {
+			delete(e.pageCache, oldest)
+		}
+	}
+	e.pageCache[url] = cachedPage{body: body, fetchedAt: time.Now()}
 }
 
 func attemptedKey(companyID int64) string {
@@ -109,11 +163,21 @@ func (e *Enricher) EnrichCompany(ctx context.Context, company *store.Company, db
 			contactsFound++
 		}
 
-		// Extract signals
-		signals := e.extractSignals(string(html), &pageURL)
-		for _, signal := range signals {
-			_, _ = db.CreateSignal(ctx, company.ID, signal.Kind, signal.Detail, &pageURL)
-			signalsFound++
+		// Extract evidence. Each distinct fact is stored once per company with its source URL
+		// and excerpt; seeing the same fact again on another page refreshes the observation
+		// rather than inserting a row that would look like independent confirmation.
+		for _, item := range e.extractSignals(string(html), pageURL) {
+			_, inserted, err := db.UpsertEvidence(ctx, company.ID, store.EvidenceInput{
+				Kind: item.Kind, Detail: item.Detail, Excerpt: item.Excerpt,
+				SourceURL: pageURL, ExtractionMethod: item.Method, Confidence: item.Confidence,
+			})
+			if err != nil {
+				log.Printf("EnrichCompany: evidence write failed for %d: %v", company.ID, err)
+				continue
+			}
+			if inserted {
+				signalsFound++
+			}
 		}
 	}
 
@@ -138,7 +202,7 @@ func (e *Enricher) EnrichCompany(ctx context.Context, company *store.Company, db
 // path and the worker's research loop), before actually hitting the network behind a real
 // per-host rate limit (review.md §12).
 func (e *Enricher) fetchPage(ctx context.Context, db *store.DB, url string) ([]byte, error) {
-	if cached, ok := e.pageCache[url]; ok {
+	if cached, ok := e.cacheGet(url); ok {
 		return cached, nil
 	}
 
@@ -149,7 +213,7 @@ func (e *Enricher) fetchPage(ctx context.Context, db *store.DB, url string) ([]b
 			return nil, fmt.Errorf("cached HTTP %d for %s", row.Status, url)
 		}
 		body := []byte(row.Body)
-		e.pageCache[url] = body
+		e.cachePut(url, body)
 		return body, nil
 	}
 
@@ -177,7 +241,7 @@ func (e *Enricher) fetchPage(ctx context.Context, db *store.DB, url string) ([]b
 		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
 	}
 
-	e.pageCache[url] = body
+	e.cachePut(url, body)
 	return body, nil
 }
 
@@ -287,16 +351,83 @@ func (e *Enricher) extractPhones(html string) []string {
 	return unique
 }
 
-// Signal represents extracted evidence
+// Signal represents one extracted piece of evidence, carrying the source excerpt that supports
+// it rather than only the conclusion a keyword matcher drew.
 type Signal struct {
-	Kind   string
-	Detail string
+	Kind       string
+	Detail     string
+	Excerpt    string
+	Method     string
+	Confidence string
 }
 
-// extractSignals finds tech stack and business indicators
-func (e *Enricher) extractSignals(html string, pageURL *string) []Signal {
+// These turn a page into readable text so an excerpt can quote the company rather than
+// paraphrase it.
+var (
+	scriptStyle   = regexp.MustCompile(`(?is)<(script|style|noscript)[^>]*>.*?</(script|style|noscript)>`)
+	tagStripper   = regexp.MustCompile(`(?s)<[^>]*>`)
+	whitespaceRun = regexp.MustCompile(`\s+`)
+	sentenceSplit = regexp.MustCompile(`(?:[.!?]\s+|\n)`)
+)
+
+func pageText(html string) string {
+	text := scriptStyle.ReplaceAllString(html, " ")
+	text = tagStripper.ReplaceAllString(text, " ")
+	text = strings.NewReplacer("&amp;", "&", "&nbsp;", " ", "&#39;", "'", "&quot;", "\"").Replace(text)
+	return strings.TrimSpace(whitespaceRun.ReplaceAllString(text, " "))
+}
+
+// excerptFor returns the sentence in which a term actually appears, bounded, so stored evidence
+// quotes the source instead of asserting a conclusion the source never stated.
+func excerptFor(text, term string) string {
+	lower := strings.ToLower(text)
+	idx := strings.Index(lower, strings.ToLower(term))
+	if idx < 0 {
+		return ""
+	}
+	start := 0
+	for _, loc := range sentenceSplit.FindAllStringIndex(text, -1) {
+		if loc[1] > idx {
+			break
+		}
+		start = loc[1]
+	}
+	end := len(text)
+	if loc := sentenceSplit.FindStringIndex(text[idx:]); loc != nil {
+		end = idx + loc[0]
+	}
+	excerpt := strings.TrimSpace(text[start:end])
+	if len(excerpt) > 400 {
+		excerpt = excerpt[:400]
+	}
+	return excerpt
+}
+
+// engineeringRequestCues are phrases in which a company states an engineering need in its own
+// words. A technology appearing in page source is never one of these.
+var engineeringRequestCues = []string{
+	"we are hiring", "we're hiring", "we are looking for", "we're looking for",
+	"join our engineering", "join our team", "open positions", "open roles",
+	"we need a developer", "looking to hire", "now hiring",
+}
+
+var engineeringWords = []string{
+	"developer", "engineer", "engineering", "backend", "back-end", "full stack",
+	"full-stack", "software", "api", "programmer",
+}
+
+// productCues introduce a company describing what it actually builds or sells.
+var productCues = []string{
+	"we build", "we develop", "we design", "we provide", "we offer", "we help",
+	"our platform", "our software", "our product", "we specialise", "we specialize",
+}
+
+// extractSignals finds tech stack and business indicators. A detection states only what was
+// detected; internal/evidence records separately what each kind can and cannot establish.
+func (e *Enricher) extractSignals(html string, pageURL string) []Signal {
 	var signals []Signal
 	htmlLower := strings.ToLower(html)
+	text := pageText(html)
 
 	// Tech stack indicators
 	techSignals := map[string]string{
@@ -315,25 +446,30 @@ func (e *Enricher) extractSignals(html string, pageURL *string) []Signal {
 
 	for tech, kind := range techSignals {
 		if strings.Contains(htmlLower, tech) {
-			signals = append(signals, Signal{kind, "Found " + tech + " in site code"})
+			signals = append(signals, Signal{Kind: kind, Detail: "Found " + tech + " in site code",
+				Excerpt: excerptFor(text, tech), Method: "site_keyword_v1", Confidence: "low"})
 		}
 	}
 
 	// Business indicators
 	if strings.Contains(htmlLower, "add to cart") || strings.Contains(htmlLower, "checkout") || strings.Contains(htmlLower, "pay now") || strings.Contains(htmlLower, "lipa") {
-		signals = append(signals, Signal{"checkout_present", "E-commerce or payment functionality detected"})
+		signals = append(signals, Signal{Kind: "checkout_present",
+			Detail: "Checkout or payment functionality is present on the site", Method: "site_keyword_v1", Confidence: "medium"})
 	}
 
 	// Payment indicators
 	if strings.Contains(htmlLower, "paybill") || strings.Contains(htmlLower, "till number") {
-		signals = append(signals, Signal{"paybill_listed", "Accepts M-Pesa payments"})
+		signals = append(signals, Signal{Kind: "paybill_listed", Detail: "The site lists an M-Pesa paybill or till",
+			Excerpt: excerptFor(text, "paybill"), Method: "site_keyword_v1", Confidence: "medium"})
 	}
 
 	// Freshness
 	if strings.Contains(htmlLower, "2024") || strings.Contains(htmlLower, "2025") {
-		signals = append(signals, Signal{"active_site", "Recently updated content"})
+		signals = append(signals, Signal{Kind: "active_site", Detail: "A recent year string appears in the page text",
+			Method: "site_keyword_v1", Confidence: "low"})
 	} else if strings.Contains(htmlLower, "2022") || strings.Contains(htmlLower, "2021") {
-		signals = append(signals, Signal{"stale_site", "Outdated site (2021-2022)"})
+		signals = append(signals, Signal{Kind: "stale_site", Detail: "Only older year strings appear in the page text",
+			Method: "site_keyword_v1", Confidence: "low"})
 	}
 
 	// Self-described technical/creative service provider — a company that itself builds
@@ -351,9 +487,47 @@ func (e *Enricher) extractSignals(html string, pageURL *string) []Signal {
 	}
 	for _, kw := range techServiceKeywords {
 		if strings.Contains(htmlLower, kw) {
-			signals = append(signals, Signal{"offers_tech_services", "Site markets " + kw + " as a service"})
+			signals = append(signals, Signal{Kind: "offers_tech_services", Detail: "Site markets " + kw + " as a service",
+				Excerpt: excerptFor(text, kw), Method: "site_text_v1", Confidence: "medium"})
 			break // one hit is enough evidence — no need to pile up near-duplicate signals
 		}
+	}
+
+	// What the company says about itself, quoted. This is the evidence that can make a service
+	// or collaboration reason truthful, as opposed to a technology detected in page source.
+	for _, cue := range productCues {
+		excerpt := excerptFor(text, cue)
+		if excerpt == "" {
+			continue
+		}
+		signals = append(signals, Signal{Kind: "product_description",
+			Detail: "The company describes its own work", Excerpt: excerpt,
+			Method: "site_text_v1", Confidence: "medium"})
+		break
+	}
+
+	// An engineering need stated by the company itself. A cue alone is not enough: the same
+	// sentence must actually be about engineering, or "we are hiring" for a cashier would read
+	// as an engineering request.
+	for _, cue := range engineeringRequestCues {
+		excerpt := excerptFor(text, cue)
+		if excerpt == "" {
+			continue
+		}
+		lower := strings.ToLower(excerpt)
+		engineering := false
+		for _, word := range engineeringWords {
+			if strings.Contains(lower, word) {
+				engineering = true
+			}
+		}
+		if !engineering {
+			continue
+		}
+		signals = append(signals, Signal{Kind: "engineering_request",
+			Detail: "The company states an engineering hiring need", Excerpt: excerpt,
+			Method: "site_text_v1", Confidence: "high"})
+		break
 	}
 
 	return signals

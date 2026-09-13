@@ -1,0 +1,94 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Opportunity {{.ID}}</title><style>
+body{font:16px/1.5 system-ui;max-width:1100px;margin:2rem auto;padding:1rem;color:#111}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f6f6;padding:.8rem;border-radius:6px}
+dt{font-weight:bold;margin-top:.7rem}dd{margin-left:0}
+section{border:1px solid #ddd;border-radius:8px;padding:1rem;margin:1.2rem 0}
+h2{margin-top:0;font-size:1.15rem}
+.tag{display:inline-block;padding:.15rem .55rem;border-radius:999px;font-size:.8rem;font-weight:600;border:1px solid}
+.strong_match{background:#e6f4ea;border-color:#94ceab}.possible_match{background:#fdf3d8;border-color:#e2c46b}
+.unrelated{background:#fbe6e6;border-color:#e0a0a0}.none{background:#eee;border-color:#ccc}
+.stale{background:#fdf3d8;border:1px solid #e2c46b;padding:.6rem;border-radius:6px}
+ul{margin:.4rem 0 .4rem 1.2rem;padding:0}li{margin:.3rem 0}
+.excerpt{color:#444;font-style:italic}
+.refs{color:#666;font-size:.82rem}
+table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.45rem;border-bottom:1px solid #e2e2e2;vertical-align:top}
+</style></head><body>
+<nav><a href="/">Dashboard</a> · <a href="/opportunities">Opportunities</a> · <a href="/profile">Candidate profile</a> · <a href="/companies/{{.CompanyID}}/plan">Contact plan workspace</a></nav>
+<h1>{{if .Facts.Title}}{{.Facts.Title}}{{else}}Unknown advertised title{{end}}</h1>
+<p><a href="/companies/{{.CompanyID}}">{{.Facts.CompanyName}}</a> · Opportunity {{.ID}} · Source revision {{.Revision}}</p>
+
+<section>
+<h2>Candidate fit</h2>
+{{if not .Profile.Active}}
+  <p class="stale"><strong>profile_required.</strong> {{.Profile.Reason}}</p>
+{{else if not .Match}}
+  <p>No fit assessment has been stored for this vacancy yet.</p>
+{{else}}
+  {{if .Stale}}<p class="stale"><strong>Stale assessment.</strong> {{.StaleWhy}}. It is not treated as current; rerun matching before selecting a plan.</p>{{end}}
+  <p><span class="tag {{.Match.Classification}}">{{.Match.Classification}}</span>
+     Advertised title <strong>{{if .Match.OriginalTitle}}{{.Match.OriginalTitle}}{{else}}unknown{{end}}</strong> ·
+     role family confidence <strong>{{.Match.FamilyConfidence}}</strong>{{if .Match.FamilyName}} ({{.Match.FamilyName}}){{end}} ·
+     matcher {{.Match.MatcherVersion}} against profile revision {{.Match.ProfileRevisionID}}{{if .Assessed}} · assessed {{.Assessed}}{{end}}</p>
+  <p>Ranking score {{.Match.Score}}/100. The score orders a queue; the classification and the reasons below are what decide anything.</p>
+
+  <h3>Matched</h3>
+  {{if .Match.Matched}}<ul>{{range .Match.Matched}}
+    <li><strong>{{.Requirement.Term}}</strong> ({{.Requirement.Type}}{{if .Requirement.Mandatory}}, mandatory{{end}}) — {{.Note}}<br>
+    <span class="excerpt">“{{.Requirement.Excerpt}}”</span><br><span class="refs">{{range .ProfileRefs}}{{.}} {{end}}</span></li>
+  {{end}}</ul>{{else}}<p>No stated requirement is supported by an approved fact.</p>{{end}}
+
+  <h3>Unmet and unknown</h3>
+  {{if .Match.Gaps}}<ul>{{range .Match.Gaps}}
+    <li><strong>{{if .Requirement.Term}}{{.Requirement.Term}}{{else}}unnamed condition{{end}}</strong> — <em>{{.Outcome}}</em>. {{.Note}}<br>
+    <span class="excerpt">“{{.Requirement.Excerpt}}”</span></li>
+  {{end}}</ul>{{else}}<p>No unmet or unknown requirement was recorded.</p>{{end}}
+
+  {{if .Match.Unparsed}}
+  <h3>Source requirements not recognized</h3>
+  <p>These lines could not be matched to a known term. Not recognizing a requirement is not evidence that it does not exist.</p>
+  <ul>{{range .Match.Unparsed}}<li class="excerpt">“{{.Excerpt}}”</li>{{end}}</ul>
+  {{end}}
+
+  <h3>Why this classification</h3>
+  <ul>{{range .Match.Reasons}}<li><code>{{.Code}}</code> — {{.Text}} <span class="refs">{{range .Refs}}{{.}} {{end}}</span></li>{{end}}</ul>
+  {{if .Match.Blockers}}
+  <h3>What prevents a stronger classification</h3>
+  <ul>{{range .Match.Blockers}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul>
+  {{end}}
+{{end}}
+<form method="post" action="/opportunities/{{.ID}}/assess"><button>Rerun fit assessment</button></form>
+</section>
+
+<section>
+<h2>Company relevance</h2>
+{{if .Relevance}}
+  <p>Score {{.Relevance.Score}}/100 · relevant to contact: <strong>{{if .Relevance.Relevant}}yes{{else}}no{{end}}</strong> ·
+  payment need evidenced: <strong>{{if .Relevance.PaymentNeedEvidenced}}yes{{else}}no{{end}}</strong> ·
+  {{.Relevance.ObservationCount}} observations grouped into {{.Relevance.GroupCount}} distinct facts.</p>
+  <table><thead><tr><th>Category</th><th>Points</th></tr></thead><tbody>
+  {{range .Relevance.Categories}}<tr><td>{{.Label}}</td><td>{{.Points}} / {{.Max}}</td></tr>{{end}}
+  </tbody></table>
+  <ul>{{range .Relevance.Reasons}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul>
+{{else}}
+  <p>Company relevance has not been assessed. Whether this job suits the candidate and whether the company is worth contacting are separate questions.</p>
+{{end}}
+<p><a href="/companies/{{.CompanyID}}/plan?opportunity={{.ID}}">Choose an intent and recipient for this company →</a></p>
+</section>
+
+<section>
+<h2>Source facts</h2>
+<p>These are the employer's own words as stored. Nothing here is a candidate claim.</p>
+<dl><dt>First discovered / last observed / content updated</dt><dd>{{.DiscoveredAt}} / {{.LastSeenAt}} / {{.UpdatedAt}}</dd>
+<dt>Source</dt><dd>{{.Facts.Source}}</dd>
+<dt>Original source URL</dt><dd>{{if .Facts.URL}}<a href="{{.Facts.URL}}" rel="noreferrer">{{.Facts.URL}}</a>{{else}}Unavailable{{end}}</dd>
+<dt>Normalized title (search only)</dt><dd>{{.Facts.NormalizedTitle}}</dd>
+<dt>Location</dt><dd>{{if .Facts.Location}}{{.Facts.Location}}{{else}}Unknown{{end}}</dd>
+<dt>Employment type</dt><dd>{{if .Facts.EmploymentType}}{{.Facts.EmploymentType}}{{else}}Unknown{{end}}</dd>
+<dt>Remote status</dt><dd>{{.Facts.RemoteStatus}}</dd>
+<dt>Availability</dt><dd>{{.Facts.Availability}}</dd>
+<dt>Description quality</dt><dd>{{.Facts.DescriptionStatus}}</dd>
+<dt>Published / expires</dt><dd>{{if .Facts.PublishedAt}}{{.Facts.PublishedAt}}{{else}}Unknown{{end}} / {{if .Facts.ExpiresAt}}{{.Facts.ExpiresAt}}{{else}}Unknown{{end}}</dd></dl>
+<h3>Source description</h3><pre>{{.Facts.Description}}</pre>
+<h3>Source revision history</h3>{{range $i,$doc:=.Documents}}<details><summary>{{if eq $i 0}}Current source snapshot{{else}}Earlier source snapshot{{end}}</summary><pre>{{$doc}}</pre></details>{{end}}
+</section>
+</body></html>

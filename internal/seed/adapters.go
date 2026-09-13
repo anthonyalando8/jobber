@@ -3,13 +3,13 @@ package seed
 import (
 	"context"
 	"encoding/csv"
-	"fmt"
+	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"io"
 	"log"
+	"net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/anthonyalando8/prospector/internal/activity"
 	"github.com/anthonyalando8/prospector/internal/store"
 	"github.com/anthonyalando8/prospector/internal/verify"
 	"github.com/redis/go-redis/v9"
@@ -83,26 +83,26 @@ func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Cl
 	}
 
 	for _, q := range queries {
-		resp, err := j.Fetch(ctx, q.url)
+		raw, err := j.fetchSource(ctx, q.url)
 		if err != nil {
 			log.Printf("Failed to fetch %s (%s): %v", q.site, q.term, err)
 			continue
 		}
 
-		doc, err := goquery.NewDocumentFromReader(resp.Body)
-		resp.Body.Close()
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(raw)))
 		if err != nil {
 			log.Printf("Parse error for %s: %v", q.site, err)
 			continue
 		}
-		base := resp.Request.URL
+		base, _ := url.Parse(q.url)
 
 		count := 0
 		doc.Find(q.card).Each(func(i int, s *goquery.Selection) {
-			if count > 10 {
+			if count >= 10 {
 				return // Limit to 10 per page
 			}
 
+			count++
 			companySel := s.Find(q.company).First()
 			var companyName string
 			if q.companyAttr != "" {
@@ -111,40 +111,24 @@ func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Cl
 				companyName = companySel.Text()
 			}
 			companyName = cleanCompanyName(strings.TrimSpace(companyName))
-			if companyName == "" {
-				return
-			}
-
 			jobLinkSel := s.Find(q.jobLink).First()
 			jobURL, _ := jobLinkSel.Attr("href")
-			jobText := strings.TrimSpace(s.Text())
-
-			if jobURL == "" {
-				return
-			}
-
-			if u, err := base.Parse(jobURL); err == nil {
+			if u, err := base.Parse(jobURL); err == nil && jobURL != "" {
 				jobURL = u.String()
 			}
-
-			// Normalize domain
-			domain := extractDomain(companyName)
-			if domain == "" {
+			html, _ := s.Html()
+			d := opportunity.DiscoveredOpportunity{Source: q.site, CompanyName: companyName, Title: strings.TrimSpace(jobLinkSel.Text()), URL: jobURL, Description: descriptionText(html), DescriptionStatus: "partial", Metadata: map[string]string{"listing_url": q.url}}
+			// Detail fetch failures retain the listing and its explicit partial status.
+			d = j.completeJobDescription(ctx, d, base.Hostname())
+			result, err := IngestOpportunity(ctx, db, d)
+			if err != nil {
+				log.Printf("Job ingestion failed: %v", err)
 				return
 			}
-
-			// Create company with job posting as signal
-			// "candidate": extractDomain is a guessed slug of the display name, never trusted
-			// directly — it goes through internal/verify before enrichment will touch it.
-			company, created, _ := j.CreateCompanyIfNew(ctx, db, redis, companyName, domain, "jobboard", q.url, "candidate")
-			if created {
+			if result.Created {
 				added++
-				activity.Log(ctx, redis, "worker:discover", fmt.Sprintf("Found %s (%s) — %s listing", companyName, domain, q.site), true)
-
-				// Store job posting as signal
-				_, _ = db.CreateSignal(ctx, company.ID, "hiring_backend", jobText[:min(300, len(jobText))], &jobURL)
-				count++
 			}
+
 		})
 	}
 
@@ -187,6 +171,26 @@ func cleanCompanyName(raw string) string {
 // against it.
 func extractDomain(name string) string {
 	candidates := verify.CandidateDomains(name)
+	if len(candidates) == 0 {
+		return ""
+	}
+	return candidates[0]
+}
+
+// domainForSource picks the domain to store for a newly discovered company.
+//
+// Order matters more than it looks: only the first candidate is stored, and verification runs
+// later if at all. A URL the source itself published is stated fact and wins outright. Failing
+// that, the generated guesses are ordered by the market the listing came from — preferring
+// .co.ke for an international remote board produced domains like delinea.co.ke for a US company,
+// which never resolved, so research never ran and no contact was ever found.
+func domainForSource(d opportunity.DiscoveredOpportunity) string {
+	for _, published := range []string{d.Metadata[opportunity.MetaEmployerURL], d.Metadata[opportunity.MetaApplyURL]} {
+		if host := verify.DomainFromURL(published); host != "" {
+			return host
+		}
+	}
+	candidates := verify.CandidateDomainsForMarket(d.CompanyName, verify.MarketForSource(d.Source))
 	if len(candidates) == 0 {
 		return ""
 	}

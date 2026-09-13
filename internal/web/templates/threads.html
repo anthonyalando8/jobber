@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Conversations</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:.4rem;text-align:left}</style></head><body>
+<nav><a href="/">Dashboard</a> · <a href="/compositions">Compositions</a> · <a href="/profile">Profile</a></nav>
+<h1>Conversations</h1>
+<p>One conversation per accepted first contact. Its intent is frozen at the first send: a follow-up can continue the conversation but cannot change what it is about.</p>
+{{if .Threads}}<table><tr><th>ID</th><th>State</th><th>Intent</th><th>Recipient</th><th>Step</th><th>Last sent</th></tr>
+{{range .Threads}}<tr><td><a href="/threads/{{.ID}}">{{.ID}}</a></td><td>{{.State}}</td><td>{{.Intent}}</td><td>{{.RecipientEmail}}</td><td>{{.FollowupStep}}</td><td>{{if .LastSentAt}}{{.LastSentAt}}{{else}}—{{end}}</td></tr>{{end}}</table>
+{{else}}<p>No message has been accepted by a provider yet.</p>{{end}}
+</body></html>

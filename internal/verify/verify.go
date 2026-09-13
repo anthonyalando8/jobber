@@ -9,6 +9,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -155,6 +156,102 @@ func CandidateDomains(name string) []string {
 		add(dashed + ".com")
 	}
 	return out
+}
+
+// Market describes where a company was discovered, which is what decides whether a Kenyan domain
+// is a good first guess or a bad one.
+type Market int
+
+const (
+	// MarketKenya is a Kenyan job board or a manually entered Kenyan company. A local business
+	// is at least as likely to sit on .co.ke as .com.
+	MarketKenya Market = iota
+	// MarketInternational is a global remote board. Preferring .co.ke there produced domains
+	// like delinea.co.ke for a US company and wakacje.co.ke for a Polish one — guesses that
+	// never resolve, so research never runs and no contact is ever found.
+	MarketInternational
+)
+
+// internationalSources are the remote job boards whose listings are global. Anything not named
+// here is treated as Kenyan, which keeps the original behaviour for the Kenyan boards and for
+// manual entry.
+var internationalSources = map[string]bool{
+	"remoteok":       true,
+	"weworkremotely": true,
+	"remotive":       true,
+	"himalayas":      true,
+}
+
+// MarketForSource reports which market a discovery source belongs to.
+func MarketForSource(source string) Market {
+	if internationalSources[strings.ToLower(strings.TrimSpace(source))] {
+		return MarketInternational
+	}
+	return MarketKenya
+}
+
+// CandidateDomainsForMarket orders the same guesses by where the company was found. Both markets
+// try both suffixes — a Kenyan company can be on .com and an international one can, in principle,
+// be on .co.ke — but the order differs, and order is what matters when only the first candidate
+// is stored before verification has a chance to run.
+func CandidateDomainsForMarket(name string, market Market) []string {
+	if market == MarketKenya {
+		return CandidateDomains(name)
+	}
+	candidates := CandidateDomains(name)
+	international := make([]string, 0, len(candidates))
+	local := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.HasSuffix(candidate, ".co.ke") {
+			local = append(local, candidate)
+			continue
+		}
+		international = append(international, candidate)
+	}
+	return append(international, local...)
+}
+
+// DomainFromURL extracts a registrable host from a URL the source itself published. This
+// outranks every generated candidate: a URL the employer put in their own listing is stated
+// fact, where a generated domain is only a plausible-looking guess.
+//
+// It returns nothing for a URL that points at the job board rather than the employer, because a
+// link to remoteok.com is not the company's website.
+func DomainFromURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	host = strings.TrimPrefix(host, "www.")
+	if host == "" || !strings.Contains(host, ".") {
+		return ""
+	}
+	for board := range jobBoardHosts {
+		if host == board || strings.HasSuffix(host, "."+board) {
+			return ""
+		}
+	}
+	return host
+}
+
+// jobBoardHosts are the aggregators themselves. A link to one of these describes where the
+// listing was published, never who published it.
+var jobBoardHosts = map[string]bool{
+	"remoteok.com": true, "remoteok.io": true, "weworkremotely.com": true,
+	"remotive.com": true, "remotive.io": true, "himalayas.app": true,
+	"brightermonday.co.ke": true, "myjobmag.co.ke": true, "linkedin.com": true,
+	"greenhouse.io": true, "lever.co": true, "workable.com": true,
+	"ashbyhq.com": true, "breezy.hr": true, "bamboohr.com": true, "recruitee.com": true,
+	"smartrecruiters.com": true, "jobvite.com": true, "workday.com": true,
+	"myworkdayjobs.com": true, "indeed.com": true, "glassdoor.com": true,
 }
 
 // nameMatchConfidence is the fraction of the company's significant name tokens that appear

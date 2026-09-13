@@ -1,6 +1,22 @@
 package web
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
+
+func TestPhaseOneSendInterlockPrecedesDatabaseAccess(t *testing.T) {
+	if LegacySendEnabled {
+		t.Fatal("the legacy send route must stay permanently closed")
+	}
+	h := &Handler{}
+	if err := h.executeSend(context.Background(), 1, 1, false, "", true); err == nil {
+		t.Fatal("legacy send escaped construction interlock")
+	}
+	if err := h.ExecuteSend(context.Background(), 1, 1); err == nil {
+		t.Fatal("worker send escaped construction interlock")
+	}
+}
 
 // TestBuildEmailMessage_FromAndReplyTo guards against the exact bug fixed in an earlier pass:
 // sendSMTP used to send with the raw SMTP account as the visible From and no Reply-To header

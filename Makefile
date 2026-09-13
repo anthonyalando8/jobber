@@ -9,19 +9,11 @@ help:
 	@echo "  make clean    - Clean build artifacts"
 
 db:
-	@echo "Creating database and running migrations..."
-	createdb prospector || true
-	@for f in internal/store/migrations/*.sql; do \
-		echo "  applying $$f"; \
-		psql prospector < $$f || exit 1; \
-	done
-	@echo "Done. Start with: make run"
+	@echo "Create the database named by DATABASE_URL first; inspect existing databases before migration."
+	go run ./cmd/prospector-migrate -command apply
 
 migrate:
-	@for f in internal/store/migrations/*.sql; do \
-		echo "  applying $$f"; \
-		psql prospector < $$f || exit 1; \
-	done
+	go run ./cmd/prospector-migrate -command apply $(if $(PROOF),-proof "$(PROOF)")
 
 run:
 	go run ./cmd/prospector

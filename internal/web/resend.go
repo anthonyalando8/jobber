@@ -18,6 +18,10 @@ import (
 // the operator straight to /review — reusing the exact same editable "Send to" field and
 // retry-on-failure flow a fresh draft already gets, rather than building a second send path.
 func (h *Handler) SentResend(w http.ResponseWriter, r *http.Request) {
+	if !LegacySendEnabled {
+		http.Error(w, "Legacy resend is permanently closed; an accepted message is never re-transmitted, and an uncertain one needs reconciliation.", http.StatusGone)
+		return
+	}
 	ctx := r.Context()
 	sendLogID, _ := strconv.ParseInt(chi.URLParam(r, "sendLogID"), 10, 64)
 	reason := strings.TrimSpace(r.FormValue("reason"))

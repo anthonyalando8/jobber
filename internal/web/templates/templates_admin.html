@@ -13,7 +13,11 @@
         a { color: #0066cc; text-decoration: none; }
         a:hover { text-decoration: underline; }
         .saved-banner { background: #e8f5e9; color: #2e7d32; padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13.5px; font-weight: 500; }
-        .intro { font-size: 13px; color: #777; margin-bottom: 20px; line-height: 1.5; }
+        .intro { font-size: 13px; color: #777; margin-bottom: 20px; line-height: 1.5; background:#fff8e1; border-left:4px solid #e0a800; padding:12px; border-radius:4px; }
+        .v2-box { background: white; border-left: 4px solid #2e7d32; padding: 14px; border-radius: 6px; margin-bottom: 18px; font-size: 13px; line-height: 1.5; }
+        .v2-box h2 { font-size: 14px; margin-bottom: 8px; }
+        .v2-box p { margin-bottom: 6px; }
+        .legacy-body { white-space: pre-wrap; overflow-wrap: anywhere; background: #f6f6f6; padding: 10px; border-radius: 4px; font-size: 13px; line-height: 1.5; }
         .segment-group { margin-bottom: 28px; }
         .segment-group > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #ddd; }
         .tmpl-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 14px; overflow: hidden; }
@@ -36,14 +40,19 @@
 <body>
     <div class="container">
         <header>
-            <h1>Templates</h1>
+            <h1>Message text</h1>
             <a href="/">← Back to Dashboard</a>
         </header>
 
-        {{if .saved}}<div class="saved-banner">Saved — the next draft for this segment will use the updated copy.</div>{{end}}
+        <div class="v2-box">
+            <h2>V2 — the text actually in use</h2>
+            <p>Every message the system can send today is written by the v2 composer against a versioned prompt, then checked by the deterministic validators and an independent semantic reviewer. Those prompts live in <code>internal/composition/prompts</code> and are changed in the repository and reviewed like any other code, deliberately not edited live against a running database.</p>
+            <p>Rollout mode <strong>{{.Mode}}</strong>. Automatic sending: <strong>{{if .AutomaticSending}}enabled{{else}}disabled{{end}}</strong>. Auto-send intents: <strong>{{if .AutoSendIntents}}{{range .AutoSendIntents}}{{.}} {{end}}{{else}}none{{end}}</strong>.</p>
+        </div>
 
         <div class="intro">
-            Edit the literal copy every draft is built from. <code>{{"{{"}}observation{{"}}"}}</code> and <code>{{"{{"}}hypothesis{{"}}"}}</code> are the only parts the AI ever writes — everything else here is fixed text you control directly. Changes save straight to the database and take effect on the very next draft — no restart needed.
+            <strong>Legacy — historical reference, read-only.</strong>
+            These are the templates the pre-v2 pipeline filled in from company signals. They are retained exactly as they were, because old drafts and sent messages were built from them and their wording is part of that history. They no longer produce any outgoing message, and they cannot be edited: the payments-heavy copy below stays inert no matter that it still exists in the database.
         </div>
 
         {{$currentSegment := ""}}
@@ -61,25 +70,10 @@
                 {{if .DisplayOnly}}<span class="badge">display only — copy/paste, never auto-sent</span>{{end}}
             </div>
             <div class="tmpl-body">
-                <form method="POST" action="/templates/{{.ID}}/update" onsubmit="return confirmSave(this)">
-                    <div class="vars-line">Available: {{range .Vars}}<code>{{.}}</code>{{end}}</div>
-
-                    {{if .Subject}}
-                    <label>Subject</label>
-                    <input type="text" name="subject" value="{{.Subject}}">
-                    {{else if eq .Channel "email"}}
-                    <label>Subject</label>
-                    <input type="text" name="subject" value="" placeholder="(no subject set)">
-                    {{end}}
-
-                    <label>Body</label>
-                    <textarea name="body" oninput="updateCount(this)">{{.Body}}</textarea>
-                    <div class="charcount"></div>
-
-                    <div class="actions">
-                        <button type="submit">Save</button>
-                    </div>
-                </form>
+                <div class="vars-line">Legacy placeholders: {{range .Vars}}<code>{{.}}</code>{{end}}</div>
+                {{if .Subject}}<label>Subject</label><p>{{.Subject}}</p>{{end}}
+                <label>Body (as written, read-only)</label>
+                <pre class="legacy-body">{{.Body}}</pre>
             </div>
         </div>
         {{end}}

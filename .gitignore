@@ -19,3 +19,6 @@
 Thumbs.db
 .vscode/
 .idea/
+
+# Local database backups and inspection reports (may contain personal data)
+.local/

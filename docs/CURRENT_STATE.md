@@ -1,9 +1,185 @@
-# Prospector — current state (2026-08-19)
+# Prospector — current state
 
-This is a status snapshot for review, not a spec. The build spec is
-[`PROSPECTOR_SPEC.md`](PROSPECTOR_SPEC.md) — this doc says what actually exists in the
-repo today, where it diverges from that spec, and what's still thin. Written to be shared
-for feedback on what to build next.
+**Read this first.** It is the fastest way to understand the repository without reading every
+phase report.
+
+| | |
+| --- | --- |
+| Status | **ACTIVE — MANUAL MODE** |
+| Tracked schema | **25** (`prospector-migrate -command check`) |
+| Phases complete | 1–7, all approved. In production use. |
+| Rollout mode | **`v2_manual_send`** — the full pipeline, with every send requiring explicit human approval of that exact content. |
+| Selective automation | **Implemented, off.** `AUTO_SEND_INTENTS` is empty and the mode is not `v2_auto`, so no automation loop runs. |
+| Auto-send intents | **Empty.** Enabling one is a deliberate configuration change, never a side effect. |
+| Automation cap | 1 automatic send per day if ever enabled (`AUTO_SEND_DAILY_CAP`, refuses above 5). |
+| Active candidate profile | **Revision 3**, approved and active, hash `7138cbad…`. |
+| Authoritative assessments | 273 stored: **6 strong, 94 possible, 173 unrelated**. |
+| Opportunities stored | 273 (262 complete descriptions, 11 partial) |
+| Companies | 596 · contacts 771 · suppression rows 1 |
+| v2 compositions / approvals / send attempts / threads | 0 / 0 / 0 / 0 |
+| Legacy unsent drafts | 62 — readable, permanently unsendable |
+| Legacy sent threads | 33 — immutable; 33 still unclassified |
+| Legacy templates | 10 — read-only history, inert |
+| Telemetry contacts marked unusable | 19 (Sentry ingest keys; marked, never deleted) |
+| Emails sent by v2 | **None.** |
+
+## How the pipeline works now
+
+```
+discovery ──▶ opportunity (+ revisions)
+                  │
+     approved candidate profile ──▶ deterministic match ──▶ classification + explicit reasons
+                  │                                             │
+     company evidence ──▶ relevance ─────────────────────────────┤
+                                                                ▼
+                                          intent + recipient + bounded proof = contact plan
+                                                                ▼
+                                   composition snapshot ──▶ AI composer ──▶ deterministic validators
+                                                                ▼
+                                                    independent semantic reviewer
+                                                                ▼
+                                              human approval of that exact content
+                                                                ▼
+                                    dispatch.Service.Send — the one path to a mail server
+```
+
+Selective automation sits **above** that chain, never beside it. When configured, it asks the
+automation policy about a draft that has already been through every stage above; if the policy
+says yes it creates the same approval record a person would, re-checks everything immediately
+before transmission, and then uses the same `dispatch.Service.Send`. It can skip nothing.
+
+Each arrow is a gate, and every gate explains itself with a code and a sentence rather than a
+boolean. Nothing advances on its own: composition is requested, approval is given by a person,
+and sending is a separate deliberate act.
+
+**Candidate profile.** A singleton head plus immutable JSONB revisions. Only an *active,
+approved* revision is authoritative. Activation is manual and is never performed by a migration,
+a startup path or a test.
+
+**Contact plans.** One plan records company, intent, the pinned opportunity revision where
+applicable, target families, the frozen recipient, and the bounded set of approved capabilities
+and proof a composer may use — plus the claims it may never make. Selecting a plan authorizes
+generation, never sending.
+
+**The three intents** are `specific_job_application`, `speculative_job_enquiry` and
+`service_outreach`. Intent is chosen explicitly, frozen into the composition, into the approval,
+into the idempotency key and into the conversation thread. A follow-up cannot change it.
+
+**Review is two independent layers.** Deterministic validators check what can be checked by
+rule; a separate semantic reviewer reads the finished email against the same sources. Findings
+are the union of both — a clean semantic review never erases a deterministic finding.
+
+**Sending** runs through `dispatch.Service.Send` and nothing else. It reserves a durable attempt
+before contacting a provider, transmits exactly the approved bytes once, and records what
+happened permanently. See [Phase 5 completion](PHASE5_COMPLETION.md) for the guarantees.
+
+## Legacy data
+
+The pre-v2 pipeline's output is preserved exactly and is inert.
+
+- **Unsent legacy drafts** (`/legacy/drafts`) carry no profile, opportunity, recipient or review
+  context. They are readable and cannot be approved or sent — a draft belongs to v2 if and only
+  if it has a `draft_composition` row, which is what the send path reads.
+- **Sent legacy messages** keep their exact subject and body. Intent, profile revision, evidence
+  and review result were never recorded and are reported as unknown, never reconstructed.
+- **Legacy threads** (`/legacy/threads`) acquire an intent only when a person states one, with
+  the basis they used. `unknown` is a valid answer and means no v2 follow-up is offered.
+- **Legacy templates** (`/templates`) are read-only history. v2 text comes from versioned prompts
+  in `internal/composition/prompts`.
+- **Legacy routes** — send, generate, batch draft, resend, follow-up send, template edit — return
+  **410 Gone** with an explanation of the v2 route that replaces them. `/companies/{id}/apply-mode`
+  redirects to the contact plan and writes nothing.
+
+`prospector-migrate -command legacy-inventory` prints the full census plus content digests over
+historical outbound text, so a transition can be proven not to have altered it.
+
+## Where an operator works
+
+`/` dashboard (v2 panel first) · `/profile` · `/opportunities` · `/companies/{id}/plan` ·
+`/compositions/{id}` (the review and approval screen) · `/threads` · `/legacy/drafts` ·
+`/legacy/threads` · `/templates`.
+
+## Selective automation
+
+Only **specific job applications** can ever be automated, and that is a property of the policy
+rather than of configuration: speculative enquiries and service outreach are refused at
+configuration time, because their correctness depends on company-relevance evidence the stored
+data cannot support. **All follow-ups stay human-reviewed.**
+
+Automation requires, per message: an active approved profile, a `strong_match` with a clear
+engineering family and a complete description, no unresolved mandatory requirement or preference
+conflict, a recipient that is a real human mailbox with a recruiting or engineering function (or
+an employer-published application address), a current non-stale composition, clean deterministic
+validation, a complete and clean semantic review with no findings at all, no hand editing, no
+manual approval, no suppression, no open conversation with that company, no unresolved send
+attempt anywhere, AI budget available, and the automation cap not reached. Every decision —
+eligible or not — is persisted in `automation_decision` with its reasons and the policy version.
+
+`AUTO_SEND_INTENTS=` (empty) means nothing is sent automatically. `all` and wildcards are
+refused. An unknown or non-automatable value stops startup.
+
+## Known operational limitations
+
+1. No approved profile is active, so nothing can become authoritative. This is deliberate and is
+   the single largest gate.
+2. Bounce and reply detection is manual — no IMAP, no webhook. SMTP-time rejections are caught
+   during the conversation; an asynchronous bounce suppresses an address only once recorded.
+3. No follow-up scheduling exists. Follow-up policy is enforced, but nothing decides when one is due.
+4. One transport (SMTP). The interface is provider-agnostic but unproven against a second provider.
+5. No real SMTP smoke test has been run; the conversation has only met a scripted in-process server.
+6. An attempt stuck in `sending` or `uncertain` holds its idempotency key and has no reconciliation
+   tooling. It fails safe — it blocks, and now also halts automation entirely. The dashboard
+   surfaces the count; see [the reconciliation design](RECONCILIATION_DESIGN.md) for the proposed
+   fix and the operator procedure in the meantime.
+7. No real strong-match draft has been composed under the real profile, so composer and reviewer
+   behaviour on real strong matches is unmeasured. That measurement is a precondition for
+   enabling any intent.
+
+## Production activation
+
+See [PRODUCTION_ACTIVATION.md](PRODUCTION_ACTIVATION.md) for what was activated and verified.
+The system is in real use for manual sending: discovery and research run in the background,
+composition is requested explicitly, and no email leaves without a person approving that exact
+content. Automatic sending is implemented and switched off.
+
+## Activation readiness
+
+[ACTIVATION_READINESS.md](ACTIVATION_READINESS.md) is the evidence-based assessment of whether the
+system is ready for real use. In short: manual use is ready pending profile activation; automation
+is `NOT_READY`; and the real bottleneck is contact data — 180 of 212 internationally-sourced
+companies carry a guessed `.co.ke` domain, and the job adapters discard the employer and
+application URLs the boards publish. The SMTP smoke test passed (accepted by Gmail over TLS 1.3).
+
+## Enabling automation
+
+Automation stays off until real manual use provides the evidence for turning it on. What remains:
+
+1. Compose and inspect a small real strong-match sample, and measure wrong-role rate,
+   unsupported claims, payment leakage, reviewer false positives and manual-edit frequency.
+2. Use manual sending for real, long enough to trust the output.
+3. Only then set `EMAIL_PIPELINE_MODE=v2_auto` and
+   `AUTO_SEND_INTENTS=specific_job_application`, leaving `AUTO_SEND_DAILY_CAP` at 1.
+
+Each step is a deliberate decision. None happens as a side effect of deployment.
+
+## Phase reports
+
+[Phase 1 operations](PHASE1_MIGRATIONS.md) · [Phase 1](PHASE1_COMPLETION.md) ·
+[Phase 2](PHASE2_COMPLETION.md) · [Phase 3](PHASE3_COMPLETION.md) ·
+[Phase 3.5 calibration](PHASE3_5_CALIBRATION.md) · [Phase 4](PHASE4_COMPLETION.md) ·
+[Phase 5](PHASE5_COMPLETION.md) · [Phase 6](PHASE6_COMPLETION.md) ·
+[Phase 7](PHASE7_COMPLETION.md) · [Production activation](PRODUCTION_ACTIVATION.md) ·
+[Activation readiness](ACTIVATION_READINESS.md) ·
+[Reconciliation design](RECONCILIATION_DESIGN.md) ·
+[Approved design](EMAIL_PIPELINE_IMPLEMENTATION_PLAN.md) ·
+[Original investigation](EMAIL_GENERATION_FINDINGS.md)
+
+---
+
+# Historical snapshot (2026-08-19)
+
+The text below describes the original pre-v2 pipeline. It is retained as history and no longer
+describes how the system works.
 
 ## What it is
 

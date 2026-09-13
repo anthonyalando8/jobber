@@ -1,0 +1,10 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Candidate profile</title><style>body{font:16px system-ui;max-width:1000px;margin:2rem auto;padding:1rem}textarea{width:100%;min-height:28rem}pre{white-space:pre-wrap;overflow-wrap:anywhere}article{border-top:1px solid #ccc;padding:1rem 0}button{padding:.6rem}</style></head><body>
+<nav><a href="/">Dashboard</a> · <a href="/opportunities">Opportunities</a></nav>
+<h1>Candidate profile</h1>
+<p>Active revision ID: {{.Active}} (0 means inactive). Sending and AI generation remain disabled during construction.</p>
+<p>Save facts as a new draft, inspect the saved revision, then explicitly approve and activate it. Existing revisions remain unchanged. Include only facts you can confirm; optional sections can be empty.</p>
+<form method="post" action="/profile/drafts"><label for="document">Profile document (JSON; item IDs must be unique and references must resolve)</label><textarea id="document" name="document" required spellcheck="false">{{.Initial}}</textarea><button>Save new draft revision</button></form>
+<h2>Revision history and approval</h2>
+{{range .Revisions}}<article><h3>Revision {{.Revision}} · {{.Status}}{{if .Active}} · ACTIVE{{end}}</h3><p>{{.CreatedAt}}</p><pre>{{.JSON}}</pre>
+{{if not .Active}}<form method="post" action="/profile/activate"><input type="hidden" name="revision_id" value="{{.ID}}"><input type="hidden" name="active_id" value="{{$.Active}}"><input type="hidden" name="hash" value="{{.ContentHash}}"><label><input type="checkbox" name="confirm" value="approved" required> I approve every fact in this exact revision.</label> <button>Approve and activate revision {{.Revision}}</button></form>{{end}}</article>{{end}}
+</body></html>

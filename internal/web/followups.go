@@ -26,6 +26,10 @@ type followupItem struct {
 // pre-filled follow-up text alongside — display/copy-paste, same as the other display-only
 // channels in the spec.
 func (h *Handler) Followups(w http.ResponseWriter, r *http.Request) {
+	if !LegacySendEnabled {
+		http.Error(w, "Legacy follow-up preparation is permanently closed; follow-ups run through the v2 thread and approval path.", http.StatusGone)
+		return
+	}
 	ctx := r.Context()
 
 	logs, err := h.db.ListFollowupsDue(ctx, time.Now())
@@ -81,6 +85,10 @@ func (h *Handler) Followups(w http.ResponseWriter, r *http.Request) {
 // executeSend() path as everything else — just marked isFollowup so the 30-day same-domain
 // rule (meant to stop a new unsolicited contact, not a planned follow-up) doesn't block it.
 func (h *Handler) ReviewFollowupSend(w http.ResponseWriter, r *http.Request) {
+	if !LegacySendEnabled {
+		http.Error(w, "Legacy follow-up preparation is permanently closed; follow-ups run through the v2 thread and approval path.", http.StatusGone)
+		return
+	}
 	ctx := r.Context()
 	sendLogID, _ := strconv.ParseInt(r.FormValue("send_log_id"), 10, 64)
 	which := r.FormValue("which")

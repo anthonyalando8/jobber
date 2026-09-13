@@ -1,0 +1,61 @@
+body.prospector-page {
+  margin:0;
+  background:#f7f9fc;
+  color:#111b33;
+  font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+.prospector-page .application-main {
+  margin-left:224px;
+  padding:30px 34px;
+  min-width:0;
+  overflow-x:auto}
+.prospector-page .container {
+  max-width:1400px;
+  margin:0 auto;
+  padding:0}
+.prospector-page .sidebar {
+  font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+.prospector-page .sidebar .brand {
+  font-size:20px}
+.prospector-page .sidebar nav>a {
+  display:flex}
+.prospector-page .application-main>nav:first-child {
+  font-size:12px;
+  padding:0 0 14px;
+  border-bottom:1px solid #e4eaf2;
+  margin-bottom:20px}
+.prospector-page header {
+  background:transparent;
+  padding:0 0 16px;
+  border-bottom:1px solid #e4eaf2}
+.prospector-page h1 {
+  font-size:25px;
+  letter-spacing:-.4px}
+.prospector-page input,.prospector-page select,.prospector-page textarea {
+  font:inherit;
+  border:1px solid #d8e0ed;
+  border-radius:6px;
+  padding:7px 10px}
+.prospector-page button {
+  font:inherit}
+.prospector-page table {
+  border-collapse:collapse;
+  max-width:100%}
+.prospector-page td,.prospector-page th {
+  padding:12px;
+  border-bottom:1px solid #e4eaf2}
+.prospector-page th {
+  background:#f1f5fa}
+.prospector-page a:focus-visible,.prospector-page button:focus-visible,.prospector-page input:focus-visible {
+  outline:3px solid #346be9;
+  outline-offset:3px}
+@media(max-width:1250px) and (min-width:721px) {
+  .prospector-page .application-main {
+  margin-left:202px;
+  padding:24px}
+}
+@media(max-width:720px) {
+  .prospector-page .application-main {
+  margin-left:0;
+  padding:20px 16px}
+}
+

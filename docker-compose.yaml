@@ -1,0 +1,42 @@
+version: "3.9"
+
+# Named volume for Redis persistence so data survives container recreation.
+volumes:
+  redis_data:
+
+# Shared restart policy used by all application services.
+x-restart: &restart
+  restart: unless-stopped
+
+networks:
+  zentora_net:
+    driver: bridge
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Redis
+  # ---------------------------------------------------------------------------
+  redis-softtronic-002:
+    <<: *restart
+    image: redis:7-alpine
+    container_name: redis-softtronic-002
+    networks:
+      - zentora_net
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    # Expose Redis only on the internal network in production.
+    # Remove the ports block if you do not need local access.
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 60s
+      timeout: 3s
+      retries: 3

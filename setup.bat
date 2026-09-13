@@ -25,21 +25,24 @@ if "%COMMAND%"=="download" (
 )
 
 if "%COMMAND%"=="db" (
-    echo Creating database...
-    REM Requires psql in PATH
-    psql -U postgres -c "CREATE DATABASE prospector;" 2>nul
-    if errorlevel 1 (
-        echo Note: If database creation failed, ensure PostgreSQL is installed and postgres user has a password
-    )
-    echo.
-    echo Running migrations...
-    psql -U postgres prospector < internal/store/migrations/0001_init.sql
-    if errorlevel 1 (
-        echo Migration failed. Check your PostgreSQL connection.
-        exit /b 1
-    )
-    echo.
-    echo Database ready!
+    echo Create the database named by DATABASE_URL first. Existing databases require inspect and verified backup.
+    go run ./cmd/prospector-migrate -command apply
+    exit /b !errorlevel!
+)
+
+if "%COMMAND%"=="migrate" (
+    go run ./cmd/prospector-migrate -command apply -proof "%~2"
+    exit /b !errorlevel!
+)
+
+if "%COMMAND%"=="inspect" (
+    go run ./cmd/prospector-migrate -command inspect
+    exit /b !errorlevel!
+)
+
+if "%COMMAND%"=="unit-test" (
+    go test ./...
+    exit /b !errorlevel!
     goto :eof
 )
 

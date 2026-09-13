@@ -217,7 +217,7 @@ func GenerateAndSaveDraft(ctx context.Context, db *store.DB, ts *TemplateService
 
 	role := ""
 	if segment == "hiring" || segment == "enterprise" || segment == "hiring_us" || segment == "application" {
-		role = "Backend Developer"
+		role = ""
 		for _, s := range signals {
 			if s.Kind == "hiring_backend" {
 				role = ExtractRole(s.Detail)

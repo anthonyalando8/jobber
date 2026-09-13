@@ -22,7 +22,8 @@ var titleSuffixPattern = regexp.MustCompile(`(?:[A-Z][A-Za-z/&\-]*\s+){0,4}(?:Ma
 // ExtractRole pulls a job title out of a hiring_backend signal's verbatim text. Per spec this
 // comes from the signal itself, never the model. Tries the known backend-role keywords first
 // (cheap, exact), then a general title-shaped pattern for anything else, before giving up and
-// returning the generic fallback.
+// returning an empty string for an unknown title. V2 ingestion does not use this
+// legacy heuristic; it stores the separate source title verbatim.
 func ExtractRole(jobText string) string {
 	lower := strings.ToLower(jobText)
 	for _, kw := range roleKeywords {
@@ -33,5 +34,5 @@ func ExtractRole(jobText string) string {
 	if m := titleSuffixPattern.FindString(jobText); m != "" {
 		return strings.TrimSpace(m)
 	}
-	return "Backend Developer"
+	return ""
 }

@@ -1,21 +1,23 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
-	"net/smtp"
 	"net/url"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthonyalando8/prospector/internal/aibudget"
+	"github.com/anthonyalando8/prospector/internal/assess"
+	"github.com/anthonyalando8/prospector/internal/dispatch"
 	"github.com/anthonyalando8/prospector/internal/domainsearch"
 	"github.com/anthonyalando8/prospector/internal/draft"
 	"github.com/anthonyalando8/prospector/internal/enrich"
@@ -24,6 +26,7 @@ import (
 	"github.com/anthonyalando8/prospector/internal/sendpolicy"
 	"github.com/anthonyalando8/prospector/internal/store"
 	"github.com/anthonyalando8/prospector/internal/verify"
+	"github.com/anthonyalando8/prospector/internal/worker"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -48,16 +51,38 @@ type Handler struct {
 	fromName           string
 	fromEmail          string
 	replyTo            string
+	assessor           *assess.Service
 	dailySendLimit     int
 	minSendIntervalSec int
 	draftMinInterval   time.Duration
+	// dispatcher is the one canonical outbound path. No other field and no other handler may
+	// reach a mail transport.
+	dispatcher         *dispatch.Service
+	compositionRuntime *compositionRuntime
+	workerStatus       func() []worker.LoopStatus
+	dashboardMu        sync.Mutex
+	dashboardCache     *dashboardView
+	schemaChecked      time.Time
+	schemaOK           bool
 }
 
 // NewHandler creates a new handler with dependencies
+// LegacySendEnabled is permanently false. It began as the temporary Phase 1-4 construction
+// interlock; Phase 5 does not flip it on. The legacy generate/send/follow-up/resend routes
+// bypass the composition snapshot, the deterministic validators, the semantic review, the
+// explicit approval and the idempotency key, so they are closed for good rather than re-enabled.
+// Whether the v2 path may send is a separate, computed question: see send.EvaluateReadiness and
+// Handler.Dispatcher.
+const LegacySendEnabled = false
+
 func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
-	aiProvider, err := draft.NewProvider()
-	if err != nil {
-		log.Printf("Warning: AI provider not configured: %v", err)
+	var aiProvider draft.AIProvider
+	if LegacySendEnabled {
+		var err error
+		aiProvider, err = draft.NewProvider()
+		if err != nil {
+			log.Printf("Warning: AI provider not configured: %v", err)
+		}
 	}
 
 	// Crawl politeness settings were previously hardcoded here despite being documented,
@@ -207,9 +232,13 @@ func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
 		}
 	}
 
+	if !LegacySendEnabled {
+		policyCfg.Enabled = false
+	}
 	return &Handler{
 		db:                 db,
 		redis:              redisConn,
+		assessor:           assess.New(db),
 		aiProvider:         aiProvider,
 		draftService:       draft.NewTemplateService(aiProvider, db),
 		seedRegistry:       seedRegistry,
@@ -229,6 +258,8 @@ func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
 		dailySendLimit:     dailySendLimit,
 		minSendIntervalSec: minSendIntervalSec,
 		draftMinInterval:   draftMinInterval,
+		dispatcher:         newDispatcher(db),
+		compositionRuntime: loadCompositionRuntime(),
 	}
 }
 
@@ -268,24 +299,9 @@ func (h *Handler) ExecuteSend(ctx context.Context, companyID, draftID int64) err
 	return h.executeSend(ctx, companyID, draftID, false, "", false)
 }
 
-// HasAIProvider reports whether an AI provider is actually configured — drafting is a no-op,
-// not an error, when it isn't.
+// HasAIProvider reports the legacy drafting provider only; v2 composition uses compositionRuntime.
+// Legacy drafting remains disabled independently of the initialized v2 providers.
 func (h *Handler) HasAIProvider() bool { return h.aiProvider != nil }
-
-// reviewPreviewItem is one row in the dashboard's "Ready for review" list — a draft plus the
-// company it belongs to, since ListDraftsByState alone doesn't carry the company's name/score.
-type reviewPreviewItem struct {
-	Company  *store.Company
-	Draft    *store.Draft
-	Decision string
-}
-
-// activityView adds a precomputed IsWorker flag to an ActivityEntry — html/template has no
-// strings.HasPrefix, and this is simpler than registering a FuncMap for one check.
-type activityView struct {
-	ActivityEntry
-	IsWorker bool
-}
 
 // companyDraftView shadows Draft's *string fields with plain strings (empty when nil) — same
 // reasoning as drafts.go's draftView: html/template can't compare a *string with eq/ne (requires
@@ -301,171 +317,17 @@ type companyDraftView struct {
 // research, scoring and drafting run continuously in the background rather than only on a
 // button click.
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	companies, err := h.db.ListCompanies(ctx, store.CompanyFilter{}, 1000, 0)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	snapshot, err := h.dashboardSnapshot(ctx)
 	if err != nil {
-		log.Printf("Home: failed to list companies: %v", err)
-		http.Error(w, "Failed to load companies", http.StatusInternalServerError)
+		http.Error(w, "Dashboard data unavailable; retry shortly", 503)
 		return
 	}
-
-	stats := struct {
-		Total      int
-		New        int
-		Enriched   int
-		Drafted    int
-		Sent       int
-		Agencies   int
-		Incubators int
-		Hiring     int
-		SMEs       int
-	}{}
-
-	stats.Total = len(companies)
-	for _, c := range companies {
-		switch c.Status {
-		case "new":
-			stats.New++
-		case "enriched":
-			stats.Enriched++
-		case "drafted":
-			stats.Drafted++
-		case "sent":
-			stats.Sent++
-		}
-		if c.Segment != nil {
-			switch *c.Segment {
-			case "agency":
-				stats.Agencies++
-			case "incubator":
-				stats.Incubators++
-			case "hiring":
-				stats.Hiring++
-			case "sme":
-				stats.SMEs++
-			}
-		}
-	}
-
-	needsManual, _ := h.db.ListDraftsByState(ctx, "needs_manual", 1000, 0)
-
-	// "Today" is local midnight — an operator checking this over morning coffee wants to know
-	// what happened since they last looked, not since UTC midnight.
-	now := time.Now()
-	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-
-	todayStats, err := h.db.GetDashboardStats(ctx, startOfToday, h.sendPolicy.ReviewMinScore)
-	if err != nil {
-		log.Printf("Home: failed to load dashboard stats: %v", err)
-		todayStats = &store.DashboardStats{}
-	}
-
-	researchQueue, err := h.db.CountCompaniesForResearch(ctx)
-	if err != nil {
-		log.Printf("Home: failed to count research queue: %v", err)
-	}
-
-	hourUsed, hourLimit, dayUsed, dayLimit := h.aiBudget.Usage(ctx)
-	nextAvailable, aiReady, aiPausedReason := h.aiBudget.NextAvailable(ctx)
-
-	// Top prospects: highest-scored companies regardless of pipeline stage — informational,
-	// not an action list.
-	topProspects, err := h.db.ListCompanies(ctx, store.CompanyFilter{}, 6, 0)
-	if err != nil {
-		log.Printf("Home: failed to load top prospects: %v", err)
-	}
-
-	// Ready for review: a handful of pending, non-blocked drafts with their company attached —
-	// review.md §9's exception queue, previewed here so the operator doesn't have to leave the
-	// dashboard to see whether anything actually needs them. Sorted by company score, same as
-	// /review's own queue — highest-value prospects first, not just whatever was drafted last.
-	pendingDrafts, _ := h.db.ListDraftsByState(ctx, "pending", 200, 0)
-	var reviewCandidates []reviewPreviewItem
-	for _, d := range pendingDrafts {
-		decision := ""
-		if d.Decision != nil {
-			decision = *d.Decision
-		}
-		if decision == "blocked" {
-			continue
-		}
-		company, err := h.db.GetCompany(ctx, d.CompanyID)
-		if err != nil {
-			continue
-		}
-		reviewCandidates = append(reviewCandidates, reviewPreviewItem{Company: company, Draft: d, Decision: decision})
-	}
-	sort.Slice(reviewCandidates, func(i, j int) bool { return reviewCandidates[i].Company.Score > reviewCandidates[j].Company.Score })
-	awaitingReview := len(reviewCandidates)
-	reviewPreview := reviewCandidates
-	if len(reviewPreview) > 5 {
-		reviewPreview = reviewPreview[:5]
-	}
-
-	rawActivity := h.recentActivity(ctx)
-	activityViews := make([]activityView, len(rawActivity))
-	for i, a := range rawActivity {
-		activityViews[i] = activityView{ActivityEntry: a, IsWorker: strings.HasPrefix(a.Action, "worker:")}
-	}
-	lastActive := ""
-	if len(rawActivity) > 0 {
-		lastActive = formatAgo(now.Sub(rawActivity[0].Timestamp))
-	}
-
-	// nextStep is a plain-language pointer to what to click next — still useful even with the
-	// worker running, since it tells a first-time user (or one with AI disabled) what the
-	// manual buttons below are for.
-	nextStep := ""
-	switch {
-	case stats.Total == 0:
-		nextStep = "Paste some companies into the CSV box below to get started, or wait for the next automatic discovery pass."
-	case stats.New > 0:
-		nextStep = fmt.Sprintf("%d new compan%s waiting — the research worker will pick these up automatically, or click \"Enrich New\" to do it now.", stats.New, plural(stats.New, "y", "ies"))
-	case stats.Enriched > 0:
-		nextStep = fmt.Sprintf("%d compan%s enriched and ready — the draft worker will get to the best of these within its AI budget, or click \"Draft Enriched\" to do it now.", stats.Enriched, plural(stats.Enriched, "y", "ies"))
-	case awaitingReview > 0:
-		nextStep = fmt.Sprintf("%d draft%s waiting for you — go to \"Review drafts\".", awaitingReview, plural(awaitingReview, "", "s"))
-	default:
-		nextStep = "Nothing pending right now. The worker keeps discovering and researching in the background."
-	}
-
-	w.Header().Set("Content-Type", "text/html")
-	renderTemplate(w, "dashboard.html", map[string]interface{}{
-		"stats":          stats,
-		"today":          todayStats,
-		"nextStep":       nextStep,
-		"pendingReview":  awaitingReview,
-		"needsManual":    len(needsManual),
-		"activity":       activityViews,
-		"lastActive":     lastActive,
-		"researchQueue":  researchQueue,
-		"aiEnabled":      h.aiBudget.Enabled(),
-		"aiHasProvider":  h.HasAIProvider(),
-		"aiHourUsed":     hourUsed,
-		"aiHourLimit":    hourLimit,
-		"aiDayUsed":      dayUsed,
-		"aiDayLimit":     dayLimit,
-		"aiHourPct":      gaugePct(hourUsed, hourLimit),
-		"aiDayPct":       gaugePct(dayUsed, dayLimit),
-		"aiReady":        aiReady,
-		"aiPausedReason": aiPausedReason,
-		"aiNextAvailable": func() string {
-			if aiReady || nextAvailable.IsZero() {
-				return ""
-			}
-			return nextAvailable.Format("15:04")
-		}(),
-		"autoSendEnabled":     h.sendPolicy.Enabled,
-		"topProspects":        topProspects,
-		"reviewPreview":       reviewPreview,
-		"domainSearchEnabled": h.domainSearcher.Enabled(),
-		"domainSearchPaused":  h.domainSearcher.IsPaused(ctx),
-	})
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	renderTemplate(w, "dashboard.html", snapshot)
 }
 
-// gaugePct is used/limit as a 0-100 percentage for the AI budget gauge bars, capped so a
-// display glitch can't push a bar past its track when usage briefly exceeds the limit.
 func gaugePct(used, limit int) int {
 	if limit <= 0 {
 		return 0
@@ -746,8 +608,17 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ViewCompany: failed to load sent emails for %d: %v", id, err)
 	}
 
+	// Phase 3 summary: every vacancy assessed on its own, plus whether there is a truthful
+	// engineering reason to contact this company. Read-only here; the plan workspace at
+	// /companies/{id}/plan is where an intent and recipient are actually chosen.
+	phase3, err := h.assessor.LoadCompany(ctx, id)
+	if err != nil {
+		log.Printf("ViewCompany: failed to load Phase 3 assessment for %d: %v", id, err)
+	}
+
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "company.html", map[string]interface{}{
+		"phase3":              phase3,
 		"company":             company,
 		"contacts":            contacts,
 		"signals":             signals,
@@ -778,6 +649,12 @@ func (e *sendError) Error() string { return e.msg }
 // (ReviewFollowupSend) marks the existing thread's followup_N_sent_at instead of starting a
 // new one.
 func (h *Handler) executeSend(ctx context.Context, companyID, draftID int64, isFollowup bool, toOverride string, overrideScoreBlock bool) error {
+	// The legacy path re-picks the recipient, accepts an arbitrary address override, has no
+	// composition snapshot, no approval, no idempotency key and no durable attempt record. It is
+	// permanently closed rather than gated: the canonical path is dispatch.Service.Send.
+	if !LegacySendEnabled {
+		return &sendError{http.StatusGone, "The legacy send route is permanently closed. Approve and send the reviewed draft from its composition page, which is the only path with preflight, approval and duplicate protection."}
+	}
 	company, err := h.db.GetCompany(ctx, companyID)
 	if err != nil {
 		return &sendError{http.StatusNotFound, "Company not found"}
@@ -971,24 +848,15 @@ func buildEmailMessage(fromName, fromEmail, replyTo, smtpUser, toEmail, subject,
 	return header + "\n" + body
 }
 
-// sendSMTP sends email via SMTP
+// sendSMTP no longer transmits anything. It was the legacy transport, reached from executeSend
+// with no idempotency key, no reservation, no approval and no durable attempt record — so two
+// requests could transmit the same message twice and neither would leave evidence. The one
+// authoritative outbound path is dispatch.Service.Send, via send.SMTPTransport.
+//
+// The function is kept, and kept refusing, so that the legacy call site fails loudly rather than
+// silently acquiring a second way out to the internet if that route is ever reopened by mistake.
 func (h *Handler) sendSMTP(toName, toEmail, subject, body string) error {
-	if h.smtpUser == "" || h.smtpPass == "" {
-		return fmt.Errorf("SMTP credentials not configured")
-	}
-
-	message := buildEmailMessage(h.fromName, h.fromEmail, h.replyTo, h.smtpUser, toEmail, subject, body)
-
-	// Connect to SMTP server
-	addr := h.smtpHost + ":" + h.smtpPort
-	auth := smtp.PlainAuth("", h.smtpUser, h.smtpPass, h.smtpHost)
-
-	if err := smtp.SendMail(addr, auth, h.smtpUser, []string{toEmail}, []byte(message)); err != nil {
-		return fmt.Errorf("SMTP send failed: %w", err)
-	}
-
-	log.Printf("Email sent successfully to %s", toEmail)
-	return nil
+	return fmt.Errorf("the legacy SMTP path is permanently closed; send through the approved composition (dispatch.Service.Send)")
 }
 
 // Admin handlers
@@ -1395,7 +1263,18 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 		return
 	}
 
-	if err := tmpl.Execute(w, data); err != nil {
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, data); err != nil {
 		log.Printf("Execution error: %v", err)
+		http.Error(w, "Template error", 500)
+		return
 	}
+	html, err := applicationShell(name, rendered.String())
+	if err != nil {
+		log.Printf("Shell error: %v", err)
+		http.Error(w, "Template error", 500)
+		return
+	}
+	_, _ = w.Write([]byte(html))
+
 }

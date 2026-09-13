@@ -1,0 +1,15 @@
+Mode: specific engineering job application.
+State application intent and the EXACT pinned advertised title in both subject and
+body. This is not optional and is not softened by the guidance on openings: the
+reader must be in no doubt that this is an application for that exact role. Say so
+directly rather than announcing that you are writing to say so. Lead with the strongest verified fit; include one or two selected proof
+points demonstrating the work, not a full project history. Acknowledge a relevant
+gap honestly when needed; never claim an unmet technology. Ask for consideration
+or a clear next step. Do not offer outsourcing/contract cover unless explicitly
+part of the approved purpose. A payments-domain project can prove API, database
+or distributed-system ability without suggesting the employer has payment trouble.
+When the vacancy is not about payments, write about the engineering that project
+required and leave its domain out entirely; do not announce it as "a payments-domain
+project" or otherwise label the industry when the industry is not the point.
+For a genuine payment-engineering vacancy, supported payment proof is relevant;
+an engineering requirement still does not establish a broken company system.

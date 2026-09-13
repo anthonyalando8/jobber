@@ -3,15 +3,10 @@ package seed
 import (
 	"context"
 	"encoding/xml"
-	"fmt"
-	"log"
-	"net/http"
-	"strings"
-
-	"github.com/PuerkitoBio/goquery"
-	"github.com/anthonyalando8/prospector/internal/activity"
+	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"github.com/anthonyalando8/prospector/internal/store"
 	"github.com/redis/go-redis/v9"
+	"strings"
 )
 
 // weWorkRemotelyFeeds are per-category RSS feeds — a real public feed (title format "Company:
@@ -42,6 +37,7 @@ func (w *WeWorkRemotelySeeder) Name() string { return "weworkremotely" }
 type wwrRSS struct {
 	Channel struct {
 		Items []struct {
+			PubDate     string `xml:"pubDate"`
 			Title       string `xml:"title"`
 			Link        string `xml:"link"`
 			Description string `xml:"description"`
@@ -49,80 +45,36 @@ type wwrRSS struct {
 	} `xml:"channel"`
 }
 
-// Seed fetches each category feed, splits WWR's "Company: Position" title format, and creates a
-// company per unique employer — same guessed-domain-then-verify flow every US-source seeder in
-// this package uses.
-func (w *WeWorkRemotelySeeder) Seed(ctx context.Context, db *store.DB, redisConn *redis.Client) (int, error) {
+// Seed retains listings within the existing category feed scope, without fit filtering.
+func (w *WeWorkRemotelySeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Client) (int, error) {
 	added := 0
-
-	for _, feedURL := range weWorkRemotelyFeeds {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
+	for _, url := range weWorkRemotelyFeeds {
+		raw, err := w.fetchSource(ctx, url)
 		if err != nil {
-			log.Printf("WeWorkRemotelySeeder: build request failed for %s: %v", feedURL, err)
-			continue
+			return added, err
 		}
-		req.Header.Set("User-Agent", w.userAgent)
-
-		resp, err := w.client.Do(req)
-		if err != nil {
-			log.Printf("WeWorkRemotelySeeder: fetch failed for %s: %v", feedURL, err)
-			continue
-		}
-		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			log.Printf("WeWorkRemotelySeeder: HTTP %d from %s", resp.StatusCode, feedURL)
-			continue
-		}
-
 		var feed wwrRSS
-		err = xml.NewDecoder(resp.Body).Decode(&feed)
-		resp.Body.Close()
-		if err != nil {
-			log.Printf("WeWorkRemotelySeeder: parse failed for %s: %v", feedURL, err)
-			continue
+		if err = xml.Unmarshal(raw, &feed); err != nil {
+			return added, err
 		}
-
-		for _, item := range feed.Channel.Items {
-			// WWR's title format is consistently "Company: Position" — split on the first ": ".
-			idx := strings.Index(item.Title, ": ")
-			if idx == -1 {
-				continue
+		for i, item := range feed.Channel.Items {
+			if i >= maxFeedJobs {
+				break
 			}
-			companyName := strings.TrimSpace(item.Title[:idx])
-			position := strings.TrimSpace(item.Title[idx+2:])
-			if companyName == "" || position == "" || !isRelevantJobTitle(position) {
-				continue
+			company, title, found := strings.Cut(item.Title, ": ")
+			if !found {
+				company = ""
+				title = item.Title
 			}
-
-			domain := extractDomain(companyName)
-			if domain == "" {
-				continue
-			}
-
-			extra := ""
-			if doc, err := goquery.NewDocumentFromReader(strings.NewReader(item.Description)); err == nil {
-				extra = strings.TrimSpace(doc.Text())
-			}
-			jobText := usJobSignalText(position, companyName, extra)
-
-			company, created, err := w.CreateCompanyIfNew(ctx, db, redisConn, companyName, domain, "weworkremotely", item.Link, "candidate")
+			d := opportunity.DiscoveredOpportunity{Source: "weworkremotely", CompanyName: strings.TrimSpace(company), Title: strings.TrimSpace(title), URL: item.Link, Description: descriptionText(item.Description), PublishedAt: sourceTimestamp(item.PubDate), DescriptionStatus: "complete", RemoteStatus: "remote"}
+			result, err := IngestOpportunity(ctx, db, d)
 			if err != nil {
-				log.Printf("WeWorkRemotelySeeder: failed to create company for %s: %v", companyName, err)
-				continue
+				return added, err
 			}
-			if !created {
-				continue
-			}
-
-			added++
-			activity.Log(ctx, redisConn, "worker:discover", fmt.Sprintf("Found %s (%s) — remote: %s", companyName, domain, position), true)
-
-			jobURL := item.Link
-			if _, err := db.CreateSignal(ctx, company.ID, "hiring_backend", jobText, &jobURL); err != nil {
-				log.Printf("WeWorkRemotelySeeder: failed to save signal for %s: %v", companyName, err)
+			if result.Created {
+				added++
 			}
 		}
 	}
-
 	return added, nil
 }

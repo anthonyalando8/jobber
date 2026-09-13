@@ -50,11 +50,16 @@ type Config struct {
 	ResearchTTL           time.Duration // default 24h — how long before a researched company is eligible again
 	DraftInterval         time.Duration // default 60s — how often the loop *checks*; aibudget decides whether it actually drafts
 	DomainResolveInterval time.Duration // default 30m — how often the loop *checks*; domainsearch's own daily budget decides whether it actually spends a query
+	// AutomationInterval is how often selective automation looks for a candidate. It is slow on
+	// purpose: the automation cap is one or two sends a day, so polling faster would only mean
+	// re-deciding the same refusals.
+	AutomationInterval time.Duration // default 15m
 }
 
 // DefaultConfig returns review.md's suggested defaults.
 func DefaultConfig() Config {
 	return Config{
+		AutomationInterval:    15 * time.Minute,
 		DiscoveryInterval:     20 * time.Minute,
 		ResearchInterval:      30 * time.Second,
 		ResearchTTL:           24 * time.Hour,
@@ -66,6 +71,7 @@ func DefaultConfig() Config {
 // Scheduler owns the autonomous loops. It holds the same dependencies web.Handler holds,
 // constructed once in main.go and handed to both — not a second copy of the pipeline.
 type Scheduler struct {
+	runtime        RuntimeStatus
 	db             *store.DB
 	redis          *redis.Client
 	enricher       *enrich.Enricher
@@ -122,9 +128,27 @@ func (s *Scheduler) Run(ctx context.Context, wg *sync.WaitGroup) {
 // interval fires, that tick is skipped rather than stacked.
 func (s *Scheduler) loop(ctx context.Context, wg *sync.WaitGroup, name string, interval time.Duration, tick func(context.Context)) {
 	defer wg.Done()
-
+	heartbeatDone := make(chan struct{})
+	defer close(heartbeatDone)
+	s.updateStatus(name, func(state *LoopStatus) { state.AliveAt = time.Now() })
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatDone:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.updateStatus(name, func(state *LoopStatus) { state.AliveAt = time.Now() })
+			}
+		}
+	}()
 	run := func() {
+		s.updateStatus(name, func(state *LoopStatus) { state.Busy = true; state.StartedAt = time.Now() })
 		tick(ctx)
+		s.updateStatus(name, func(state *LoopStatus) { state.Busy = false; state.CompletedAt = time.Now() })
 	}
 
 	run()
@@ -153,7 +177,8 @@ func (s *Scheduler) discoveryTick(ctx context.Context) {
 
 	result, err := s.seedRegistry.Run(ctx, "jobboard", s.db, s.redis)
 	if err != nil {
-		activity.Log(ctx, s.redis, "worker:discover", fmt.Sprintf("jobboard seed failed: %v", err), false)
+		s.recordFailure("discovery")
+		activity.Log(ctx, s.redis, "worker:discover", "Discovery cycle failed; inspect server logs", false)
 	} else {
 		activity.Log(ctx, s.redis, "worker:discover", fmt.Sprintf("discovered %d compan%s from jobboard", result.Added, pluralY(result.Added)), true)
 	}
@@ -187,7 +212,10 @@ func (s *Scheduler) verifyTick(ctx context.Context) {
 		// stored at seed time.
 		finalDomain := c.Domain
 		if status != verify.StatusVerified {
-			for _, cand := range verify.CandidateDomains(c.Name) {
+			// Ordered by where the company was discovered: trying .co.ke first for a listing
+			// from an international remote board wastes the attempt on a host that does not
+			// exist, which is how 180 companies ended up unresearched.
+			for _, cand := range verify.CandidateDomainsForMarket(c.Name, verify.MarketForSource(c.Source)) {
 				if cand == c.Domain {
 					continue // already just tried this one
 				}
@@ -239,6 +267,8 @@ func (s *Scheduler) researchTick(ctx context.Context) {
 
 	companies, err := s.db.ListCompaniesForResearch(ctx, researchBatchSize)
 	if err != nil {
+		s.recordFailure("research")
+		activity.Log(ctx, s.redis, "worker:research", "Unable to load research queue", false)
 		log.Printf("worker: research: failed to list companies: %v", err)
 		return
 	}
@@ -247,13 +277,20 @@ func (s *Scheduler) researchTick(ctx context.Context) {
 	}
 
 	researched := 0
+	attempted, failures, skipped := 0, 0, 0
 	for _, c := range companies {
 		if s.enricher.RecentlyAttempted(ctx, c.ID) {
+			skipped++
 			continue
 		}
 
+		attempted++
+		s.updateStatus("research", func(state *LoopStatus) { state.Company = c.Name })
 		found, err := s.enricher.EnrichCompany(ctx, c, s.db)
 		if err != nil {
+			failures++
+			s.recordFailure("research")
+			activity.Log(ctx, s.redis, "worker:research", "Research operation failed for "+c.Name, false)
 			log.Printf("worker: research: failed to enrich %s: %v", c.Name, err)
 			continue
 		}
@@ -261,6 +298,9 @@ func (s *Scheduler) researchTick(ctx context.Context) {
 		// research loop hammer it again every 30s. TTL applies equally to a dead site (cooldown
 		// already covers that path too) and a live one that simply had nothing new.
 		if err := s.db.MarkResearched(ctx, c.ID, s.cfg.ResearchTTL); err != nil {
+			failures++
+			s.recordFailure("research")
+			activity.Log(ctx, s.redis, "worker:research", "Research operation failed for "+c.Name, false)
 			log.Printf("worker: research: failed to schedule next research for %s: %v", c.Name, err)
 		}
 		if !found {
@@ -268,6 +308,9 @@ func (s *Scheduler) researchTick(ctx context.Context) {
 		}
 
 		if err := s.scorer.Score(ctx, c, s.db); err != nil {
+			failures++
+			s.recordFailure("research")
+			activity.Log(ctx, s.redis, "worker:research", "Research operation failed for "+c.Name, false)
 			log.Printf("worker: research: failed to score %s: %v", c.Name, err)
 			continue
 		}
@@ -275,8 +318,8 @@ func (s *Scheduler) researchTick(ctx context.Context) {
 	}
 
 	activity.Log(ctx, s.redis, "worker:research",
-		fmt.Sprintf("researched %d of %d compan%s", researched, len(companies), pluralY(len(companies))),
-		true)
+		fmt.Sprintf("Attempted %d companies; %d yielded evidence; %d errors; %d in cooldown", attempted, researched, failures, skipped),
+		failures == 0)
 }
 
 // draftTick is the autonomous side of review.md §7/§8: only the strongest, deterministically

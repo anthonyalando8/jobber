@@ -73,10 +73,15 @@ func (h *Handler) Templates(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The page now distinguishes the two clearly: the prompts v2 actually uses, and the legacy
+	// copy retained as history. The legacy half carries no editing controls at all.
+	rollout := h.rollout()
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "templates_admin.html", map[string]interface{}{
-		"templates": views,
-		"saved":     r.URL.Query().Get("saved") == "1",
+		"templates":        views,
+		"Mode":             rollout.Mode,
+		"AutomaticSending": rollout.AutomaticSending,
+		"AutoSendIntents":  rollout.AutoSendIntents,
 	})
 }
 

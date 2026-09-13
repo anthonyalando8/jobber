@@ -116,6 +116,49 @@
             </div>
         </div>
 
+        {{if .phase3}}
+        <div class="card" style="margin-top:20px; border-left:4px solid #4a6fa5;">
+            <h2>Candidate fit and contact intent</h2>
+            <p style="font-size:12.5px; color:#666; margin-top:0;">The advertised role, the desired role family and the email intent are three separate things. The legacy segment, score and application status below are historical fields and take no part in this decision.</p>
+            {{if not .phase3.Profile.Active}}
+            <p style="background:#fbe6e6; border:1px solid #e0a0a0; padding:8px; border-radius:4px; font-size:13px;"><strong>profile_required.</strong> {{.phase3.Profile.Reason}}</p>
+            {{end}}
+            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                <thead><tr><th style="text-align:left; padding:5px; border-bottom:1px solid #ddd;">Advertised role</th><th style="text-align:left; padding:5px; border-bottom:1px solid #ddd;">Classification</th><th style="text-align:left; padding:5px; border-bottom:1px solid #ddd;">State</th></tr></thead>
+                <tbody>
+                {{range .phase3.Opportunities}}
+                <tr>
+                    <td style="padding:5px; border-bottom:1px solid #f0f0f0;"><a href="/opportunities/{{.Opportunity.ID}}">{{if .Opportunity.Facts.Title}}{{.Opportunity.Facts.Title}}{{else}}Unknown advertised title{{end}}</a></td>
+                    <td style="padding:5px; border-bottom:1px solid #f0f0f0;">{{.Classification}}</td>
+                    <td style="padding:5px; border-bottom:1px solid #f0f0f0;">{{if .Stale}}stale — {{.StaleWhy}}{{else}}current{{end}}</td>
+                </tr>
+                {{else}}
+                <tr><td colspan="3" style="padding:5px; color:#888;">No advertised vacancies are stored for this company.</td></tr>
+                {{end}}
+                </tbody>
+            </table>
+            <p style="font-size:13px; margin-top:10px;">
+                Company relevance <strong>{{.phase3.Relevance.Score}}/100</strong> —
+                truthful reason to contact: <strong>{{if .phase3.Relevance.Relevant}}yes{{else}}no{{end}}</strong>;
+                payment need evidenced: <strong>{{if .phase3.Relevance.PaymentNeedEvidenced}}yes{{else}}no{{end}}</strong>.
+                {{.phase3.Relevance.ObservationCount}} observations grouped into {{.phase3.Relevance.GroupCount}} distinct facts.
+            </p>
+            {{if .phase3.Plans}}
+            <p style="font-size:13px;">Contact plans:
+                {{range .phase3.Plans}}<span style="display:inline-block; margin-right:10px;">{{.Intent}} → {{.RecipientEmail}} ({{.Status}}, revision {{.Revision}})</span>{{end}}
+            </p>
+            {{else}}
+            <p style="font-size:13px; color:#666;">No contact plan has been recorded. Nothing may be drafted for this company until one is.</p>
+            {{end}}
+            <div class="actions" style="margin-top:10px;">
+                <a href="/companies/{{.company.ID}}/plan" style="display:inline-block; padding:6px 12px; background:#4a6fa5; color:#fff; border-radius:4px; text-decoration:none; font-size:13px;">Open contact plan workspace</a>
+                <form method="POST" action="/companies/{{.company.ID}}/assess" style="display:inline">
+                    <button type="submit">Rerun matching and relevance</button>
+                </form>
+            </div>
+        </div>
+        {{end}}
+
         {{if .currentDraft}}
         <div class="card" style="margin-top: 20px;">
             <h2>Current draft</h2>

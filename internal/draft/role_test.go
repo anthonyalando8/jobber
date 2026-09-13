@@ -20,9 +20,9 @@ func TestExtractRole_UnrecognizedTitleUsesSuffixPattern(t *testing.T) {
 	}
 }
 
-func TestExtractRole_NoTitleShapeFallsBackToGeneric(t *testing.T) {
+func TestExtractRole_NoTitleShapeRemainsUnknown(t *testing.T) {
 	got := ExtractRole("come build cool stuff with us, apply now")
-	if got != "Backend Developer" {
-		t.Errorf("got %q, want fallback %q", got, "Backend Developer")
+	if got != "" {
+		t.Errorf("got %q, want unknown title", got)
 	}
 }

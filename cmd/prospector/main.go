@@ -11,7 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/anthonyalando8/prospector/internal/automation"
 	"github.com/anthonyalando8/prospector/internal/queue"
+	"github.com/anthonyalando8/prospector/internal/send"
 	"github.com/anthonyalando8/prospector/internal/store"
 	"github.com/anthonyalando8/prospector/internal/web"
 	"github.com/anthonyalando8/prospector/internal/worker"
@@ -25,6 +27,30 @@ func main() {
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		log.Printf("Warning: Error loading .env file: %v", err)
 	}
+	pipelineMode := os.Getenv("EMAIL_PIPELINE_MODE")
+	if pipelineMode == "" {
+		pipelineMode = "v2_review"
+	}
+	if !send.ValidMode(pipelineMode) {
+		log.Fatalf("EMAIL_PIPELINE_MODE must be one of %s, %s, %s or %s",
+			send.ModeDisabled, send.ModeReview, send.ModeManualSend, send.ModeAuto)
+	}
+	// The automation configuration is validated here, before anything starts. An unknown intent,
+	// a wildcard, or an implausible cap stops startup rather than being ignored: a configuration
+	// that does not mean what it says is the wrong thing to run, and the failure mode of
+	// misreading it is unattended email.
+	automationCfg, err := automation.LoadConfig(pipelineMode,
+		os.Getenv("AUTO_SEND_INTENTS"), os.Getenv("AUTO_SEND_DAILY_CAP"))
+	if err != nil {
+		log.Fatalf("Automation configuration is invalid: %v", err)
+	}
+	if len(automationCfg.Allowlist) == 0 {
+		log.Printf("Email pipeline mode: %s; AUTO_SEND_INTENTS is empty, so no message can be sent automatically", pipelineMode)
+	} else {
+		log.Printf("Email pipeline mode: %s; selective automation is configured for %v with a cap of %d per day. "+
+			"Each message must still pass the automation policy and the send preflight individually",
+			pipelineMode, automationCfg.Allowlist, automationCfg.DailyCap)
+	}
 
 	// Initialize database
 	dbURL := os.Getenv("DATABASE_URL")
@@ -37,6 +63,9 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
+	if err := db.CheckSchema(context.Background()); err != nil {
+		log.Fatalf("Schema check failed before worker startup: %v", err)
+	}
 
 	// Initialize Redis
 	redisURL := os.Getenv("REDIS_URL")
@@ -69,7 +98,7 @@ func main() {
 	r.Use(middleware.Recoverer)
 
 	// Static files
-	r.Handle("/static/*", http.FileServer(http.Dir("./internal/web/static")))
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("./internal/web/static"))))
 
 	// Live activity feed: Server-Sent Events, deliberately outside the timeout groups below —
 	// this connection is meant to stay open for as long as the dashboard tab is, not fail after
@@ -81,6 +110,33 @@ func main() {
 		r.Use(middleware.Timeout(30 * time.Second))
 
 		r.Get("/", handler.Home)
+		r.Get("/dashboard/snapshot", handler.DashboardSnapshot)
+		r.Get("/profile", handler.Profile)
+		r.Post("/plans/{id}/compose", handler.CompositionGenerate)
+		r.Get("/compositions/{id}", handler.CompositionView)
+		r.Get("/compositions", handler.Compositions)
+		r.Post("/compositions/{id}/edit", handler.CompositionEdit)
+		// Phase 5: approval and sending. CompositionSend is the only send route in the
+		// application; every other historical send/resend/follow-up route is permanently closed.
+		r.Post("/compositions/{id}/approval", handler.CompositionApprove)
+		r.Post("/compositions/{id}/approval/revoke", handler.CompositionRevoke)
+		r.Post("/compositions/{id}/send", handler.CompositionSend)
+		r.Get("/threads", handler.Threads)
+		r.Get("/threads/{id}", handler.ThreadView)
+		r.Post("/threads/{id}/events", handler.ThreadEventRecord)
+		r.Post("/profile/drafts", handler.ProfileSave)
+		r.Post("/profile/activate", handler.ProfileActivate)
+		r.Get("/opportunities", handler.Opportunities)
+		r.Get("/opportunities/{id}", handler.Opportunity)
+		// Phase 3: deterministic fit, company relevance, intent, recipient and allowed proof.
+		// Every one of these is a POST because it writes an assessment or a plan; none of them
+		// generates or sends a message.
+		r.Post("/opportunities/{id}/assess", handler.OpportunityAssess)
+		r.Get("/companies/{id}/plan", handler.CompanyPlan)
+		r.Post("/companies/{id}/assess", handler.CompanyAssess)
+		r.Post("/companies/{id}/plans", handler.CompanyPlanCreate)
+		r.Post("/plans/{id}/recipient", handler.PlanRecipient)
+		r.Post("/plans/{id}/status", handler.PlanStatus)
 		r.Get("/sent", handler.Sent)
 		r.Post("/sent/{sendLogID}/resend", handler.SentResend)
 		r.Get("/companies", handler.ListCompanies)
@@ -93,7 +149,7 @@ func main() {
 		r.Post("/companies/{id}/suppress", handler.Suppress)
 		r.Post("/companies/{id}/domain/verify", handler.CompanyVerifyDomain)
 		r.Post("/companies/{id}/domain/update", handler.CompanyUpdateDomain)
-		r.Post("/companies/{id}/generate-draft", handler.CompanyDraft)
+		r.Post("/companies/{id}/generate-draft", handler.LegacyGenerateClosed)
 		r.Post("/companies/{id}/apply-mode", handler.CompanyApplyMode)
 		r.Post("/companies/{id}/segment/reset", handler.CompanySegmentReset)
 		r.Post("/companies/{id}/contacts", handler.ContactAdd)
@@ -113,8 +169,13 @@ func main() {
 		r.Post("/followups/send", handler.ReviewFollowupSend)
 
 		r.Get("/templates", handler.Templates)
-		r.Post("/templates/{id}/update", handler.TemplateUpdate)
+		r.Post("/templates/{id}/update", handler.LegacyTemplateEditClosed)
 
+		// Phase 6: the legacy pipeline's remains, visible and explained rather than hidden.
+		// Nothing here can generate, approve or send; classification is the one write.
+		r.Get("/legacy/drafts", handler.LegacyDrafts)
+		r.Get("/legacy/threads", handler.LegacyThreads)
+		r.Post("/legacy/threads/{id}/classify", handler.LegacyThreadClassify)
 		r.Get("/drafts", handler.Drafts)
 		r.Post("/drafts/{id}/discard", handler.DraftDiscard)
 	})
@@ -131,7 +192,7 @@ func main() {
 		r.Post("/admin/seed/{source}", handler.AdminSeed)
 		r.Post("/admin/seed-us-jobs", handler.AdminSeedUSJobs)
 		r.Post("/admin/enrich", handler.AdminEnrich)
-		r.Post("/admin/draft", handler.AdminDraft)
+		r.Post("/admin/draft", handler.LegacyGenerateClosed)
 		r.Post("/admin/resolve-domains", handler.AdminResolveDomains)
 		r.Post("/admin/domain-search/pause", handler.DomainSearchPause)
 		r.Post("/admin/domain-search/resume", handler.DomainSearchResume)
@@ -175,10 +236,35 @@ func main() {
 	scheduler := worker.NewScheduler(db, redisConn, handler.Enricher(), handler.Scorer(), handler.SeedRegistry(), handler.Verifier(), handler.DomainSearcher(),
 		handler.DraftService(), handler.HasAIProvider(), handler.AIBudget(), handler.SendPolicy(), handler, workerCfg)
 
+	handler.SetWorkerStatus(scheduler.Status)
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	var workerWg sync.WaitGroup
-	scheduler.Run(workerCtx, &workerWg)
-	log.Printf("Worker started: discovery every %v, research every %v, research TTL %v, draft check every %v (AI enabled=%v)",
+	// Two separate decisions, deliberately not one.
+	//
+	// Discovery, research, scoring and domain resolution find and describe companies. None of
+	// them sends anything, so they run in every mode except disabled: an operator working
+	// manually still needs fresh opportunities, and gating research on send automation would
+	// mean the corpus silently stopped growing.
+	//
+	// Sending automatically is the separate decision, and it requires the automation policy to
+	// be configured at all. Even then the loop only asks the policy about already-reviewed
+	// drafts, and the policy refuses by default.
+	automationState := handler.AutomationState()
+	if pipelineMode != send.ModeDisabled {
+		scheduler.Run(workerCtx, &workerWg)
+		log.Printf("Research workers running in %s. They discover and describe; they never send.", pipelineMode)
+	} else {
+		log.Print("Rollout mode is disabled: no background work runs at all")
+	}
+	if automationState.Enabled {
+		runner := worker.NewAutomationRunner(db, handler.Dispatcher(), automationCfg,
+			workerCfg.AutomationInterval, "automation-worker", handler.AIBudgetAvailable)
+		runner.Run(workerCtx, &workerWg)
+	} else {
+		log.Printf("Automatic sending is off: %v", automationState.Reasons)
+	}
+	log.Printf("Worker configuration (research running=%v, automatic sending=%v): discovery every %v, research every %v, research TTL %v, draft check every %v (AI enabled=%v)",
+		pipelineMode != send.ModeDisabled, automationState.Enabled,
 		workerCfg.DiscoveryInterval, workerCfg.ResearchInterval, workerCfg.ResearchTTL, workerCfg.DraftInterval, handler.HasAIProvider())
 
 	// Start server

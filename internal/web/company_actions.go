@@ -262,29 +262,22 @@ func (h *Handler) CompanyUpdateDomain(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
-// CompanyApplyMode switches a company to the "application" segment — a human judgment call for
-// a company too large for the "let me cover this on contract while you hire" pitch to make
-// sense, so the next draft reads as a genuine job application instead (see
-// internal/store/migrations/0015_application_segment.sql and classifySegment's sticky check).
-// A live, non-discarded draft still has to be discarded/regenerated separately — switching the
-// segment alone doesn't rewrite an existing draft.
+// CompanyApplyMode used to set the company's segment to "application", which then decided which
+// template the next draft was built from — a company-wide flag standing in for what this message
+// is actually for. v2 separates the two: what kind of business this is (business_segment) says
+// nothing about why an individual email is being sent, and intent belongs to a contact plan
+// alongside the specific opportunity, recipient and approved proof.
+//
+// So this is now a compatibility redirect. It writes nothing. Sending a person to the contact
+// plan means the intent they wanted gets chosen explicitly, against a real opportunity, rather
+// than implied by a flag they set weeks earlier.
 func (h *Handler) CompanyApplyMode(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-
-	company, err := h.db.GetCompany(ctx, id)
-	if err != nil {
+	if _, err := h.db.GetCompany(r.Context(), id); err != nil {
 		http.Error(w, "Company not found", http.StatusNotFound)
 		return
 	}
-
-	if err := h.db.SetCompanySegment(ctx, id, "application"); err != nil {
-		http.Error(w, "Failed to set segment", http.StatusInternalServerError)
-		return
-	}
-
-	h.logActivity(ctx, "segment", fmt.Sprintf("Switched %s to application mode", company.Name), true)
-	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10)+"/plan", http.StatusSeeOther)
 }
 
 // CompanySegmentReset undoes CompanyApplyMode — clears the manual override and re-scores, so

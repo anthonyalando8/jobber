@@ -1,0 +1,5 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Email compositions</title></head><body>
+<nav><a href="/companies">Companies and plans</a> · <a href="/profile">Profile</a> · <a href="/drafts">All drafts</a></nav>
+<h1>Email compositions</h1><p>Latest 100 manually requested drafts. Open a draft to check current inputs and complete review history. Sending remains disabled; reviewed is not send approval.</p>
+<ul>{{range .}}<li><a href="/compositions/{{.ID}}">{{.Company}}: {{if .Subject}}{{.Subject}}{{else}}Draft {{.ID}}{{end}}</a> — {{.Intent}} — {{.Status}}</li>{{else}}<li>No compositions yet. Select a contact plan before requesting a draft.</li>{{end}}</ul>
+</body></html>

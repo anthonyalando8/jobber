@@ -1,0 +1,12 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Legacy drafts</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f6f6;padding:.6rem}article{border-top:1px solid #ccc;padding:1rem 0}.note{background:#fff8e1;border-left:4px solid #e0a800;padding:.8rem}</style></head><body>
+<nav><a href="/">Dashboard</a> · <a href="/compositions">Compositions</a> · <a href="/legacy/threads">Legacy threads</a> · <a href="/templates">Templates</a></nav>
+<h1>Legacy drafts ({{len .Drafts}})</h1>
+<p class="note">{{.Explanation}}</p>
+<p>These are kept exactly as the old pipeline wrote them. There is no approve or send control on this page, and there is no v2 route that will accept one of these drafts.</p>
+{{range .Drafts}}<article>
+<h2>Draft {{.ID}} — <a href="/companies/{{.CompanyID}}">{{.CompanyName}}</a></h2>
+<p>State {{.State}}{{if .Decision}} · legacy decision {{.Decision}}{{end}} · created {{.CreatedAt}} · <strong>legacy pipeline, not sendable</strong></p>
+<h3>{{.Subject}}</h3><pre>{{.Body}}</pre>
+<p><a href="/companies/{{.CompanyID}}/plan">Create or select a contact plan for {{.CompanyName}}</a> to write a v2 message instead.</p>
+</article>{{else}}<p>No legacy unsent drafts remain.</p>{{end}}
+</body></html>
