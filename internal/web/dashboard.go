@@ -18,14 +18,14 @@ import (
 )
 
 type dashboardMetric struct {
-	Label                    string
-	Count                    int
-	Detail, Href, Tone, Icon string
+	Label                                string
+	Count                                int
+	Detail, Href, Tone, Icon, DetailHref string
 }
 type dashboardAction struct{ Label, Detail, Href string }
 type dashboardActivity struct {
-	Action, Detail, Ago, Exact string
-	Success                    bool
+	Action, Detail, Ago, Exact, Href string
+	Success                          bool
 }
 type dashboardWorker struct {
 	Name, State, LastCycle  string
@@ -184,35 +184,37 @@ func (h *Handler) dashboardSnapshot(ctx context.Context) (*dashboardView, error)
 	} else {
 		v.LastResearch = "No company researched yet"
 	}
-	v.Metrics = []dashboardMetric{
-		{"Companies", c.Companies, "In your workspace", "/companies", "blue", "\u25a5"},
-		{"Opportunities", c.Opportunities, fmt.Sprintf("%d not yet assessed", c.Unassessed), "/opportunities", "violet", "\u25a4"},
-		{"Strong matches", c.Strong, "Current assessment", "/opportunities", "amber", "\u2605"},
-		{"Possible matches", c.Possible, "Current assessment", "/opportunities", "blue", "\u25ce"},
-		{"Unrelated", c.Unrelated, "Current assessment", "/opportunities", "red", "\u2298"},
-		{"Drafts needing attention", c.CompositionReview + c.ApprovalPending, fmt.Sprintf("%d review \u00b7 %d approval", c.CompositionReview, c.ApprovalPending), "/compositions", "amber", "\u2709"},
-		{"Sent", c.Sent, "Accepted v2 send attempts", "/threads", "blue", "\u2197"},
-		{"Replies", c.Replies, fmt.Sprintf("%d conversations with bounces", c.Bounces), "/threads", "blue", "\u21a9"},
-		{"Research queue", c.ResearchQueue, "Verified domains ready", "#research", "blue", "\u2315"},
-		{"Legacy drafts", c.LegacyDrafts, "Historical drafts", "/legacy/drafts", "neutral", "\u25a3"},
-	}
+	v.Metrics = dashboardMetrics(c)
 	if !c.ProfileActive {
 		v.Next = append(v.Next, dashboardAction{"Activate your candidate profile", "Approve the facts used to assess opportunities", "/profile"})
 	}
 	if c.CompositionReview > 0 {
-		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Resolve %d composition reviews", c.CompositionReview), "Semantic review required before approval", "/compositions"})
+		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Resolve %d composition reviews", c.CompositionReview), "Semantic review required before approval", "/compositions?attention=semantic_review"})
 	}
 	if c.ApprovalPending > 0 {
-		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Review %d drafts for approval", c.ApprovalPending), "Reviewed drafts awaiting explicit human approval", "/compositions"})
+		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Review %d drafts for approval", c.ApprovalPending), "Reviewed drafts awaiting explicit human approval", "/compositions?attention=approval_pending"})
 	}
 	if c.OpportunityReview > 0 {
-		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Resolve %d opportunity reviews", c.OpportunityReview), "Selection needs operator attention", "/opportunities"})
+		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Resolve %d opportunity reviews", c.OpportunityReview), "Selection needs operator attention", "/opportunities?assessment=review_required"})
+	}
+	// The bottleneck, named directly. A strong match with nowhere to send an application is not
+	// a matching problem, and showing it next to the other match counts is what made it look like
+	// one for so long.
+	if c.StrongMissingDestination > 0 {
+		v.Next = append(v.Next, dashboardAction{
+			fmt.Sprintf("%d strong %s · %d missing an acceptable destination", c.Strong, plural(c.Strong, "match", "matches"), c.StrongMissingDestination),
+			"Contact discovery searches for an application route or a hiring contact",
+			"/opportunities?fit=strong_match&recipient=missing"})
 	}
 	if c.Strong > 0 {
-		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Explore %d strong matches", c.Strong), "Open an opportunity to plan your approach", "/opportunities"})
+		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Explore %d strong matches", c.Strong), "Open an opportunity to plan your approach", "/opportunities?fit=strong_match"})
 	}
 	if c.ResearchQueue > 0 {
-		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Research %d companies", c.ResearchQueue), "Research continues independently of automatic sending", "/companies"})
+		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Research %d companies", c.ResearchQueue), "Research continues independently of automatic sending", "/companies?research=queue"})
+	}
+	if c.ContactSearchIdentityBlocked > 0 {
+		v.Problems = append(v.Problems, fmt.Sprintf("%d compan%s cannot be searched for contacts until their domain is corrected",
+			c.ContactSearchIdentityBlocked, plural(c.ContactSearchIdentityBlocked, "y", "ies")))
 	}
 	if len(v.Next) > 4 {
 		v.Next = v.Next[:4]
@@ -229,7 +231,7 @@ func (h *Handler) dashboardSnapshot(ctx context.Context) (*dashboardView, error)
 	}
 	sort.SliceStable(activity, func(i, j int) bool { return activity[i].Timestamp.After(activity[j].Timestamp) })
 	for _, e := range activity {
-		v.Activity = append(v.Activity, dashboardActivity{Action: e.Action, Detail: e.Detail, Success: e.Success, Ago: dashboardAgo(e.Timestamp, now), Exact: e.Timestamp.Format(time.RFC3339)})
+		v.Activity = append(v.Activity, dashboardActivity{Action: e.Action, Detail: e.Detail, Success: e.Success, Ago: dashboardAgo(e.Timestamp, now), Exact: e.Timestamp.Format(time.RFC3339), Href: e.Href})
 		if len(v.Activity) == 6 {
 			break
 		}
@@ -237,12 +239,26 @@ func (h *Handler) dashboardSnapshot(ctx context.Context) (*dashboardView, error)
 	h.dashboardCache = v
 	return v, nil
 }
+func dashboardMetrics(c *store.DashboardCounts) []dashboardMetric {
+	return []dashboardMetric{
+		{"Companies", c.Companies, "In your workspace", "/companies", "blue", "\u25a5", ""},
+		{"Opportunities", c.Opportunities, fmt.Sprintf("%d not yet assessed", c.Unassessed), "/opportunities", "violet", "\u25a4", "/opportunities?assessment=unassessed"},
+		{"Strong matches", c.Strong, "Current assessment", "/opportunities?fit=strong_match", "amber", "\u2605", ""},
+		{"Possible matches", c.Possible, "Current assessment", "/opportunities?fit=possible_match", "blue", "\u25ce", ""},
+		{"Unrelated", c.Unrelated, "Current assessment", "/opportunities?fit=unrelated", "red", "\u2298", ""},
+		{"Drafts needing attention", c.CompositionReview + c.ApprovalPending, fmt.Sprintf("%d review \u00b7 %d approval", c.CompositionReview, c.ApprovalPending), "/compositions?attention=required", "amber", "\u2709", ""},
+		{"Sent", c.Sent, "Accepted v2 send attempts", "/messages?state=accepted", "blue", "\u2197", ""},
+		{"Replies", c.Replies, fmt.Sprintf("%d conversations with bounces", c.Bounces), "/threads?event=replied", "blue", "\u21a9", ""},
+		{"Research queue", c.ResearchQueue, "Verified domains ready", "/companies?research=queue", "blue", "\u2315", ""},
+		{"Legacy drafts", c.LegacyDrafts, "Historical drafts", "/legacy/drafts", "neutral", "\u25a3", ""},
+	}
+}
 func populateWorkerView(v *dashboardView, source func() []worker.LoopStatus, now time.Time) {
 	if v.Rollout.Mode == send.ModeDisabled {
 		v.WorkerSummary = "Research stopped \u00b7 rollout disabled"
 	} else if source != nil {
 		states := source()
-		alive := len(states) == 3
+		alive := len(states) == len(worker.ReportedLoops)
 		busy := false
 		for _, s := range states {
 			if !s.LastFailureAt.IsZero() && now.Sub(s.LastFailureAt) < time.Hour {
@@ -284,6 +300,8 @@ func activityLabel(action string) string {
 		return "Domain verification"
 	case "worker:domain_resolve":
 		return "Domain research"
+	case "worker:contact_discovery", "contact_discovery":
+		return "Contact discovery"
 	case "match":
 		return "Opportunity assessment"
 	}
@@ -329,5 +347,5 @@ func (h *Handler) DashboardSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(rendered.Bytes())
+	_, _ = w.Write([]byte(openExternalLinksInNewTab(rendered.String())))
 }

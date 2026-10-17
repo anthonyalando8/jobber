@@ -80,11 +80,12 @@
 <body>
     <div class="container">
         <div class="back">
-            <a href="/companies">← Back to Companies</a>
+            <a href="{{if .backURL}}{{.backURL}}{{else}}/companies{{end}}">{{if .backLabel}}{{.backLabel}}{{else}}Back to companies{{end}}</a>
         </div>
 
         <div class="header">
-            <h1>{{.company.Name}}</h1>
+            <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{if .backURL}}{{.backURL}}{{else}}/companies{{end}}">{{if .backLabel}}{{.backLabel}}{{else}}Back to companies{{end}}</a> / {{.company.Name}}</nav>
+<h1>{{.company.Name}}</h1>
             <div class="meta">
                 <div><strong>Domain:</strong> {{.company.Domain}}
                     <span class="badge {{.company.DomainStatus}}">{{.company.DomainStatus}}</span>
@@ -116,6 +117,8 @@
             </div>
         </div>
 
+<p><a href="/opportunities?company_id={{.company.ID}}">{{.opportunityCount}} opportunities for {{.company.Name}}</a> &middot; <a href="/compositions?company_id={{.company.ID}}">All company compositions</a></p>
+{{if .compositions}}<section><h2>V2 compositions</h2><ul>{{range .compositions}}<li><a href="/compositions/{{.ID}}?return={{urlquery $.currentURL}}">{{if .Subject}}{{.Subject}}{{else}}Draft {{.ID}}{{end}}</a> &middot; {{.Status}}</li>{{end}}</ul></section>{{end}}
         {{if .phase3}}
         <div class="card" style="margin-top:20px; border-left:4px solid #4a6fa5;">
             <h2>Candidate fit and contact intent</h2>
@@ -128,7 +131,7 @@
                 <tbody>
                 {{range .phase3.Opportunities}}
                 <tr>
-                    <td style="padding:5px; border-bottom:1px solid #f0f0f0;"><a href="/opportunities/{{.Opportunity.ID}}">{{if .Opportunity.Facts.Title}}{{.Opportunity.Facts.Title}}{{else}}Unknown advertised title{{end}}</a></td>
+                    <td style="padding:5px; border-bottom:1px solid #f0f0f0;"><a href="/opportunities/{{.Opportunity.ID}}?return={{urlquery $.currentURL}}">{{if .Opportunity.Facts.Title}}{{.Opportunity.Facts.Title}}{{else}}Unknown advertised title{{end}}</a></td>
                     <td style="padding:5px; border-bottom:1px solid #f0f0f0;">{{.Classification}}</td>
                     <td style="padding:5px; border-bottom:1px solid #f0f0f0;">{{if .Stale}}stale — {{.StaleWhy}}{{else}}current{{end}}</td>
                 </tr>
@@ -145,13 +148,13 @@
             </p>
             {{if .phase3.Plans}}
             <p style="font-size:13px;">Contact plans:
-                {{range .phase3.Plans}}<span style="display:inline-block; margin-right:10px;">{{.Intent}} → {{.RecipientEmail}} ({{.Status}}, revision {{.Revision}})</span>{{end}}
+                {{range .phase3.Plans}}<span style="display:inline-block; margin-right:10px;"><a href="/companies/{{$.company.ID}}/plan?return={{urlquery $.currentURL}}#plan-{{.ID}}">{{.Intent}}</a> → {{.RecipientEmail}} ({{.Status}}, revision {{.Revision}})</span>{{end}}
             </p>
             {{else}}
             <p style="font-size:13px; color:#666;">No contact plan has been recorded. Nothing may be drafted for this company until one is.</p>
             {{end}}
             <div class="actions" style="margin-top:10px;">
-                <a href="/companies/{{.company.ID}}/plan" style="display:inline-block; padding:6px 12px; background:#4a6fa5; color:#fff; border-radius:4px; text-decoration:none; font-size:13px;">Open contact plan workspace</a>
+                <a href="/companies/{{.company.ID}}/plan?return={{urlquery .currentURL}}" style="display:inline-block; padding:6px 12px; background:#4a6fa5; color:#fff; border-radius:4px; text-decoration:none; font-size:13px;">Open contact plan workspace</a>
                 <form method="POST" action="/companies/{{.company.ID}}/assess" style="display:inline">
                     <button type="submit">Rerun matching and relevance</button>
                 </form>
@@ -293,6 +296,14 @@
             <div>
                 <div class="card">
                     <h2>Contacts</h2>
+                    <p style="font-size:14px;color:#666">If no contact here is an acceptable recipient, contact discovery can search the public web for an application route or a hiring contact. It stores what it finds with its source; it creates no plan and sends nothing.</p>
+                    <p>
+                      <a href="/companies/{{.company.ID}}/contact-search?return=/companies/{{.company.ID}}">Contact discovery &rarr;</a>
+                    </p>
+                    <form method="POST" action="/companies/{{.company.ID}}/contact-search" style="margin-bottom:12px">
+                      <input type="hidden" name="return" value="/companies/{{.company.ID}}">
+                      <button type="submit">Find contact</button>
+                    </form>
                     {{range .contacts}}
                     <div class="contact-item{{if eq .Status "bad"}} bad{{end}}">
                         <div class="contact-row">
@@ -347,7 +358,7 @@
                     <div class="signal">
                         <div class="signal-kind">{{.Kind}}</div>
                         <div class="signal-detail">{{.Detail}}</div>
-                        {{if .URL}}<a href="{{.URL}}" class="signal-url" target="_blank">source →</a>{{end}}
+                        {{if .URL}}<a href="{{.URL}}" class="signal-url" target="_blank" rel="noopener noreferrer">source →</a>{{end}}
                     </div>
                     {{else}}
                     <p style="color: #999; font-size: 14px;">No signals extracted yet. Run enrichment.</p>

@@ -17,6 +17,7 @@ import (
 
 	"github.com/anthonyalando8/prospector/internal/aibudget"
 	"github.com/anthonyalando8/prospector/internal/assess"
+	"github.com/anthonyalando8/prospector/internal/contactsearch"
 	"github.com/anthonyalando8/prospector/internal/dispatch"
 	"github.com/anthonyalando8/prospector/internal/domainsearch"
 	"github.com/anthonyalando8/prospector/internal/draft"
@@ -42,6 +43,7 @@ type Handler struct {
 	scorer             *score.Scorer
 	verifier           verify.Verifier
 	domainSearcher     *domainsearch.Searcher
+	contactEngine      *contactsearch.Engine
 	aiBudget           *aibudget.Budget
 	sendPolicy         sendpolicy.Config
 	smtpHost           string
@@ -128,6 +130,15 @@ func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
 		}
 	}
 	domainSearcher := domainsearch.NewSearcher(redisConn, os.Getenv("GOOGLE_SEARCH_API_KEY"), os.Getenv("GOOGLE_SEARCH_CX"), domainSearchDailyLimit)
+
+	// Second-stage contact discovery. It shares the search credentials with domain resolution but
+	// keeps its own budget, because the two answer different questions and a shared allowance
+	// would let whichever ran first starve the other. With no credentials configured it still
+	// runs: the employer's own careers and team pages are reachable by direct fetch, and they are
+	// the highest-trust evidence this pipeline has.
+	contactEngine := contactsearch.NewEngine(db, enricher,
+		contactsearch.NewGoogleProvider(os.Getenv("GOOGLE_SEARCH_API_KEY"), os.Getenv("GOOGLE_SEARCH_CX")),
+		contactsearch.NewBudget(redisConn, contactBudgetConfig()), contactEngineConfig())
 
 	// Get SMTP settings from env
 	smtpHost := os.Getenv("SMTP_HOST")
@@ -246,6 +257,7 @@ func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
 		scorer:             scorer,
 		verifier:           verifier,
 		domainSearcher:     domainSearcher,
+		contactEngine:      contactEngine,
 		aiBudget:           aiBudget,
 		sendPolicy:         policyCfg,
 		smtpHost:           smtpHost,
@@ -281,6 +293,11 @@ func (h *Handler) Verifier() verify.Verifier { return h.verifier }
 
 // DomainSearcher returns the search-based domain resolver this handler uses.
 func (h *Handler) DomainSearcher() *domainsearch.Searcher { return h.domainSearcher }
+
+// ContactEngine returns the contact-discovery engine this handler uses. The worker is handed
+// this same instance, so the manual "Find contact" action and the autonomous loop share one
+// queue, one budget and one implementation.
+func (h *Handler) ContactEngine() *contactsearch.Engine { return h.contactEngine }
 
 // DraftService returns the draft template service this handler uses.
 func (h *Handler) DraftService() *draft.TemplateService { return h.draftService }
@@ -370,76 +387,33 @@ const companiesPageSize = 50
 // recency and searchable by name/domain, with real pagination — numbered page links and a
 // result count, not just a query param nobody could discover.
 func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	f := store.CompanyFilter{
-		Status:       r.URL.Query().Get("status"),
-		Segment:      r.URL.Query().Get("segment"),
-		DomainStatus: r.URL.Query().Get("domain_status"),
-		Market:       r.URL.Query().Get("market"),
-		CreatedSince: r.URL.Query().Get("created"),
-		Search:       strings.TrimSpace(r.URL.Query().Get("q")),
-	}
-	pageStr := r.URL.Query().Get("page")
-	page := 0
-	if pageStr != "" {
-		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-			page = p - 1
-		}
-	}
-
-	limit := companiesPageSize
-	offset := page * limit
-
-	companies, err := h.db.ListCompanies(ctx, f, limit, offset)
+	values := r.URL.Query()
+	warnings := []string{}
+	f := store.CompanyFilter{Search: textFilter(values.Get("q"), &warnings), Source: textFilter(values.Get("source"), &warnings),
+		Status:       enumFilter(values, "status", "new,enriched,drafted,approved,sent,replied,call,quoted,won,lost,skip", &warnings),
+		Segment:      enumFilter(values, "segment", "agency,incubator,hiring,hiring_us,enterprise,sme,application,unknown", &warnings),
+		DomainStatus: enumFilter(values, "domain_status", "unknown,candidate,verified,failed,manual", &warnings),
+		Market:       enumFilter(values, "market", "kenya,us", &warnings), CreatedSince: enumFilter(values, "created", "5m,1h,today,7d", &warnings),
+		Research: enumFilter(values, "research", "queue,researched,unresearched,recent", &warnings), HasOpportunities: enumFilter(values, "has_opportunities", "yes,no", &warnings), HasStrong: enumFilter(values, "has_strong", "yes,no", &warnings)}
+	total, err := h.db.CountCompanies(r.Context(), f)
 	if err != nil {
-		log.Printf("ListCompanies: failed to list companies (%+v page=%d): %v", f, page, err)
-		http.Error(w, "Failed to load companies", http.StatusInternalServerError)
+		http.Error(w, "Cannot count companies", 500)
 		return
 	}
-
-	total, err := h.db.CountCompanies(ctx, f)
+	totalPages := max(1, (total+companiesPageSize-1)/companiesPageSize)
+	currentPage := min(pageNumber(values), totalPages)
+	companies, err := h.db.ListCompanies(r.Context(), f, companiesPageSize, (currentPage-1)*companiesPageSize)
 	if err != nil {
-		log.Printf("ListCompanies: failed to count companies: %v", err)
+		http.Error(w, "Cannot load companies", 500)
+		return
 	}
-	totalPages := (total + limit - 1) / limit
-	if totalPages < 1 {
-		totalPages = 1
-	}
-	currentPage := page + 1
-
 	urlFor := func(p int) string { return companiesURL(f, p) }
-
-	prevURL, nextURL := "", ""
-	if page > 0 {
-		prevURL = urlFor(currentPage - 1)
-	}
-	if currentPage < totalPages {
-		nextURL = urlFor(currentPage + 1)
-	}
-	// currentURL is where the inline "fix domain" form (per failed-domain row) redirects back
-	// to — so correcting a domain from a filtered/paged view doesn't lose that filter/page.
 	currentURL := urlFor(currentPage)
-
-	w.Header().Set("Content-Type", "text/html")
-	renderTemplate(w, "companies.html", map[string]interface{}{
-		"companies":    companies,
-		"status":       f.Status,
-		"segment":      f.Segment,
-		"domainStatus": f.DomainStatus,
-		"market":       f.Market,
-		"created":      f.CreatedSince,
-		"query":        f.Search,
-		"page":         currentPage,
-		"totalPages":   totalPages,
-		"total":        total,
-		"hasPrev":      page > 0,
-		"hasNext":      currentPage < totalPages,
-		"prevURL":      prevURL,
-		"nextURL":      nextURL,
-		"currentURL":   currentURL,
-		"pageLinks":    paginationWindow(currentPage, totalPages, urlFor),
-	})
+	parsed, _ := url.Parse(currentURL)
+	renderTemplate(w, "companies.html", map[string]any{"companies": companies, "status": f.Status, "segment": f.Segment, "domainStatus": f.DomainStatus, "market": f.Market, "created": f.CreatedSince, "query": f.Search,
+		"source": f.Source, "research": f.Research, "hasOpportunities": f.HasOpportunities, "hasStrong": f.HasStrong, "warnings": warnings, "activeFilters": activeFilters(parsed.Query()),
+		"page": currentPage, "totalPages": totalPages, "total": total, "hasPrev": currentPage > 1, "hasNext": currentPage < totalPages,
+		"prevURL": urlFor(currentPage - 1), "nextURL": urlFor(currentPage + 1), "currentURL": currentURL, "pageLinks": paginationWindow(currentPage, totalPages, urlFor)})
 }
 
 // paginationLink is one entry in the numbered pagination strip — either a real page number
@@ -518,6 +492,11 @@ func companiesURL(f store.CompanyFilter, page int) string {
 	}
 	if f.Search != "" {
 		v.Set("q", f.Search)
+	}
+	for key, value := range map[string]string{"source": f.Source, "research": f.Research, "has_opportunities": f.HasOpportunities, "has_strong": f.HasStrong} {
+		if value != "" {
+			v.Set(key, value)
+		}
 	}
 	if page > 1 {
 		v.Set("page", strconv.Itoa(page))
@@ -616,8 +595,19 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ViewCompany: failed to load Phase 3 assessment for %d: %v", id, err)
 	}
 
+	opportunityCount, err := h.db.CountOpportunityList(ctx, store.OpportunityListFilter{CompanyID: id})
+	if err != nil {
+		http.Error(w, "Cannot count company opportunities", 500)
+		return
+	}
+	compositions, err := h.db.ListCompositionPage(ctx, store.CompositionListFilter{CompanyID: id}, 20, 0)
+	if err != nil {
+		http.Error(w, "Cannot load company compositions", 500)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "company.html", map[string]interface{}{
+		"backURL": safeReturn(r.URL.Query().Get("return"), "/companies"), "backLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/companies")), "currentURL": r.URL.RequestURI(), "opportunityCount": opportunityCount, "compositions": compositions,
 		"phase3":              phase3,
 		"company":             company,
 		"contacts":            contacts,
@@ -1275,6 +1265,6 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 		http.Error(w, "Template error", 500)
 		return
 	}
-	_, _ = w.Write([]byte(html))
+	_, _ = w.Write([]byte(openExternalLinksInNewTab(html)))
 
 }

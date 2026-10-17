@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthonyalando8/prospector/internal/activity"
 	"github.com/anthonyalando8/prospector/internal/aibudget"
+	"github.com/anthonyalando8/prospector/internal/contactsearch"
 	"github.com/anthonyalando8/prospector/internal/domainsearch"
 	"github.com/anthonyalando8/prospector/internal/draft"
 	"github.com/anthonyalando8/prospector/internal/enrich"
@@ -54,17 +55,28 @@ type Config struct {
 	// purpose: the automation cap is one or two sends a day, so polling faster would only mean
 	// re-deciding the same refusals.
 	AutomationInterval time.Duration // default 15m
+	// ContactDiscoveryInterval is how often the loop *checks* for a company blocked on contact
+	// data. It is deliberately the slowest loop here: each company's own cooldown is measured in
+	// days, and the daily budget is small, so checking more often would only re-read a queue
+	// whose answer has not changed.
+	ContactDiscoveryInterval time.Duration // default 45m
+	// SuppressionInterval is how often postings are checked for having expired or quietly
+	// disappeared from their source. Slow on purpose: the signals it reads are a published
+	// closing date and a two-week absence, neither of which changes between ticks.
+	SuppressionInterval time.Duration // default 6h
 }
 
 // DefaultConfig returns review.md's suggested defaults.
 func DefaultConfig() Config {
 	return Config{
-		AutomationInterval:    15 * time.Minute,
-		DiscoveryInterval:     20 * time.Minute,
-		ResearchInterval:      30 * time.Second,
-		ResearchTTL:           24 * time.Hour,
-		DraftInterval:         60 * time.Second,
-		DomainResolveInterval: 30 * time.Minute,
+		AutomationInterval:       15 * time.Minute,
+		DiscoveryInterval:        20 * time.Minute,
+		ResearchInterval:         30 * time.Second,
+		ResearchTTL:              24 * time.Hour,
+		DraftInterval:            60 * time.Second,
+		DomainResolveInterval:    30 * time.Minute,
+		ContactDiscoveryInterval: 45 * time.Minute,
+		SuppressionInterval:      6 * time.Hour,
 	}
 }
 
@@ -80,20 +92,23 @@ type Scheduler struct {
 	verifier       verify.Verifier
 	domainSearcher *domainsearch.Searcher
 	draftService   *draft.TemplateService
+	contactEngine  *contactsearch.Engine
 	hasAI          bool
 	budget         *aibudget.Budget
 	policyCfg      sendpolicy.Config
 	sender         Sender
 	cfg            Config
 
-	discoveryBusy     atomic.Bool
-	researchBusy      atomic.Bool
-	draftBusy         atomic.Bool
-	domainResolveBusy atomic.Bool
+	discoveryBusy        atomic.Bool
+	researchBusy         atomic.Bool
+	draftBusy            atomic.Bool
+	domainResolveBusy    atomic.Bool
+	contactDiscoveryBusy atomic.Bool
+	suppressionBusy      atomic.Bool
 }
 
 // NewScheduler creates a scheduler. Nothing runs until Run is called.
-func NewScheduler(db *store.DB, redisConn *redis.Client, enricher *enrich.Enricher, scorer *score.Scorer, seedRegistry *seed.Registry, verifier verify.Verifier, domainSearcher *domainsearch.Searcher, draftService *draft.TemplateService, hasAI bool, budget *aibudget.Budget, policyCfg sendpolicy.Config, sender Sender, cfg Config) *Scheduler {
+func NewScheduler(db *store.DB, redisConn *redis.Client, enricher *enrich.Enricher, scorer *score.Scorer, seedRegistry *seed.Registry, verifier verify.Verifier, domainSearcher *domainsearch.Searcher, draftService *draft.TemplateService, contactEngine *contactsearch.Engine, hasAI bool, budget *aibudget.Budget, policyCfg sendpolicy.Config, sender Sender, cfg Config) *Scheduler {
 	return &Scheduler{
 		db:             db,
 		redis:          redisConn,
@@ -103,6 +118,7 @@ func NewScheduler(db *store.DB, redisConn *redis.Client, enricher *enrich.Enrich
 		verifier:       verifier,
 		domainSearcher: domainSearcher,
 		draftService:   draftService,
+		contactEngine:  contactEngine,
 		hasAI:          hasAI,
 		budget:         budget,
 		policyCfg:      policyCfg,
@@ -116,11 +132,13 @@ func NewScheduler(db *store.DB, redisConn *redis.Client, enricher *enrich.Enrich
 // until ctx is cancelled. wg lets the caller wait for every loop to actually finish its
 // current tick before the process exits (graceful shutdown).
 func (s *Scheduler) Run(ctx context.Context, wg *sync.WaitGroup) {
-	wg.Add(4)
+	wg.Add(6)
 	go s.loop(ctx, wg, "discovery", s.cfg.DiscoveryInterval, s.discoveryTick)
 	go s.loop(ctx, wg, "research", s.cfg.ResearchInterval, s.researchTick)
 	go s.loop(ctx, wg, "draft", s.cfg.DraftInterval, s.draftTick)
 	go s.loop(ctx, wg, "domain-resolve", s.cfg.DomainResolveInterval, s.domainResolveTick)
+	go s.loop(ctx, wg, contactDiscoveryLoop, s.cfg.ContactDiscoveryInterval, s.contactDiscoveryTick)
+	go s.loop(ctx, wg, suppressionLoop, s.cfg.SuppressionInterval, s.suppressionTick)
 }
 
 // loop runs tick immediately, then again every interval, until ctx is cancelled. A busy tick
@@ -410,6 +428,87 @@ func (s *Scheduler) domainResolveTick(ctx context.Context) {
 	}
 
 	activity.Log(ctx, s.redis, "worker:domain_resolve", fmt.Sprintf("resolved %d of %d attempted", resolved, attempted), resolved > 0)
+}
+
+// contactDiscoveryBatchSize caps how many companies one tick considers. A generous batch is
+// harmless because the budget stops the run long before this number does; what actually paces
+// this loop is the daily company allowance and each company's own multi-day cooldown.
+const contactDiscoveryBatchSize = 10
+
+// contactDiscoveryLoop is the loop's name in the status report.
+const contactDiscoveryLoop = "contact-discovery"
+
+// contactDiscoveryTick looks for a relevant opportunity with nowhere acceptable to send, and
+// searches the public web for an application route or a hiring contact.
+//
+// It runs alongside discovery and research and is entirely independent of sending: automation
+// being off does not stop it, for the same reason research does not stop. It finds contact data;
+// it creates no plan, approves nothing and sends nothing, so there is no version of this loop
+// running that could put a message in front of anyone.
+func (s *Scheduler) contactDiscoveryTick(ctx context.Context) {
+	if s.contactEngine == nil {
+		return
+	}
+	if !s.contactDiscoveryBusy.CompareAndSwap(false, true) {
+		return // the previous tick is still working; never stack two searches
+	}
+	defer s.contactDiscoveryBusy.Store(false)
+
+	batch, err := s.contactEngine.RunBatch(ctx, contactDiscoveryBatchSize)
+	if err != nil {
+		s.recordFailure(contactDiscoveryLoop)
+		log.Printf("worker: contact-discovery: %v", err)
+		activity.Log(ctx, s.redis, "worker:contact_discovery", "Contact discovery cycle failed; inspect server logs", false)
+		return
+	}
+	if batch.Examined == 0 {
+		return // nothing eligible, or every eligible company is in cooldown — not worth logging
+	}
+	detail := fmt.Sprintf("examined %d compan%s: %d searched, %d gained an acceptable destination, %d skipped, %d failed",
+		batch.Examined, pluralY(batch.Examined), batch.Searched, batch.Resolved, batch.Skipped, batch.Failed)
+	if batch.StopEarly != "" {
+		detail += " (stopped early: " + batch.StopEarly + ")"
+	}
+	activity.Log(ctx, s.redis, "worker:contact_discovery", detail, batch.Failed == 0)
+}
+
+// suppressionLoop is the loop's name in the status report.
+const suppressionLoop = "suppression"
+
+// suppressionTick takes postings out of the working queues once they are demonstrably no longer
+// live: the source marked them closed, the published closing date has passed, or they stopped
+// appearing in a feed that is still being read successfully.
+//
+// Without this loop the expiry date every adapter stores was never read by anything, and a
+// posting taken down last month stayed in the priority list, the dashboard queue and contact
+// discovery indefinitely. It writes no messages and contacts no one — it only stops work being
+// offered on vacancies that have ended.
+func (s *Scheduler) suppressionTick(ctx context.Context) {
+	if !s.suppressionBusy.CompareAndSwap(false, true) {
+		return // the previous sweep is still working
+	}
+	defer s.suppressionBusy.Store(false)
+
+	result, err := s.db.SweepOpportunitySuppressions(ctx, store.DefaultSuppressionPolicy())
+	if err != nil {
+		s.recordFailure(suppressionLoop)
+		log.Printf("worker: suppression: %v", err)
+		activity.Log(ctx, s.redis, "worker:suppression", "Opportunity suppression sweep failed; inspect server logs", false)
+		return
+	}
+	if len(result.Errors) > 0 {
+		s.recordFailure(suppressionLoop)
+		log.Printf("worker: suppression: %d of %d decisions failed, first: %v",
+			len(result.Errors), len(result.Errors)+result.Total(), result.Errors[0])
+	}
+	if result.Total() == 0 {
+		return // nothing has expired since the last sweep — not worth logging
+	}
+	counts := result.ByBasis()
+	detail := fmt.Sprintf("suppressed %d opportunit%s: %d marked closed by the source, %d past their closing date, %d gone from a live feed",
+		result.Total(), pluralY(result.Total()), counts[store.BasisSourceClosed],
+		counts[store.BasisExpiryPassed], counts[store.BasisAbsentFromSource])
+	activity.Log(ctx, s.redis, "worker:suppression", detail, len(result.Errors) == 0)
 }
 
 func pluralY(n int) string {

@@ -1,0 +1,160 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact discovery - {{.View.Company.Name}} - Prospector</title><link rel="stylesheet" href="/static/contact-discovery.css?v=1"></head><body>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/companies">Companies</a> / <a href="/companies/{{.CompanyID}}">{{.View.Company.Name}}</a> / Contact discovery</nav>
+
+<header>
+<h1>Contact discovery</h1>
+<p class="list-intro">{{.View.Company.Name}} &middot; {{.View.Company.Domain}} &mdash; this page finds contact data. It never creates a contact plan, never changes an opportunity's classification and never sends anything. Whether a discovered contact may actually receive a message is decided by the existing recipient rules.</p>
+</header>
+
+{{with .View}}
+<section class="cd-verdict {{.Verdict}}" aria-label="Current state">
+<span class="cd-verdict-mark" aria-hidden="true">{{if eq .Verdict "ready"}}&#10003;{{else if eq .Verdict "review"}}&#9888;{{else}}&#10005;{{end}}</span>
+<div>
+<h2>{{.VerdictTitle}}</h2>
+{{if .ApplicationDestination}}{{if .ApplicationDestination.Acceptable}}<p class="cd-destination">{{.ApplicationDestination.Label}} &mdash; {{.ApplicationDestination.Value}}</p>{{end}}{{end}}
+{{if .Destination}}<p class="cd-destination">Outreach would reach {{.Destination.Label}} &mdash; {{.Destination.Value}}</p><p class="cd-why">{{.Destination.Reason}}</p>{{end}}
+{{if .VerdictDetail}}<p>{{.VerdictDetail}}</p>{{end}}
+{{if .Gap}}<p class="cd-why">{{.Gap}}</p>{{end}}
+</div>
+</section>
+
+<div class="cd-status-row">
+<div class="cd-status">
+<h3>Employer identity</h3>
+{{if .Identity.Established}}<strong><span class="badge green">Established</span> {{.Identity.Domain}}</strong><small>{{.Identity.Basis}}.</small>
+{{else}}<strong><span class="badge red">Not established</span></strong><small>{{.Identity.Reason}}</small>{{end}}
+</div>
+<div class="cd-status">
+<h3>Application route</h3>
+{{if .ApplicationDestination}}{{if .ApplicationDestination.Acceptable}}<strong><span class="badge green">Published</span></strong><small>This vacancy can be applied to without any email address.</small>{{else}}<strong><span class="badge neutral">None published</span></strong><small>No apply form or applicant tracking route was found for this vacancy.</small>{{end}}
+{{else}}<strong><span class="badge neutral">Not applicable</span></strong><small>No vacancy is pinned to this search, so there is no application route to look for.</small>{{end}}
+</div>
+<div class="cd-status">
+<h3>Purpose being searched for</h3>
+{{if and .Task .Task.Intent}}<strong>{{.Task.Intent}}</strong><small>Taken from this company's contact plan.</small>
+{{else}}<strong><span class="badge neutral">Not established</span></strong><small>No contact plan exists, so no intent is assumed. The search looks for a recruiter or an engineering contact and invents no purpose.</small>{{end}}
+</div>
+</div>
+
+<form class="cd-action" method="post" action="/companies/{{$.CompanyID}}/contact-search">
+<input type="hidden" name="return" value="{{$.BackURL}}">
+<button type="submit">Find contact</button>
+<p>Runs the same queue and the same pipeline the background worker runs, and clears the cooldown &mdash; an explicit request is information the automatic schedule did not have.{{if not .ProviderOn}} No search provider is configured, so only this employer's own pages will be read.{{end}}</p>
+</form>
+
+<div class="cd-section-heading">
+<h2>Discovered candidates</h2>
+<span class="cd-count">{{if .Candidates}}{{len .Candidates}} found &middot; {{.Promoted}} promoted &middot; {{.NeedsReview}} needing review &middot; {{.PeopleWithoutEmail}} without an address{{end}}</span>
+</div>
+<p class="list-intro">A person and an address are separate facts. Finding a name never creates an address, and every candidate below shows the source that supports it.</p>
+
+{{range .Candidates}}
+<article class="cd-candidate {{.Tone}}">
+<div class="cd-candidate-head">
+<h3>{{.Headline}}</h3>
+{{if .RoleTitle}}<span class="cd-role">{{.RoleTitle}}</span>{{end}}
+</div>
+
+<div class="cd-badges">
+{{if eq .Status "promoted"}}<span class="badge green">Promoted to a contact</span>
+{{else if eq .Status "review_required"}}<span class="badge amber">Needs human review</span>
+{{else if eq .Status "superseded"}}<span class="badge neutral">Superseded</span>
+{{else if eq .Status "rejected"}}<span class="badge red">Rejected</span>
+{{else}}<span class="badge blue">Candidate</span>{{end}}
+{{if .RecipientFunction}}<span class="badge violet">{{.RecipientFunction}}</span>{{end}}
+{{if eq .Confidence "high"}}<span class="badge green">High confidence</span>
+{{else if eq .Confidence "medium"}}<span class="badge blue">Medium confidence</span>
+{{else}}<span class="badge neutral">Low confidence</span>{{end}}
+{{if .Inferred}}<span class="badge red">Inferred, not published</span>
+{{else if .Email}}<span class="badge neutral">{{.EmailProvenance}}</span>{{end}}
+{{if .EmployerOwned}}<span class="badge blue">Employer-owned evidence</span>{{end}}
+</div>
+
+<dl class="key-values">
+{{if .Email}}<div><dt>Address</dt><dd><span class="cd-address">{{.Email}}</span></dd></div>
+{{else if eq .Kind "person"}}<div><dt>Address</dt><dd><span class="cd-address none">none published</span></dd></div>{{end}}
+{{if .ApplicationURL}}<div><dt>Apply at</dt><dd><a href="{{.ApplicationURL}}" target="_blank" rel="nofollow noopener noreferrer">{{.ApplicationURL}}</a></dd></div>{{end}}
+{{if .FunctionEvidence}}<div><dt>Why this function</dt><dd>{{.FunctionEvidence}}</dd></div>{{end}}
+{{if .Email}}<div><dt>Endpoint</dt><dd>{{.EndpointPurpose}}{{if not .EndpointContactable}} &mdash; not a human mailbox{{end}}</dd></div>{{end}}
+<div><dt>Verification</dt><dd>{{.Verification}}</dd></div>
+<div><dt>Strongest source</dt><dd>trust {{.BestSourceTrust}} / 100</dd></div>
+<div><dt>Discovered</dt><dd>{{.DiscoveredAt.Format "2 Jan 2006, 15:04"}}</dd></div>
+{{if .RejectedReason}}<div><dt>Held because</dt><dd>{{.RejectedReason}}</dd></div>{{end}}
+</dl>
+
+{{if .Note}}<p class="cd-note">{{.Note}}</p>{{end}}
+
+<details class="cd-evidence">
+<summary>Provenance &middot; {{len .Evidence}} source{{if ne (len .Evidence) 1}}s{{end}}</summary>
+<ol>
+{{range .Evidence}}
+<li>
+<div class="cd-source-line"><span class="badge {{if .Employer}}blue{{else}}neutral{{end}}">{{.SourceType}}</span><span>trust {{.Trust}}</span><span>via {{.Method}}{{if .Provider}} / {{.Provider}}{{end}}</span></div>
+{{if .SourceURL}}<a href="{{.SourceURL}}" target="_blank" rel="nofollow noopener noreferrer">{{.SourceURL}}</a>{{end}}
+<q class="cd-excerpt">{{.Excerpt}}</q>
+<span class="cd-observed">Observed {{.ObservedAt.Format "2 Jan 2006, 15:04"}}</span>
+</li>
+{{end}}
+</ol>
+</details>
+</article>
+{{else}}
+<p class="empty">No candidates have been discovered for this company yet. Use <strong>Find contact</strong> above to run a search now, or wait for the background worker.</p>
+{{end}}
+
+<details class="cd-diagnostics">
+<summary>Search state, capability and budget</summary>
+<div class="cd-panels">
+
+<div>
+<h3>This company</h3>
+{{with .Task}}
+<dl class="key-values">
+<div><dt>State</dt><dd>{{.State}}</dd></div>
+<div><dt>Why it was queued</dt><dd>{{if .EligibilityReason}}{{.EligibilityReason}}{{else}}&mdash;{{end}}</dd></div>
+<div><dt>Attempts</dt><dd>{{.Attempts}}</dd></div>
+<div><dt>Last searched</dt><dd>{{if .LastSearchedAt}}{{.LastSearchedAt.Format "2 Jan 2006, 15:04"}}{{else}}Never{{end}}</dd></div>
+<div><dt>Next automatic search</dt><dd>{{.NextEligibleAt.Format "2 Jan 2006, 15:04"}}</dd></div>
+{{if .FailureReason}}<div><dt>Last failure</dt><dd>{{.FailureReason}}</dd></div>{{end}}
+</dl>
+{{else}}<p class="empty">Never queued for contact discovery.</p>{{end}}
+</div>
+
+<div>
+<h3>Capability</h3>
+<dl class="key-values">
+<div><dt>Search provider</dt><dd>{{.Provider}} &mdash; {{if .ProviderOn}}configured{{else}}not configured{{end}}</dd></div>
+<div><dt>Email pattern inference</dt><dd>{{if .Inference}}enabled &mdash; held for review, never send-eligible{{else}}disabled{{end}}</dd></div>
+{{if .Usage.Paused}}<div><dt>Runtime</dt><dd><span class="badge amber">Paused</span></dd></div>{{end}}
+</dl>
+{{if not .ProviderOn}}<p class="empty">Without search credentials only this employer's own pages are read. Those are still the highest-trust evidence there is, but nothing beyond the employer's own site can be found.</p>{{end}}
+</div>
+
+<div>
+<h3>Budget today</h3>
+<dl class="key-values">
+<div><dt>Companies searched</dt><dd>{{.Usage.Companies}} / {{.Usage.CompaniesLimit}}<span class="cd-meter"><span style="width:{{.CompaniesPct}}%" class="{{if ge .Usage.Companies .Usage.CompaniesLimit}}full{{end}}"></span></span></dd></div>
+<div><dt>Search requests</dt><dd>{{.Usage.Searches}} / {{.Usage.SearchesLimit}}<span class="cd-meter"><span style="width:{{.SearchesPct}}%" class="{{if ge .Usage.Searches .Usage.SearchesLimit}}full{{end}}"></span></span></dd></div>
+<div><dt>Pages fetched</dt><dd>{{.Usage.Fetches}} / {{.Usage.FetchesLimit}}<span class="cd-meter"><span style="width:{{.FetchesPct}}%" class="{{if ge .Usage.Fetches .Usage.FetchesLimit}}full{{end}}"></span></span></dd></div>
+<div><dt>AI extraction calls</dt><dd>{{.Usage.AICalls}} / {{.Usage.AICallsLimit}}</dd></div>
+</dl>
+</div>
+
+<div>
+<h3>Found today, all companies</h3>
+<dl class="key-values">
+<div><dt>Application routes</dt><dd>{{.Usage.RoutesFound}}</dd></div>
+<div><dt>Recruiting people</dt><dd>{{.Usage.RecruitersFound}}</dd></div>
+<div><dt>Engineering people</dt><dd>{{.Usage.EngineeringFound}}</dd></div>
+<div><dt>People without an address</dt><dd>{{.Usage.PeopleWithoutMail}}</dd></div>
+<div><dt>No-result searches</dt><dd>{{.Usage.NoResult}}</dd></div>
+<div><dt>Failures</dt><dd>{{.Usage.Failures}}</dd></div>
+</dl>
+</div>
+
+</div>
+</details>
+{{end}}
+
+<p class="page-summary"><a href="{{.BackURL}}">{{.BackLabel}}</a></p>
+</body></html>

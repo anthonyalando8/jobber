@@ -20,11 +20,16 @@ type RuntimeStatus struct {
 	loops map[string]LoopStatus
 }
 
+// ReportedLoops are the loops the dashboard shows and judges liveness by. The draft loop is
+// deliberately absent: it is a no-op without an AI provider, so reporting it as overdue would
+// describe a configuration choice as a fault.
+var ReportedLoops = []string{"discovery", "research", "domain-resolve", contactDiscoveryLoop, suppressionLoop}
+
 func (s *Scheduler) Status() []LoopStatus {
 	s.runtime.mu.RLock()
 	defer s.runtime.mu.RUnlock()
 	result := make([]LoopStatus, 0, len(s.runtime.loops))
-	for _, name := range []string{"discovery", "research", "domain-resolve"} {
+	for _, name := range ReportedLoops {
 		if state, ok := s.runtime.loops[name]; ok {
 			result = append(result, state)
 		}

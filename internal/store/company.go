@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"strconv"
 	"time"
 )
@@ -98,7 +99,8 @@ type CompanyFilter struct {
 	// CreatedSince is one of "5m", "1h", "today", "7d", or "" for no filter.
 	CreatedSince string
 	// Search matches name or domain, case-insensitive substring.
-	Search string
+	Search                                        string
+	Source, Research, HasOpportunities, HasStrong string
 }
 
 // companyFilterClause builds the shared WHERE clause for ListCompanies/CountCompanies, so the
@@ -146,6 +148,36 @@ func companyFilterClause(f CompanyFilter, args []interface{}) (string, []interfa
 	if f.Search != "" {
 		clause += ` AND (name ILIKE $` + strconv.Itoa(argNum) + ` OR domain ILIKE $` + strconv.Itoa(argNum) + `)`
 		args = append(args, "%"+f.Search+"%")
+		argNum++
+	}
+	if f.Source != "" {
+		clause += ` AND source=$` + strconv.Itoa(argNum)
+		args = append(args, f.Source)
+		argNum++
+	}
+	switch f.Research {
+	case "queue":
+		clause += ` AND ` + researchQueueWhere
+	case "researched":
+		clause += ` AND last_researched_at IS NOT NULL`
+	case "unresearched":
+		clause += ` AND last_researched_at IS NULL`
+	case "recent":
+		clause += ` AND last_researched_at>now()-interval '24 hours'`
+	}
+	if f.HasOpportunities == "yes" {
+		clause += ` AND EXISTS(SELECT 1 FROM opportunity o WHERE o.company_id=company.id)`
+	}
+	if f.HasOpportunities == "no" {
+		clause += ` AND NOT EXISTS(SELECT 1 FROM opportunity o WHERE o.company_id=company.id)`
+	}
+	if f.HasStrong != "" {
+		match := `EXISTS(SELECT 1 FROM opportunity o JOIN opportunity_match m ON m.opportunity_id=o.id AND m.opportunity_revision=o.current_revision JOIN candidate_profile p ON p.active_revision_id=m.profile_revision_id WHERE o.company_id=company.id AND m.classification='strong_match' AND m.matcher_version=$` + strconv.Itoa(argNum) + `)`
+		if f.HasStrong == "no" {
+			match = "NOT " + match
+		}
+		clause += " AND " + match
+		args = append(args, opportunity.MatcherVersion)
 		argNum++
 	}
 	return clause, args

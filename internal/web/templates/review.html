@@ -144,7 +144,7 @@
                         <div class="signal{{if .Cited}} cited{{end}}">
                             <div class="kind">{{.Kind}}</div>
                             <div class="detail">{{.Detail}}</div>
-                            {{if .URL}}<a class="url" href="{{.URL}}" target="_blank">{{.URL}}</a>{{end}}
+                            {{if .URL}}<a class="url" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.URL}}</a>{{end}}
                         </div>
                     {{else}}
                         <p style="font-size:13px;color:#999;">No signals recorded.</p>

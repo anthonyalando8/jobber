@@ -126,13 +126,20 @@ func main() {
 		r.Post("/threads/{id}/events", handler.ThreadEventRecord)
 		r.Post("/profile/drafts", handler.ProfileSave)
 		r.Post("/profile/activate", handler.ProfileActivate)
+		r.Get("/search", handler.Search)
+		r.Get("/messages", handler.Messages)
 		r.Get("/opportunities", handler.Opportunities)
 		r.Get("/opportunities/{id}", handler.Opportunity)
 		// Phase 3: deterministic fit, company relevance, intent, recipient and allowed proof.
 		// Every one of these is a POST because it writes an assessment or a plan; none of them
 		// generates or sends a message.
 		r.Post("/opportunities/{id}/assess", handler.OpportunityAssess)
+		// Suppression: a posting that expired, was filled or was taken down leaves the working
+		// queues without being deleted, and can be put back.
+		r.Post("/opportunities/{id}/suppress", handler.OpportunitySuppress)
+		r.Post("/opportunities/{id}/reinstate", handler.OpportunityReinstate)
 		r.Get("/companies/{id}/plan", handler.CompanyPlan)
+		r.Get("/companies/{id}/contact-search", handler.ContactDiscovery)
 		r.Post("/companies/{id}/assess", handler.CompanyAssess)
 		r.Post("/companies/{id}/plans", handler.CompanyPlanCreate)
 		r.Post("/plans/{id}/recipient", handler.PlanRecipient)
@@ -199,6 +206,10 @@ func main() {
 		// Single-company enrich can, worst case, take up to 7 sequential page fetches at 10s
 		// each — long enough to want the same generous timeout as the batch version.
 		r.Post("/companies/{id}/enrich", handler.CompanyEnrich)
+		// A contact search reads several public pages sequentially, so it needs the same generous
+		// timeout as enrichment. It discovers contact data only: it creates no plan and sends
+		// nothing, whatever the rollout mode.
+		r.Post("/companies/{id}/contact-search", handler.ContactDiscoveryRun)
 	})
 
 	// Autonomous worker: the same seed/enrich/score dependencies the HTTP admin routes use,
@@ -230,21 +241,32 @@ func main() {
 			workerCfg.DomainResolveInterval = time.Duration(n) * time.Minute
 		}
 	}
+	if v := os.Getenv("CONTACT_DISCOVERY_INTERVAL_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workerCfg.ContactDiscoveryInterval = time.Duration(n) * time.Minute
+		}
+	}
+	if v := os.Getenv("SUPPRESSION_INTERVAL_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workerCfg.SuppressionInterval = time.Duration(n) * time.Minute
+		}
+	}
 
 	// handler already parsed AUTO_SEND_* into SendPolicy() — reused here rather than re-reading
 	// the same env vars a second time, same reasoning as Enricher()/Scorer()/etc above.
 	scheduler := worker.NewScheduler(db, redisConn, handler.Enricher(), handler.Scorer(), handler.SeedRegistry(), handler.Verifier(), handler.DomainSearcher(),
-		handler.DraftService(), handler.HasAIProvider(), handler.AIBudget(), handler.SendPolicy(), handler, workerCfg)
+		handler.DraftService(), handler.ContactEngine(), handler.HasAIProvider(), handler.AIBudget(), handler.SendPolicy(), handler, workerCfg)
 
 	handler.SetWorkerStatus(scheduler.Status)
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	var workerWg sync.WaitGroup
 	// Two separate decisions, deliberately not one.
 	//
-	// Discovery, research, scoring and domain resolution find and describe companies. None of
-	// them sends anything, so they run in every mode except disabled: an operator working
-	// manually still needs fresh opportunities, and gating research on send automation would
-	// mean the corpus silently stopped growing.
+	// Discovery, research, scoring, domain resolution and contact discovery find and describe
+	// companies. None of them sends anything, so they run in every mode except disabled: an
+	// operator working manually still needs fresh opportunities and somewhere to send an
+	// application, and gating research on send automation would mean the corpus silently stopped
+	// growing while the contact bottleneck stayed exactly where it was.
 	//
 	// Sending automatically is the separate decision, and it requires the automation policy to
 	// be configured at all. Even then the loop only asks the policy about already-reviewed

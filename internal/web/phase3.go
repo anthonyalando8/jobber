@@ -74,7 +74,7 @@ func (h *Handler) CompanyPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	renderTemplate(w, "plan.html", map[string]any{
-		"Proposal":  proposal,
+		"Proposal": proposal, "CurrentURL": r.URL.RequestURI(), "BackURL": safeReturn(r.URL.Query().Get("return"), "/companies/"+strconv.FormatInt(id, 10)),
 		"View":      proposal.View,
 		"Requested": string(requested),
 		"Selected":  selected,

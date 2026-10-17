@@ -147,14 +147,7 @@ func (h *Handler) CompositionSend(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/compositions/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
-func (h *Handler) Threads(w http.ResponseWriter, r *http.Request) {
-	threads, err := h.db.ListThreads(r.Context(), 200)
-	if err != nil {
-		http.Error(w, "Cannot load threads", http.StatusInternalServerError)
-		return
-	}
-	renderTemplate(w, "threads.html", map[string]any{"Threads": threads})
-}
+func (h *Handler) Threads(w http.ResponseWriter, r *http.Request) { h.threadList(w, r) }
 
 func (h *Handler) ThreadView(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
@@ -172,7 +165,7 @@ func (h *Handler) ThreadView(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Cannot load thread history", http.StatusInternalServerError)
 		return
 	}
-	renderTemplate(w, "thread.html", map[string]any{"Thread": thread, "Events": events})
+	renderTemplate(w, "thread.html", map[string]any{"Thread": thread, "Events": events, "BackURL": safeReturn(r.URL.Query().Get("return"), "/threads"), "BackLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/threads"))})
 }
 
 // ThreadEventRecord captures an out-of-band delivery fact (a bounce, a reply, an unsubscribe

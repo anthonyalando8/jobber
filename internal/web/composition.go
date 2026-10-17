@@ -11,14 +11,7 @@ import (
 	"github.com/anthonyalando8/prospector/internal/draft"
 )
 
-func (h *Handler) Compositions(w http.ResponseWriter, r *http.Request) {
-	items, err := h.db.ListCompositions(r.Context())
-	if err != nil {
-		http.Error(w, "Cannot load compositions", 500)
-		return
-	}
-	renderTemplate(w, "compositions.html", items)
-}
+func (h *Handler) Compositions(w http.ResponseWriter, r *http.Request) { h.compositionList(w, r) }
 
 func (h *Handler) CompositionGenerate(w http.ResponseWriter, r *http.Request) {
 	if !h.compositionConfig().Enabled {
@@ -93,7 +86,7 @@ func (h *Handler) CompositionView(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	renderTemplate(w, "composition.html", map[string]any{
-		"Draft": d, "Email": email, "Send": h.buildSendView(r.Context(), id, email)})
+		"Draft": d, "BackURL": safeReturn(r.URL.Query().Get("return"), "/compositions"), "BackLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/compositions")), "Email": email, "Send": h.buildSendView(r.Context(), id, email)})
 }
 
 func (h *Handler) CompositionEdit(w http.ResponseWriter, r *http.Request) {

@@ -51,6 +51,14 @@ func checkV2Schema(ctx context.Context, conn *pgx.Conn, version int, report *Sch
 		specs["automation_decision"] = "id:bigint draft_id:bigint composition_revision:integer content_hash:text outcome:text policy_version:text intent:text profile_revision_id:bigint opportunity_id:bigint opportunity_revision:integer plan_id:bigint plan_revision:integer recipient_contact_id:bigint recipient_email:text semantic_status:text semantic_hash:text rollout_mode:text allowlist:jsonb daily_cap:integer reasons:jsonb blockers:jsonb send_attempt_id:bigint evaluated_at:timestamp_with_time_zone"
 		specs["automation_claim"] = "draft_id:bigint owner:text claimed_at:timestamp_with_time_zone expires_at:timestamp_with_time_zone"
 	}
+	if version >= 26 {
+		specs["contact_discovery_task"] = "company_id:bigint state:text priority:integer eligibility_reason:text intent:text opportunity_id:bigint plan_id:bigint attempts:integer last_searched_at:timestamp_with_time_zone next_eligible_at:timestamp_with_time_zone result_summary:jsonb failure_reason:text claimed_by:text claim_expires_at:timestamp_with_time_zone created_at:timestamp_with_time_zone updated_at:timestamp_with_time_zone"
+		specs["contact_candidate"] = "id:bigint company_id:bigint identity_key:text identity_basis:text kind:text person_name:text role_title:text employer_claimed:text email:text email_provenance:text verification:text application_url:text ats_provider:text recipient_function:text function_evidence:text endpoint_purpose:text endpoint_contactable:boolean confidence:text best_source_trust:integer employer_owned_evidence:boolean status:text rejected_reason:text promoted_contact_id:bigint discovered_at:timestamp_with_time_zone updated_at:timestamp_with_time_zone"
+		specs["contact_candidate_evidence"] = "id:bigint candidate_id:bigint source_type:text source_trust:integer source_url:text excerpt:text excerpt_hash:text discovery_method:text provider:text employer_owned:boolean observed_at:timestamp_with_time_zone"
+	}
+	if version >= 27 {
+		specs["opportunity_suppression"] = "id:bigint opportunity_id:bigint opportunity_revision:integer reason:text basis:text note:text decided_by:text evidence:jsonb restore_selection_status:text decided_at:timestamp_with_time_zone superseded_at:timestamp_with_time_zone superseded_by:text supersede_note:text"
+	}
 	for name, spec := range specs {
 		table, ok := report.Tables[name]
 		if !ok {

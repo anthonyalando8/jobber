@@ -55,9 +55,9 @@
             <a href="/" style="color: #0066cc;">← Back to Dashboard</a>
         </header>
 
-        <form class="filters" method="GET" action="/companies">
-            <input type="text" name="q" value="{{.query}}" placeholder="Search name or domain...">
-            <select name="status">
+        {{range .warnings}}<p class="filter-warning" role="status">{{.}}</p>{{end}}<div class="active-filters">{{range .activeFilters}}<span>{{.}}</span>{{end}}</div><form class="filters" method="GET" action="/companies">
+            <input aria-label="Search companies" type="text" name="q" value="{{.query}}" placeholder="Search name or domain...">
+            <select aria-label="Status" name="status">
                 <option value="">All statuses</option>
                 <option value="new" {{if eq .status "new"}}selected{{end}}>New</option>
                 <option value="enriched" {{if eq .status "enriched"}}selected{{end}}>Enriched</option>
@@ -68,7 +68,7 @@
                 <option value="lost" {{if eq .status "lost"}}selected{{end}}>Lost</option>
                 <option value="skip" {{if eq .status "skip"}}selected{{end}}>Skipped</option>
             </select>
-            <select name="segment">
+            <select aria-label="Segment" name="segment">
                 <option value="">All segments</option>
                 <option value="agency" {{if eq .segment "agency"}}selected{{end}}>Agency</option>
                 <option value="incubator" {{if eq .segment "incubator"}}selected{{end}}>Incubator</option>
@@ -77,30 +77,34 @@
                 <option value="enterprise" {{if eq .segment "enterprise"}}selected{{end}}>Enterprise</option>
                 <option value="sme" {{if eq .segment "sme"}}selected{{end}}>SME</option>
             </select>
-            <select name="domain_status">
+            <select aria-label="Domain Status" name="domain_status">
                 <option value="">All domain statuses</option>
                 <option value="verified" {{if eq .domainStatus "verified"}}selected{{end}}>Verified</option>
                 <option value="manual" {{if eq .domainStatus "manual"}}selected{{end}}>Manual</option>
                 <option value="candidate" {{if eq .domainStatus "candidate"}}selected{{end}}>Candidate (unverified)</option>
                 <option value="failed" {{if eq .domainStatus "failed"}}selected{{end}}>Failed</option>
             </select>
-            <select name="market">
+            <select aria-label="Market" name="market">
                 <option value="">Kenya + US/international</option>
                 <option value="kenya" {{if eq .market "kenya"}}selected{{end}}>Kenya only</option>
                 <option value="us" {{if eq .market "us"}}selected{{end}}>US/international only</option>
             </select>
-            <select name="created">
+            <select aria-label="Created" name="created">
                 <option value="">Any time</option>
                 <option value="5m" {{if eq .created "5m"}}selected{{end}}>Last 5 minutes</option>
                 <option value="1h" {{if eq .created "1h"}}selected{{end}}>Last hour</option>
                 <option value="today" {{if eq .created "today"}}selected{{end}}>Today</option>
                 <option value="7d" {{if eq .created "7d"}}selected{{end}}>Last 7 days</option>
             </select>
+<input aria-label="Source" name="source" value="{{.source}}" placeholder="Any source">
+<select aria-label="Research state" name="research"><option value="">Any research state</option><option value="queue" {{if eq .research "queue"}}selected{{end}}>Waiting in research queue</option><option value="researched" {{if eq .research "researched"}}selected{{end}}>Researched</option><option value="unresearched" {{if eq .research "unresearched"}}selected{{end}}>Never researched</option><option value="recent" {{if eq .research "recent"}}selected{{end}}>Researched in past 24h</option></select>
+<select aria-label="Has opportunities" name="has_opportunities"><option value="">Any opportunity coverage</option><option value="yes" {{if eq .hasOpportunities "yes"}}selected{{end}}>Has opportunities</option><option value="no" {{if eq .hasOpportunities "no"}}selected{{end}}>No opportunities</option></select>
+<select aria-label="Has strong matches" name="has_strong"><option value="">Any match coverage</option><option value="yes" {{if eq .hasStrong "yes"}}selected{{end}}>Has current strong match</option><option value="no" {{if eq .hasStrong "no"}}selected{{end}}>No current strong match</option></select>
             <button type="submit">Filter</button>
-            {{if or .query .status .segment .domainStatus .market .created}}<a class="clear" href="/companies">Clear</a>{{end}}
+            <a class="clear" href="/companies">Clear filters</a>
         </form>
 
-        <div class="result-count">{{.total}} compan{{if eq .total 1}}y{{else}}ies{{end}} · page {{.page}} of {{.totalPages}}</div>
+        {{if eq .research "queue"}}<p class="list-intro">Waiting companies match the dashboard queue eligibility. Existing attempt cooldown may defer work. <a href="/#research">See live worker status and recent failures</a>.</p>{{end}}<div class="result-count">{{.total}} compan{{if eq .total 1}}y{{else}}ies{{end}} · page {{.page}} of {{.totalPages}}</div>
 
         {{if .companies}}
         <table>
@@ -119,7 +123,7 @@
             <tbody>
                 {{range .companies}}
                 <tr>
-                    <td><strong>{{.Name}}</strong></td>
+                    <td><a href="/companies/{{.ID}}?return={{urlquery $.currentURL}}"><strong>{{.Name}}</strong></a></td>
                     <td>
                         {{if or (eq .DomainStatus "failed") (eq .DomainStatus "candidate")}}
                         <form class="domain-fix" method="POST" action="/companies/{{.ID}}/domain/update">
@@ -142,7 +146,7 @@
                     <td>{{.Score}}</td>
                     <td><span class="badge {{.Status}}">{{.Status}}</span></td>
                     <td><small>{{.Source}}</small></td>
-                    <td><a href="/companies/{{.ID}}">View</a></td>
+                    <td><a href="/companies/{{.ID}}?return={{urlquery $.currentURL}}">View</a></td>
                 </tr>
                 {{end}}
             </tbody>
@@ -158,7 +162,7 @@
             {{if .hasNext}}<a href="{{.nextURL}}">Next →</a>{{else}}<a class="disabled">Next →</a>{{end}}
         </div>
         {{else}}
-        <div class="empty-state">No companies match{{if or .query .status .segment .domainStatus .market .created}} these filters{{end}}.</div>
+        <div class="empty-state">No companies match these filters. <a href="/companies">Clear filters</a>.</div>
         {{end}}
     </div>
 </body>

@@ -3,6 +3,7 @@ package enrich
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/anthonyalando8/prospector/internal/activity"
 	"github.com/anthonyalando8/prospector/internal/store"
@@ -197,6 +199,28 @@ func (e *Enricher) EnrichCompany(ctx context.Context, company *store.Company, db
 	return false, nil
 }
 
+// maxResponseBytes bounds one page read. Company sites are documents, not downloads; anything
+// past this is either not a page or not one worth reading.
+const maxResponseBytes = 4 << 20
+
+// documentMediaTypes are the response types that can carry readable page text. Anything else is
+// refused before it is read, rather than after it has been stored.
+var documentMediaTypes = map[string]bool{
+	"text/html": true, "application/xhtml+xml": true, "text/plain": true,
+	"application/xml": true, "text/xml": true, "application/json": true,
+}
+
+// FetchPublicPage retrieves one public page through the same bounded path company research
+// already uses: the in-process cache, then the shared Postgres page cache, then the network
+// behind the per-host rate limit, with the timeout, size cap and content-type check above.
+//
+// Contact discovery reads pages the same way company research does, deliberately. A second
+// fetcher would mean a second set of limits to keep in step, and the one that drifted would be
+// the one hitting somebody else's server.
+func (e *Enricher) FetchPublicPage(ctx context.Context, db *store.DB, url string) ([]byte, error) {
+	return e.fetchPage(ctx, db, url)
+}
+
 // fetchPage fetches a page, checking the in-process cache, then the persistent Postgres
 // page_cache (review.md §13 — survives a restart, shared across the HTTP-triggered enrich
 // path and the worker's research loop), before actually hitting the network behind a real
@@ -232,7 +256,14 @@ func (e *Enricher) fetchPage(ctx context.Context, db *store.DB, url string) ([]b
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	// Two bounds the original version lacked. A response that is not a document is never worth
+	// reading — storing a PDF or an image in page_cache only ever produced binary noise that the
+	// extractors then scanned — and a response without a size limit is an unbounded read from an
+	// untrusted host straight into memory and then into the database.
+	if mediaType := strings.TrimSpace(strings.SplitN(resp.Header.Get("Content-Type"), ";", 2)[0]); mediaType != "" && !documentMediaTypes[strings.ToLower(mediaType)] {
+		return nil, fmt.Errorf("unsupported content type %q for %s", mediaType, url)
+	}
+	body, _ := ioutil.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err := db.UpsertPageCache(ctx, url, resp.StatusCode, string(body)); err != nil {
 		log.Printf("fetchPage: page_cache write error for %s: %v", url, err)
 	}
@@ -370,10 +401,31 @@ var (
 	sentenceSplit = regexp.MustCompile(`(?:[.!?]\s+|\n)`)
 )
 
+// PageText turns a fetched page into readable text. It is exported because contact discovery
+// reads the same pages this package does, and two different ideas of "the text of a page" would
+// mean an excerpt stored as provenance did not match what the extractor actually looked at.
+func PageText(html string) string { return pageText(html) }
+
+// ExcerptFor returns the sentence a term appears in, bounded. Exported for the same reason as
+// PageText: stored provenance must quote the source the same way everywhere.
+func ExcerptFor(text, term string) string { return excerptFor(text, term) }
+
 func pageText(html string) string {
 	text := scriptStyle.ReplaceAllString(html, " ")
 	text = tagStripper.ReplaceAllString(text, " ")
 	text = strings.NewReplacer("&amp;", "&", "&nbsp;", " ", "&#39;", "'", "&quot;", "\"").Replace(text)
+	// Not every page is valid UTF-8. A page served as Latin-1 puts a bare 0xa0 where a
+	// non-breaking space belongs, and such a byte is not a character at all: Postgres refuses to
+	// store it, so one of them anywhere on a page used to abort the whole write of everything
+	// extracted from it.
+	//
+	// It becomes a space rather than a replacement character because that is the conservative
+	// reading. An unreadable byte separating two words must not glue them into one token that
+	// nobody wrote — a name extractor reading "hiring? Jane" as a single word is how a real
+	// person gets missed, or a fabricated one found.
+	if !utf8.ValidString(text) {
+		text = strings.ToValidUTF8(text, " ")
+	}
 	return strings.TrimSpace(whitespaceRun.ReplaceAllString(text, " "))
 }
 

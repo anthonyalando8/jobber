@@ -15,7 +15,7 @@ ul{margin:.4rem 0 .4rem 1.2rem;padding:0}li{margin:.3rem 0}
 .muted{color:#666;font-size:.9rem}
 form.inline{display:inline}
 </style></head><body>
-<nav><a href="/">Dashboard</a> · <a href="/companies/{{.View.Company.ID}}">{{.View.Company.Name}}</a> · <a href="/opportunities?company={{.View.Company.ID}}">Opportunities</a> · <a href="/profile">Candidate profile</a> · <a href="/compositions">Email compositions</a></nav>
+<nav><a href="/">Dashboard</a> · <a href="{{if .BackURL}}{{.BackURL}}{{else}}/companies/{{.View.Company.ID}}{{end}}">Back to {{.View.Company.Name}}</a> · <a href="/opportunities?company={{.View.Company.ID}}">Opportunities</a> · <a href="/profile">Candidate profile</a> · <a href="/compositions">Email compositions</a></nav>
 <h1>Contact plan — {{.View.Company.Name}}</h1>
 <p class="muted">This page decides <strong>what an email is allowed to say and why we are writing</strong>. Selecting a plan authorizes draft generation only. Use “Compose and review email” for an explicit manual run when configured. Background workers and all sending remain disabled.</p>
 
@@ -27,7 +27,7 @@ form.inline{display:inline}
 <table><thead><tr><th>Advertised title</th><th>Classification</th><th>Why</th><th></th></tr></thead><tbody>
 {{range .View.Opportunities}}
 <tr>
- <td><a href="/opportunities/{{.Opportunity.ID}}">{{if .Opportunity.Facts.Title}}{{.Opportunity.Facts.Title}}{{else}}Unknown advertised title{{end}}</a><br>
+ <td><a href="/opportunities/{{.Opportunity.ID}}?return={{urlquery $.CurrentURL}}">{{if .Opportunity.Facts.Title}}{{.Opportunity.Facts.Title}}{{else}}Unknown advertised title{{end}}</a><br>
    <span class="muted">{{.Opportunity.Facts.Source}} · source revision {{.Opportunity.Revision}}</span></td>
  <td><span class="tag {{.Classification}}">{{.Classification}}</span>{{if .Stale}}<br><span class="muted">stale: {{.StaleWhy}}</span>{{end}}</td>
  <td>{{if .Match}}<ul>{{range .Match.Reasons}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul>{{else}}<span class="muted">Not assessed yet.</span>{{end}}</td>
@@ -121,6 +121,11 @@ payment need evidenced: <strong>{{if .View.Relevance.PaymentNeedEvidenced}}yes{{
   </select></label>
  <button>Record contact plan</button>
 </form>
+<p><a href="/companies/{{.Proposal.View.Company.ID}}/contact-search?return=/companies/{{.Proposal.View.Company.ID}}/plan">Contact discovery for this company &rarr;</a></p>
+<form class="inline" method="post" action="/companies/{{.Proposal.View.Company.ID}}/contact-search">
+ <input type="hidden" name="return" value="/companies/{{.Proposal.View.Company.ID}}/plan">
+ <button>Search for a recipient</button></form>
+<p class="muted">Searching for a recipient supplies contact data only. It never changes this plan's intent, never creates a plan, and never authorizes a send.</p>
 <p class="muted">Recording a plan fixes the intent, the target families, the pinned vacancy revision where applicable, the recipient and the allowed proof. It does not authorize sending.</p>
 {{else}}
 <p class="block">No plan can be recorded from the current decision ({{.Proposal.Decision.Outcome}}). Resolve the blockers above first.</p>
@@ -130,7 +135,7 @@ payment need evidenced: <strong>{{if .View.Relevance.PaymentNeedEvidenced}}yes{{
 <section>
 <h2>Existing plans</h2>
 <table><thead><tr><th>Intent</th><th>Vacancy</th><th>Recipient</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-{{range .View.Plans}}<tr>
+{{range .View.Plans}}<tr id="plan-{{.ID}}">
  <td>{{.Intent}}<br><span class="muted">revision {{.Revision}} · {{.SelectionOrigin}}{{if .RequiresReview}} · requires review{{end}}</span></td>
  <td>{{if .OpportunityID}}applied for <a href="/opportunities/{{.OpportunityID}}">{{.OpportunityTitle}}</a> at source revision {{.OpportunityRevision}}
      {{else if .ProvenanceOpportunityID}}<span class="muted">provenance only:</span> <a href="/opportunities/{{.ProvenanceOpportunityID}}">{{.ProvenanceTitle}}</a>

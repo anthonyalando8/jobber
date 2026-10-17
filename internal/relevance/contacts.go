@@ -39,7 +39,7 @@ var functionKeywords = []struct {
 	function string
 	words    []string
 }{
-	{FunctionRecruiting, []string{"recruit", "talent", "hiring", "careers", "career", "jobs", "job", "hr", "human resource", "people ops", "peopleops"}},
+	{FunctionRecruiting, []string{"recruit", "talent", "hiring", "careers", "career", "jobs", "job", "hr", "human resource", "people ops", "peopleops", "people operations", "people team"}},
 	{FunctionEngineering, []string{"cto", "engineer", "engineering", "developer", "dev", "tech", "technical", "technology", "it", "devops", "architect", "product engineering"}},
 	{FunctionLeadership, []string{"ceo", "founder", "co-founder", "cofounder", "managing director", "director", "owner", "principal", "partner", "md"}},
 	{FunctionCommercial, []string{"sales", "marketing", "billing", "accounts", "finance", "invoice", "procurement", "business development"}},

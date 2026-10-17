@@ -125,11 +125,17 @@ func TestDashboardActivityAgesAndGreeting(t *testing.T) {
 func TestDashboardWorkerRuntimeIndependentOfAutomation(t *testing.T) {
 	now := time.Now()
 	v := dashboardTestView()
+	// Every loop the scheduler reports, including contact discovery — which runs with research
+	// and is independent of sending, so a healthy summary must account for it.
 	source := func() []worker.LoopStatus {
-		return []worker.LoopStatus{{Name: "discovery", AliveAt: now}, {Name: "research", AliveAt: now, Busy: true}, {Name: "domain-resolve", AliveAt: now}}
+		states := make([]worker.LoopStatus, 0, len(worker.ReportedLoops))
+		for _, name := range worker.ReportedLoops {
+			states = append(states, worker.LoopStatus{Name: name, AliveAt: now, Busy: name == "research"})
+		}
+		return states
 	}
 	populateWorkerView(v, source, now)
-	if !strings.Contains(v.WorkerSummary, "running") || v.Rollout.AutomaticSending || len(v.Workers) != 3 || !v.Workers[1].Busy {
+	if !strings.Contains(v.WorkerSummary, "running") || v.Rollout.AutomaticSending || len(v.Workers) != len(worker.ReportedLoops) || !v.Workers[1].Busy {
 		t.Fatal("research confused with automation state")
 	}
 	stale := dashboardTestView()
