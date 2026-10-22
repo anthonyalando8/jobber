@@ -89,6 +89,13 @@ func main() {
 	}
 	cancel()
 
+	// Every application route sits behind the admin key. A missing or weak key stops startup:
+	// the alternative is an open application that can send email from the configured account.
+	auth, err := web.AuthFromEnv(redisConn)
+	if err != nil {
+		log.Fatalf("Admin authentication is not configured: %v", err)
+	}
+
 	// Initialize web handler
 	handler := web.NewHandler(db, redisConn)
 
@@ -96,17 +103,29 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	// Cross-site request forgery: refuses state-changing requests a browser marks as coming from
+	// another origin (Sec-Fetch-Site / Origin). Together with the SameSite=Strict session cookie
+	// this covers every existing form without per-form tokens.
+	r.Use(http.NewCrossOriginProtection().Handler)
 
-	// Static files
+	// Unauthenticated: the container health check, stylesheets/scripts (no data), and sign-in.
+	r.Get("/healthz", handler.Healthz)
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("./internal/web/static"))))
+	r.Get("/login", auth.LoginPage)
+	r.Post("/login", auth.Login)
+
+	// Everything registered on protected requires a session, including the event stream and
+	// both timeout groups below.
+	protected := r.With(auth.Require)
+	protected.Post("/logout", auth.Logout)
 
 	// Live activity feed: Server-Sent Events, deliberately outside the timeout groups below —
 	// this connection is meant to stay open for as long as the dashboard tab is, not fail after
 	// a fixed duration.
-	r.Get("/events/activity", handler.ActivityStream)
+	protected.Get("/events/activity", handler.ActivityStream)
 
 	// Ordinary page routes get a tight timeout — these should always be fast.
-	r.Group(func(r chi.Router) {
+	protected.Group(func(r chi.Router) {
 		r.Use(middleware.Timeout(30 * time.Second))
 
 		r.Get("/", handler.Home)
@@ -193,7 +212,7 @@ func main() {
 	// context), it just breaks every downstream call still using that context — including
 	// Redis writes — after the deadline. Give this group a timeout long enough that it never
 	// gets hit in practice, until this becomes a real background job (see queue package).
-	r.Group(func(r chi.Router) {
+	protected.Group(func(r chi.Router) {
 		r.Use(middleware.Timeout(10 * time.Minute))
 
 		r.Post("/admin/seed/{source}", handler.AdminSeed)
@@ -295,7 +314,9 @@ func main() {
 		httpAddr = ":8080"
 	}
 
-	srv := &http.Server{Addr: httpAddr, Handler: r}
+	// No WriteTimeout: the event stream and the 10-minute admin batches legitimately hold a
+	// response open. Header and idle limits still stop slow or abandoned connections.
+	srv := &http.Server{Addr: httpAddr, Handler: r, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
 
 	serverErr := make(chan error, 1)
 	go func() {

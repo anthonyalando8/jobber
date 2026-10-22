@@ -1,6 +1,11 @@
 # Secrets
 .env
 .env.local
+.env.production
+
+# Runtime output and production backups (contain personal data)
+*.log
+/backups/
 
 # Compiled binaries
 *.exe

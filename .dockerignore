@@ -1,0 +1,24 @@
+# Secrets and local data must never enter an image layer.
+.env
+.env.*
+!.env.example
+!.env.production.example
+.local/
+backups/
+
+# Not needed to build or run.
+.git/
+.github/
+.vscode/
+.idea/
+.claude/
+docs/
+deploy/
+bin/
+*.exe
+*.log
+*.test
+Makefile
+setup.bat
+Dockerfile
+docker-compose.yaml

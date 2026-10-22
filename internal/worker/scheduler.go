@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -165,7 +166,16 @@ func (s *Scheduler) loop(ctx context.Context, wg *sync.WaitGroup, name string, i
 	}()
 	run := func() {
 		s.updateStatus(name, func(state *LoopStatus) { state.Busy = true; state.StartedAt = time.Now() })
-		tick(ctx)
+		// One bad record must not take down the web server and every other loop with it: a
+		// panicking tick is logged and the loop carries on at its next interval.
+		func() {
+			defer func() {
+				if p := recover(); p != nil {
+					log.Printf("worker: %s tick panicked: %v\n%s", name, p, debug.Stack())
+				}
+			}()
+			tick(ctx)
+		}()
 		s.updateStatus(name, func(state *LoopStatus) { state.Busy = false; state.CompletedAt = time.Now() })
 	}
 

@@ -48,9 +48,15 @@ startup path or test performs it.
 
 ## Setup
 
+To run it in production with Docker (its own PostgreSQL and Redis, admin-key sign-in, private
+access over Tailscale), follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). The rest of this section
+covers running it directly with Go.
+
 ### Requirements
 
 - Go 1.25 or later, matching `go.mod`.
+- `ADMIN_ACCESS_KEY` (32+ characters, e.g. `openssl rand -base64 48`). Every page sits
+  behind it, and the application refuses to start without it.
 - PostgreSQL and an existing database named by `DATABASE_URL`.
 - Redis; application startup checks its connection even while workers are paused.
 - `pg_dump` and `pg_restore` for existing-database backup verification. Phase 2 was
@@ -76,6 +82,7 @@ Configure the database and Redis connections. Use your own connection values:
 DATABASE_URL=postgres://user:password@localhost:5432/prospector?sslmode=disable
 REDIS_URL=redis://localhost:6379/0
 HTTP_ADDR=:8080
+ADMIN_ACCESS_KEY=<at least 32 random characters>
 EMAIL_PIPELINE_MODE=v2_review
 AUTO_SEND_ENABLED=false
 AUTO_SEND_INTENTS=

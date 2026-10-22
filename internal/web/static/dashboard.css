@@ -105,6 +105,23 @@ a:focus-visible,button:focus-visible,summary:focus-visible {
   color:var(--ink)}
 .sidebar-note p {
   margin:6px 0 16px}
+.sidebar-signout {
+  margin-top:auto;
+  padding:16px 14px 0}
+.sidebar-signout+.sidebar-note {
+  margin-top:0}
+.sidebar-signout button {
+  width:100%;
+  padding:7px 10px;
+  border:1px solid var(--line, #dfe3ea);
+  border-radius:8px;
+  background:transparent;
+  color:var(--muted);
+  font:inherit;
+  font-size:12px;
+  cursor:pointer}
+.sidebar-signout button:hover {
+  color:var(--ink)}
 .dashboard-main {
   margin-left:var(--sidebar);
   padding:18px 34px 28px;

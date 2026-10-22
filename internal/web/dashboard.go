@@ -318,7 +318,7 @@ func (h *Handler) redactActivity(detail string) string {
 			}
 		}
 	}
-	for _, name := range []string{"SMTP_PASS", "GOOGLE_SEARCH_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"} {
+	for _, name := range []string{"SMTP_PASS", "GOOGLE_SEARCH_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "ADMIN_ACCESS_KEY"} {
 		for _, key := range strings.Split(os.Getenv(name), ",") {
 			if key = strings.TrimSpace(key); key != "" {
 				detail = strings.ReplaceAll(detail, key, "[redacted]")

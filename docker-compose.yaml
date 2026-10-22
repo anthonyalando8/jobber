@@ -1,42 +1,122 @@
-version: "3.9"
+# Prospector production stack: app + its own PostgreSQL and Redis.
+#
+# Self-contained on purpose: a dedicated database cluster and Redis, on a dedicated network, so
+# nothing here touches another application's database, cache or ports. Only the app publishes a
+# port, and only on the host's loopback interface; reach it through Tailscale or an SSH tunnel
+# (see docs/DEPLOYMENT.md).
+#
+# Configuration comes from .env.production next to this file (never committed; start from
+# .env.production.example).
+#
+#   docker compose build
+#   docker compose up -d db redis
+#   docker compose run --rm migrate -command apply
+#   docker compose up -d app
 
-# Named volume for Redis persistence so data survives container recreation.
-volumes:
-  redis_data:
+name: prospector
 
-# Shared restart policy used by all application services.
-x-restart: &restart
-  restart: unless-stopped
-
-networks:
-  zentora_net:
-    driver: bridge
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
-
-  # ---------------------------------------------------------------------------
-  # Redis
-  # ---------------------------------------------------------------------------
-  redis-softtronic-002:
-    <<: *restart
-    image: redis:7-alpine
-    container_name: redis-softtronic-002
-    networks:
-      - zentora_net
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=30"]
     volumes:
-      - redis_data:/data
-    command: >
-      redis-server
-      --appendonly yes
-      --appendfsync everysec
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
-    # Expose Redis only on the internal network in production.
-    # Remove the ports block if you do not need local access.
-    ports:
-      - "127.0.0.1:6379:6379"
+      # postgres:18 keeps its data under /var/lib/postgresql/<major>/docker; mount the parent.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 384m
+    stop_grace_period: 30s
+    networks: [prospector_net]
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # noeviction: budget counters, pause flags and sessions must never be silently dropped to make
+    # room; a full Redis should fail loudly instead.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec",
+              "--maxmemory", "64mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 60s
+      interval: 10s
       timeout: 3s
+      retries: 10
+    mem_limit: 96m
+    networks: [prospector_net]
+    logging: *logging
+
+  app:
+    build: .
+    image: prospector-app:latest
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      HTTP_ADDR: ":8080"
+      TZ: ${TZ:-Africa/Nairobi}
+    ports:
+      - "127.0.0.1:${PROSPECTOR_PORT:-18080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
       retries: 3
+      start_period: 20s
+    # Exactly one replica: the worker loops run in-process and must not run twice.
+    # Shutdown drains HTTP for 15s and then waits for in-flight worker ticks.
+    stop_grace_period: 60s
+    mem_limit: 256m
+    cpus: 0.75
+    networks: [prospector_net]
+    logging: *logging
+
+  # One-shot migration/backup tool. Not started by `up`; run it explicitly:
+  #   docker compose run --rm migrate -command apply
+  migrate:
+    image: prospector-app:latest
+    pull_policy: never
+    profiles: [tools]
+    entrypoint: ["/app/bin/prospector-migrate"]
+    command: ["-command", "check"]
+    env_file: .env.production
+    environment:
+      TZ: ${TZ:-Africa/Nairobi}
+    # Root only inside this short-lived, portless container, so backup-verify can write its
+    # archive and proof into the host's ./backups directory regardless of that directory's owner.
+    user: "0:0"
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks: [prospector_net]
+    logging: *logging
+
+# Project-scoped names: with `name: prospector` these become prospector_prospector_net,
+# prospector_pgdata and prospector_redisdata.
+networks:
+  prospector_net:
+
+volumes:
+  pgdata:
+  redisdata:

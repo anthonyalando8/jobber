@@ -12,6 +12,8 @@
   const detailsOpen = Array.from(container.querySelectorAll('details')).map(d => d.open);
   try {
    const response = await fetch('/dashboard/snapshot', {cache:'no-store',signal:controller.signal});
+   // The session expired or was revoked: go back to sign-in rather than polling a 401 forever.
+   if (response.status === 401) { window.location.assign('/login?next=%2F'); return; }
    if (!response.ok) throw new Error('Snapshot unavailable');
    const html = await response.text();
    container.innerHTML = html;

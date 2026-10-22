@@ -1,5 +1,0 @@
-2026/08/20 14:15:29 Worker started: discovery every 20m0s, research every 30s, research TTL 24h0m0s, draft check every 1m0s (AI enabled=true)
-2026/08/20 14:15:29 Seeding from jobboard...
-2026/08/20 14:15:29 Starting Prospector on :8081
-2026/08/20 14:15:38 "GET http://localhost:8081/ HTTP/1.1" from [::1]:60644 - 200 61440B in 75.0748ms
-2026/08/20 14:15:49 Seeded 0 companies from jobboard in 19.8078209s
