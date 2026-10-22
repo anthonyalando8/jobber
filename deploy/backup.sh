@@ -2,8 +2,8 @@
 # Nightly logical backup of the Prospector database.
 #
 #   bash deploy/backup.sh
-# Cron (03:15 daily):
-#   15 3 * * * bash /opt/apps/prospector/deploy/backup.sh >> /opt/apps/prospector/backups/backup.log 2>&1
+# Cron (03:45 daily; offset from other applications' backups on the same host):
+#   45 3 * * * bash /opt/apps/prospector/deploy/backup.sh >> /opt/apps/prospector/backups/backup.log 2>&1
 #
 # Writes backups/nightly/prospector-<timestamp>.dump (pg_dump custom format) and deletes nightly
 # dumps older than RETENTION_DAYS (default 14). Restore with pg_restore; see docs/DEPLOYMENT.md.

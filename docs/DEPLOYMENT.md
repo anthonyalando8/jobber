@@ -110,7 +110,7 @@ by the workers.
 ```bash
 crontab -e
 # add:
-15 3 * * * bash /opt/apps/prospector/deploy/backup.sh >> /opt/apps/prospector/backups/backup.log 2>&1
+45 3 * * * bash /opt/apps/prospector/deploy/backup.sh >> /opt/apps/prospector/backups/backup.log 2>&1
 ```
 
 Dumps go to `backups/nightly/` and are kept for 14 days (`RETENTION_DAYS` overrides that). Copy

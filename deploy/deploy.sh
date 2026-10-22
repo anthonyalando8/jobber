@@ -18,6 +18,9 @@ if [ ! -f .env.production ]; then
   exit 1
 fi
 chmod 600 .env.production
+# Create the backup directories as the invoking user before any container bind-mounts them;
+# otherwise Docker creates ./backups as root and the nightly backup cannot write into it.
+mkdir -p backups/pre-migrate backups/nightly
 
 compose() { docker compose "$@"; }
 
