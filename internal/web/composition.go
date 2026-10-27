@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/anthonyalando8/prospector/internal/composition"
 	"github.com/anthonyalando8/prospector/internal/draft"
+	"github.com/anthonyalando8/prospector/internal/store"
 )
 
 func (h *Handler) Compositions(w http.ResponseWriter, r *http.Request) { h.compositionList(w, r) }
@@ -21,6 +23,64 @@ func (h *Handler) CompositionGenerate(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {
 		http.Error(w, "Invalid plan", 400)
+		return
+	}
+	h.startComposition(w, r, id)
+}
+
+// CompositionRecompose discards a draft and composes its plan again, as one deliberate action.
+// A draft with a send attempt is part of the send record and is refused.
+func (h *Handler) CompositionRecompose(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		http.Error(w, "Invalid draft", 400)
+		return
+	}
+	d, err := h.db.GetComposition(r.Context(), id)
+	if err != nil {
+		http.Error(w, "Cannot load composition", 404)
+		return
+	}
+	if !h.compositionConfig().Enabled {
+		http.Error(w, "Manual composition is disabled; configure its providers and request budget first", 503)
+		return
+	}
+	if err := h.db.DiscardComposition(r.Context(), id, "discarded to compose again"); err != nil {
+		if errors.Is(err, store.ErrCompositionNotDiscardable) {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		http.Error(w, "Cannot discard draft", 500)
+		return
+	}
+	h.invalidateDashboard()
+	h.logActivity(r.Context(), "composition", "Discarded draft "+strconv.FormatInt(id, 10)+" to compose again", true)
+	h.startComposition(w, r, d.Snapshot.PlanID)
+}
+
+// CompositionDiscard retires a draft without composing a new one.
+func (h *Handler) CompositionDiscard(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		http.Error(w, "Invalid draft", 400)
+		return
+	}
+	if err := h.db.DiscardComposition(r.Context(), id, "discarded by operator"); err != nil {
+		if errors.Is(err, store.ErrCompositionNotDiscardable) {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		http.Error(w, "Cannot discard draft", 500)
+		return
+	}
+	h.invalidateDashboard()
+	h.logActivity(r.Context(), "composition", "Discarded draft "+strconv.FormatInt(id, 10), true)
+	http.Redirect(w, r, "/compositions", http.StatusSeeOther)
+}
+
+func (h *Handler) startComposition(w http.ResponseWriter, r *http.Request, id int64) {
+	if !h.compositionConfig().Enabled {
+		http.Error(w, "Manual composition is disabled; configure its providers and request budget first", 503)
 		return
 	}
 	s, err := h.db.BuildCompositionSnapshot(r.Context(), id)
@@ -44,6 +104,12 @@ func (h *Handler) CompositionGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	draftID, err := h.db.QueueComposition(r.Context(), s)
+	var exists *store.CompositionExistsError
+	if errors.As(err, &exists) {
+		// Open the email that already exists instead of paying to write a duplicate.
+		http.Redirect(w, r, "/compositions/"+strconv.FormatInt(exists.DraftID, 10)+"?existing=1", http.StatusSeeOther)
+		return
+	}
 	if err != nil {
 		http.Error(w, "Cannot queue composition: "+err.Error(), 409)
 		return
@@ -86,7 +152,8 @@ func (h *Handler) CompositionView(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	renderTemplate(w, "composition.html", map[string]any{
-		"Draft": d, "BackURL": safeReturn(r.URL.Query().Get("return"), "/compositions"), "BackLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/compositions")), "Email": email, "Send": h.buildSendView(r.Context(), id, email)})
+		"Draft": d, "BackURL": safeReturn(r.URL.Query().Get("return"), "/compositions"), "BackLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/compositions")), "Email": email, "Send": h.buildSendView(r.Context(), id, email),
+		"Fixes": currentFixes(d), "Existing": r.URL.Query().Get("existing") == "1"})
 }
 
 func (h *Handler) CompositionEdit(w http.ResponseWriter, r *http.Request) {

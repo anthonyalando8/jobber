@@ -15,7 +15,7 @@ func paginationData(path string, values url.Values, total, page int) map[string]
 func (h *Handler) compositionList(w http.ResponseWriter, r *http.Request) {
 	warnings := []string{}
 	v := r.URL.Query()
-	f := store.CompositionListFilter{Query: textFilter(v.Get("q"), &warnings), Status: enumFilter(v, "status", "queued,running,review_required,reviewed,failed", &warnings), Attention: enumFilter(v, "attention", "required,semantic_review,approval_pending", &warnings), CompanyID: positiveID(v, "company_id", &warnings)}
+	f := store.CompositionListFilter{Query: textFilter(v.Get("q"), &warnings), Status: enumFilter(v, "status", "queued,running,review_required,reviewed,failed,discarded", &warnings), Attention: enumFilter(v, "attention", "required,semantic_review,approval_pending", &warnings), CompanyID: positiveID(v, "company_id", &warnings)}
 	values := url.Values{}
 	for k, s := range map[string]string{"q": f.Query, "status": f.Status, "attention": f.Attention} {
 		if s != "" {

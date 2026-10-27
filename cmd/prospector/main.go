@@ -132,6 +132,8 @@ func main() {
 		r.Get("/dashboard/snapshot", handler.DashboardSnapshot)
 		r.Get("/profile", handler.Profile)
 		r.Post("/plans/{id}/compose", handler.CompositionGenerate)
+		r.Post("/compositions/{id}/recompose", handler.CompositionRecompose)
+		r.Post("/compositions/{id}/discard", handler.CompositionDiscard)
 		r.Get("/compositions/{id}", handler.CompositionView)
 		r.Get("/compositions", handler.Compositions)
 		r.Post("/compositions/{id}/edit", handler.CompositionEdit)

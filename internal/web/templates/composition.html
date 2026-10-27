@@ -16,11 +16,26 @@
 </header>
 
 <div class="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><div>Sending happens only from this page, after you explicitly approve this exact content. Any edit voids an approval.</div></div>
+{{if .Existing}}<div class="alert alert-warning"><div><strong>This plan already has an email.</strong> It was opened instead of writing a duplicate. To start again, use <strong>Discard and compose again</strong> at the bottom of this page.</div></div>{{end}}
 {{if eq .Draft.Status "running"}}<div class="alert alert-warning"><div>A compose and review run is in progress. <a href="/compositions/{{.Draft.ID}}">Refresh status</a></div></div>{{end}}
 {{if .Draft.StaleReasons}}<div class="alert alert-warning"><div><strong>Stale inputs</strong><ul>{{range .Draft.StaleReasons}}<li>{{.}}</li>{{end}}</ul><p>This draft is kept as history. Select a current plan and regenerate deliberately.</p></div></div>{{end}}
 
 <div class="grid-main">
 <div>
+
+{{if or .Fixes.Items .Fixes.Outcome}}
+<section class="card card-tone-warning" id="fixes">
+  <div class="card-head"><div><h2>What's stopping this email</h2><p>Change the text below to fix each item, then click <strong>Save edit and review</strong>. When every check passes, the status becomes <em>reviewed</em> and the Approve button appears.</p></div></div>
+  {{if .Fixes.Outcome}}<div class="alert alert-warning"><div>{{.Fixes.Outcome}}{{if .Fixes.ErrorCategory}} <span class="muted">(error: <code>{{.Fixes.ErrorCategory}}</code>)</span>{{end}}</div></div>{{end}}
+  {{if .Fixes.Items}}<ol class="fix-list">{{range .Fixes.Items}}
+    <li>
+      <div class="fix-head"><span class="badge {{if eq .Severity "block"}}red{{else}}amber{{end}}">{{if eq .Severity "block"}}Must fix{{else}}Needs change{{end}}</span> <strong>{{.Problem}}</strong> <code>{{.Code}}</code>{{if .Reviewer}} <span class="muted small">· AI reviewer</span>{{end}}</div>
+      {{range .Excerpts}}<blockquote class="fix-excerpt">{{.}}</blockquote>{{end}}
+      <p class="fix-how"><strong>How to fix:</strong> {{.Fix}}</p>
+    </li>{{end}}
+  </ol>{{end}}
+</section>
+{{end}}
 
 <section class="card">
   <div class="card-head"><div><h2>Email</h2><p>Saving creates a new content revision and sends it back through full review. It never approves sending.</p></div></div>
@@ -117,11 +132,13 @@
 </section>
 
 <section class="card">
-  <div class="card-head"><h2>Start over</h2></div>
-  <form method="post" action="/plans/{{.Draft.Snapshot.PlanID}}/compose">
-    <p class="help">Keeps this draft and starts a new one from the current selected plan.</p>
-    <button>Generate a new draft</button>
-  </form>
+  <div class="card-head"><div><h2>Start over</h2><p>One email per plan. To get a fresh draft, this one is discarded first. A draft with a send attempt cannot be discarded.</p></div></div>
+  {{if not .Send.Attempts}}
+  <div class="btn-row">
+    <form method="post" action="/compositions/{{.Draft.ID}}/recompose" onsubmit="return confirm('Discard this draft and write a new one from the current plan?')"><button>Discard and compose again</button></form>
+    <form method="post" action="/compositions/{{.Draft.ID}}/discard" onsubmit="return confirm('Discard this draft? It stays visible under Discarded.')"><button class="btn-ghost">Discard only</button></form>
+  </div>
+  {{else}}<p class="small muted">This draft has a send attempt and is part of the send record.</p>{{end}}
 </section>
 
 </aside>

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -138,6 +139,15 @@ func TestCompositionPersistenceAndAdmission(t *testing.T) {
 	if calls != 1 || reserved != 0 {
 		t.Fatalf("calls=%d reservations=%d", calls, reserved)
 	}
+	// A second email for the same plan is refused while the first is live; discarding it is the
+	// deliberate way to compose again.
+	var exists *CompositionExistsError
+	if _, err := db.QueueComposition(ctx, s); !errors.As(err, &exists) || exists.DraftID != id {
+		t.Fatalf("duplicate composition admitted: %v", err)
+	}
+	if err := db.DiscardComposition(ctx, id, "test"); err != nil {
+		t.Fatal(err)
+	}
 	next, err := db.QueueComposition(ctx, s)
 	if err != nil {
 		t.Fatal(err)
@@ -207,5 +217,55 @@ func TestCompositionStalenessAndPinnedHistory(t *testing.T) {
 	}
 	if _, err := db.QueueComposition(ctx, s); err == nil {
 		t.Fatal("stale regeneration admitted")
+	}
+}
+
+// A second plan for the same vacancy and intent cannot start a second email either, and a draft
+// whose run is still going cannot be discarded out from under it.
+func TestOneLiveCompositionPerVacancy(t *testing.T) {
+	db := phase3DB(t)
+	ctx := context.Background()
+	first := compositionFixture(t, db)
+	id, err := db.QueueComposition(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DiscardComposition(ctx, id, "test"); !errors.Is(err, ErrCompositionNotDiscardable) {
+		t.Fatalf("a queued run was discarded: %v", err)
+	}
+	owner, err := db.ClaimComposition(ctx, id, 0, 6, 6, 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordCompositionAttempt(ctx, id, owner, composition.Attempt{Source: "generated", Email: composition.Email{Subject: "Application: Backend Engineer", Body: "Synthetic"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FinishComposition(ctx, id, owner, "review_required"); err != nil {
+		t.Fatal(err)
+	}
+	// The first plan is closed and a new one made for the same vacancy, as when the recipient is
+	// changed.
+	if _, err := db.Exec(ctx, `UPDATE contact_plan SET status='closed' WHERE id=$1`, first.PlanID); err != nil {
+		t.Fatal(err)
+	}
+	second := compositionFixture(t, db)
+	if second.PlanID == first.PlanID || second.OpportunityID != first.OpportunityID {
+		t.Fatalf("fixture did not make a second plan for the same vacancy: %d/%d %d/%d", first.PlanID, second.PlanID, first.OpportunityID, second.OpportunityID)
+	}
+	var exists *CompositionExistsError
+	if _, err := db.QueueComposition(ctx, second); !errors.As(err, &exists) || exists.DraftID != id {
+		t.Fatalf("second email for the same vacancy admitted: %v", err)
+	}
+	if err := db.DiscardComposition(ctx, id, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := db.CountCompositionList(ctx, CompositionListFilter{}); n != 0 {
+		t.Fatalf("discarded draft still listed: %d", n)
+	}
+	if n, _ := db.CountCompositionList(ctx, CompositionListFilter{Status: "discarded"}); n != 1 {
+		t.Fatalf("discarded filter found %d", n)
+	}
+	if _, err := db.QueueComposition(ctx, second); err != nil {
+		t.Fatalf("composing after discard refused: %v", err)
 	}
 }

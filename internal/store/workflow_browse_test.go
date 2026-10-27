@@ -12,7 +12,15 @@ func TestCompositionAttentionDrillDownEqualsDashboard(t *testing.T) {
 	s := compositionFixture(t, db)
 	ids := map[string]int64{}
 	for _, state := range []string{"review_required", "reviewed", "failed"} {
+		// Several live drafts for one plan can only exist from before the one-email-per-plan
+		// guard; hide the earlier ones while queueing so this recreates that data.
+		if _, err := db.Exec(ctx, `UPDATE draft SET state='discarded' WHERE id=ANY($1)`, idList(ids)); err != nil {
+			t.Fatal(err)
+		}
 		id, err := db.QueueComposition(ctx, s)
+		if _, err := db.Exec(ctx, `UPDATE draft SET state='needs_manual' WHERE id=ANY($1)`, idList(ids)); err != nil {
+			t.Fatal(err)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,4 +110,12 @@ func TestReplyDrillDownUsesRecordedEventsNotOnlyCurrentState(t *testing.T) {
 	if err != nil || snapshot.Replies != n {
 		t.Fatal("reply metric and destination differ", err)
 	}
+}
+
+func idList(m map[string]int64) []int64 {
+	out := []int64{}
+	for _, id := range m {
+		out = append(out, id)
+	}
+	return out
 }

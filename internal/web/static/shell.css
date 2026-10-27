@@ -531,3 +531,9 @@ pre.notes { background: var(--warning-soft); border-color: var(--warning-line); 
 kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface-2); }
 @media (max-width: 900px) { .review-layout { grid-template-columns: 1fr; } .review-queue { max-height: none; } }
 .inline-select select { height: 30px; min-height: 30px; padding-top: 2px; padding-bottom: 2px; font-size: 13px; }
+
+/* Composition: what is stopping an email, with how to fix each item */
+.fix-list{margin:0;padding-left:20px;display:grid;gap:14px}
+.fix-head{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
+.fix-excerpt{margin:6px 0;padding:6px 10px;border-left:3px solid var(--warning-line);background:var(--surface-2);font-size:13px;color:var(--text-2)}
+.fix-how{margin:4px 0 0;font-size:13.5px}

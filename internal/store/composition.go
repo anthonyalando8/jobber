@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/anthonyalando8/prospector/internal/composition"
+	"github.com/jackc/pgx/v5"
 )
 
 type ComposedDraft struct {
@@ -18,6 +20,55 @@ type ComposedDraft struct {
 	Revision     int
 	Attempts     []composition.Attempt
 	StaleReasons []string
+}
+
+// CompositionExistsError refuses a second email for the same plan, or for the same vacancy and
+// intent, while the first is still live. Composing again would spend provider calls on a duplicate
+// and could send two applications for one job.
+type CompositionExistsError struct {
+	DraftID int64
+	Sent    bool
+}
+
+func (e *CompositionExistsError) Error() string {
+	if e.Sent {
+		return fmt.Sprintf("an email for this plan was already sent (draft %d)", e.DraftID)
+	}
+	return fmt.Sprintf("draft %d already exists for this plan; discard it before composing again", e.DraftID)
+}
+
+// ErrCompositionNotDiscardable means the draft has a send attempt or a run in progress.
+var ErrCompositionNotDiscardable = errors.New("this draft has a send attempt or a run in progress, so it cannot be discarded")
+
+// DiscardComposition retires a composed draft so the plan can be composed again. A draft that has
+// any send attempt is part of the send record and is never discarded; any approval is revoked so
+// a discarded draft can never be sent.
+func (db *DB) DiscardComposition(ctx context.Context, draftID int64, reason string) error {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var blocked bool
+	err = tx.QueryRow(ctx, `SELECT d.state='sent' OR EXISTS(SELECT 1 FROM send_attempt a WHERE a.draft_id=d.id)
+		   OR (c.status IN ('queued','running') AND COALESCE(c.lease_until,c.created_at+interval '10 minutes')>=now())
+		 FROM draft d JOIN draft_composition c ON c.draft_id=d.id WHERE d.id=$1 FOR UPDATE OF d`, draftID).Scan(&blocked)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		return ErrCompositionNotDiscardable
+	}
+	if _, err = tx.Exec(ctx, `UPDATE draft SET state='discarded' WHERE id=$1`, draftID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "draft discarded"
+	}
+	if _, err = tx.Exec(ctx, `UPDATE send_approval SET revoked_at=now(),revoked_reason=$2 WHERE draft_id=$1 AND revoked_at IS NULL`, draftID, reason); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // CancelQueuedComposition releases a failed admission without spending a request.
@@ -47,6 +98,24 @@ func (db *DB) QueueComposition(ctx context.Context, s composition.Snapshot) (int
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
+	// One live email per plan, and per vacancy and intent: serialise admissions for the company,
+	// then refuse if one already exists. Recomposing means discarding the existing one first.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(4711, $1::int)`, s.CompanyID); err != nil {
+		return 0, err
+	}
+	var existing int64
+	var existingState string
+	err = tx.QueryRow(ctx, `SELECT c.draft_id, d.state FROM draft_composition c JOIN draft d ON d.id=c.draft_id
+		 WHERE d.state<>'discarded'
+		   AND NOT (c.status='failed' OR (c.status IN ('queued','running') AND COALESCE(c.lease_until,c.created_at+interval '10 minutes')<now()))
+		   AND (c.plan_id=$1 OR ($2>0 AND c.snapshot->>'opportunity_id'=$2::text AND c.snapshot->>'intent'=$3))
+		 ORDER BY c.draft_id DESC LIMIT 1`, s.PlanID, s.OpportunityID, string(s.Intent)).Scan(&existing, &existingState)
+	if err == nil {
+		return 0, &CompositionExistsError{DraftID: existing, Sent: existingState == "sent"}
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return 0, err
+	}
 	// An abandoned run is visible as failed, never automatically regenerated.
 	if _, err = tx.Exec(ctx, `UPDATE draft_composition SET status='failed',updated_at=now() WHERE plan_id=$1 AND status IN ('queued','running') AND COALESCE(lease_until,created_at+interval '10 minutes')<now()`, s.PlanID); err != nil {
 		return 0, err
