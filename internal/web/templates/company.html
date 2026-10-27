@@ -1,453 +1,342 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.company.Name}} — Prospector</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .back { margin-bottom: 20px; }
-        .back a { color: #0066cc; text-decoration: none; }
-        .header { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        .header h1 { font-size: 28px; margin-bottom: 10px; }
-        .meta { display: flex; gap: 20px; font-size: 14px; color: #666; margin-bottom: 15px; }
-        .actions { display: flex; gap: 10px; margin-top: 15px; }
-        .actions a, .actions button { background: #0066cc; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; border: none; cursor: pointer; }
-        .actions a:hover, .actions button:hover { background: #0052a3; }
-        .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .card h2 { font-size: 16px; margin-bottom: 15px; text-transform: uppercase; color: #666; }
-        .contact-item { padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
-        .contact-item:last-child { border-bottom: none; }
-        .contact-kind { font-size: 12px; color: #999; text-transform: uppercase; }
-        .contact-value { font-weight: 500; word-break: break-all; }
-        .signal { padding: 10px; background: #f9f9f9; border-left: 3px solid #0066cc; margin: 10px 0; border-radius: 2px; font-size: 14px; }
-        .signal-kind { font-weight: 600; color: #0066cc; }
-        .signal-detail { margin-top: 5px; color: #555; }
-        .signal-url { font-size: 12px; color: #0066cc; text-decoration: none; }
-        .notes { padding: 10px; background: #fffacd; border-radius: 4px; }
-        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
-        .badge.sent { background: #e8f5e9; color: #2e7d32; }
-        .badge.drafted { background: #fff3e0; color: #e65100; }
-        .badge.enriched { background: #f3e5f5; color: #7b1fa2; }
-        .badge.new { background: #e3f2fd; color: #1976d2; }
-        .badge.verified { background: #e8f5e9; color: #2e7d32; }
-        .badge.candidate { background: #fff3e0; color: #e65100; }
-        .badge.failed { background: #ffebee; color: #c62828; }
-        .badge.manual { background: #eceff1; color: #37474f; }
-        .badge.unknown { background: #eceff1; color: #78909c; }
-        .badge.pending { background: #e3f2fd; color: #1976d2; }
-        .badge.needs_manual { background: #fff3e0; color: #e65100; }
-        .badge.blocked { background: #ffebee; color: #c62828; }
-        .badge.review_required { background: #fff3e0; color: #b06000; }
-        .badge.auto_send { background: #f1eaf9; color: #6b3fa0; }
-        .badge.discarded { background: #eceff1; color: #607d8b; }
-        .draft-reason { background: #fff3e0; color: #b06000; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-top: 12px; }
-        .draft-body-text { white-space: pre-wrap; font-family: -apple-system, sans-serif; font-size: 13.5px; line-height: 1.6; color: #333; background: #f9f9f9; padding: 12px 14px; border-radius: 6px; margin-top: 10px; }
-        .contact-item.bad { opacity: 0.65; }
-        .contact-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-        .contact-main { flex: 1; min-width: 0; }
-        .contact-reason { font-size: 12px; color: #b3261e; margin-top: 2px; }
-        .contact-btns { display: flex; gap: 6px; flex-shrink: 0; }
-        .contact-btns button, .contact-btns a.btn-link { background: none; border: 1px solid #ddd; color: #555; padding: 3px 9px; border-radius: 4px; font-size: 11.5px; cursor: pointer; text-decoration: none; }
-        .contact-btns button:hover, .contact-btns a.btn-link:hover { background: #f0f0f0; }
-        .contact-btns .danger { color: #c62828; border-color: #f3cfcc; }
-        .contact-btns .danger:hover { background: #fbe9e8; }
-        .contact-btns .good { color: #2e7d32; border-color: #cde8d2; }
-        .contact-edit-form { display: none; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
-        .contact-edit-form.open { display: flex; }
-        .contact-edit-form input { padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12.5px; }
-        .contact-edit-form input[name=value] { flex: 1; min-width: 160px; }
-        .contact-edit-form input[name=person_name], .contact-edit-form input[name=role] { width: 110px; }
-        .add-contact-form { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid #f0f0f0; }
-        .add-contact-form select, .add-contact-form input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; }
-        .add-contact-form input[name=value] { flex: 1; min-width: 160px; }
-        .add-contact-form input[name=person_name], .add-contact-form input[name=role] { width: 110px; }
-        .email-card { border: 1px solid #eee; border-radius: 6px; margin-bottom: 10px; overflow: hidden; }
-        .email-card:last-child { margin-bottom: 0; }
-        .email-head { padding: 12px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-        .email-head:hover { background: #fafafa; }
-        .email-to { font-size: 12px; color: #777; font-family: ui-monospace, monospace; }
-        .email-subject { font-size: 13.5px; font-weight: 500; margin-top: 2px; }
-        .email-meta { text-align: right; flex-shrink: 0; font-size: 11.5px; color: #999; }
-        .email-body { display: none; padding: 0 14px 14px; border-top: 1px solid #f0f0f0; }
-        .email-body.open { display: block; }
-        .email-body pre { white-space: pre-wrap; font-family: -apple-system, sans-serif; font-size: 13px; line-height: 1.6; color: #333; margin-top: 12px; }
-    </style>
+<meta charset="UTF-8">
+<title>{{.company.Name}} · Prospector</title>
 </head>
 <body>
-    <div class="container">
-        <div class="back">
-            <a href="{{if .backURL}}{{.backURL}}{{else}}/companies{{end}}">{{if .backLabel}}{{.backLabel}}{{else}}Back to companies{{end}}</a>
-        </div>
-
-        <div class="header">
-            <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{if .backURL}}{{.backURL}}{{else}}/companies{{end}}">{{if .backLabel}}{{.backLabel}}{{else}}Back to companies{{end}}</a> / {{.company.Name}}</nav>
-<h1>{{.company.Name}}</h1>
-            <div class="meta">
-                <div><strong>Domain:</strong> {{.company.Domain}}
-                    <span class="badge {{.company.DomainStatus}}">{{.company.DomainStatus}}</span>
-                </div>
-                <div><strong>Source:</strong> {{.company.Source}}</div>
-                <div><strong>Score:</strong> {{.company.Score}}</div>
-                <div><strong>Status:</strong> <span class="badge {{.company.Status}}">{{.company.Status}}</span></div>
-            </div>
-            <div class="actions">
-                {{if or (eq .company.DomainStatus "candidate") (eq .company.DomainStatus "failed") (eq .company.DomainStatus "unknown")}}
-                <form method="POST" action="/companies/{{.company.ID}}/domain/verify" style="display:inline">
-                    <button type="submit" title="Confirm by eye that {{.company.Domain}} really is this company's site">Mark domain verified</button>
-                </form>
-                {{end}}
-                {{if eq .company.Status "new"}}
-                <form method="POST" action="/companies/{{.company.ID}}/enrich" style="display:inline">
-                    <button type="submit">Enrich</button>
-                </form>
-                {{end}}
-                {{if and (eq .company.Status "enriched") (not .currentDraft)}}
-                <form method="POST" action="/companies/{{.company.ID}}/generate-draft" style="display:inline">
-                    <button type="submit">Generate Draft</button>
-                </form>
-                {{end}}
-                <form method="POST" action="/companies/{{.company.ID}}/status" style="display:inline">
-                    <input type="hidden" name="status" value="skip">
-                    <button type="submit" style="background:#888">Skip</button>
-                </form>
-            </div>
-        </div>
-
-<p><a href="/opportunities?company_id={{.company.ID}}">{{.opportunityCount}} opportunities for {{.company.Name}}</a> &middot; <a href="/compositions?company_id={{.company.ID}}">All company compositions</a></p>
-{{if .compositions}}<section><h2>V2 compositions</h2><ul>{{range .compositions}}<li><a href="/compositions/{{.ID}}?return={{urlquery $.currentURL}}">{{if .Subject}}{{.Subject}}{{else}}Draft {{.ID}}{{end}}</a> &middot; {{.Status}}</li>{{end}}</ul></section>{{end}}
-        {{if .phase3}}
-        <div class="card" style="margin-top:20px; border-left:4px solid #4a6fa5;">
-            <h2>Candidate fit and contact intent</h2>
-            <p style="font-size:12.5px; color:#666; margin-top:0;">The advertised role, the desired role family and the email intent are three separate things. The legacy segment, score and application status below are historical fields and take no part in this decision.</p>
-            {{if not .phase3.Profile.Active}}
-            <p style="background:#fbe6e6; border:1px solid #e0a0a0; padding:8px; border-radius:4px; font-size:13px;"><strong>profile_required.</strong> {{.phase3.Profile.Reason}}</p>
-            {{end}}
-            <table style="width:100%; border-collapse:collapse; font-size:13px;">
-                <thead><tr><th style="text-align:left; padding:5px; border-bottom:1px solid #ddd;">Advertised role</th><th style="text-align:left; padding:5px; border-bottom:1px solid #ddd;">Classification</th><th style="text-align:left; padding:5px; border-bottom:1px solid #ddd;">State</th></tr></thead>
-                <tbody>
-                {{range .phase3.Opportunities}}
-                <tr>
-                    <td style="padding:5px; border-bottom:1px solid #f0f0f0;"><a href="/opportunities/{{.Opportunity.ID}}?return={{urlquery $.currentURL}}">{{if .Opportunity.Facts.Title}}{{.Opportunity.Facts.Title}}{{else}}Unknown advertised title{{end}}</a></td>
-                    <td style="padding:5px; border-bottom:1px solid #f0f0f0;">{{.Classification}}</td>
-                    <td style="padding:5px; border-bottom:1px solid #f0f0f0;">{{if .Stale}}stale — {{.StaleWhy}}{{else}}current{{end}}</td>
-                </tr>
-                {{else}}
-                <tr><td colspan="3" style="padding:5px; color:#888;">No advertised vacancies are stored for this company.</td></tr>
-                {{end}}
-                </tbody>
-            </table>
-            <p style="font-size:13px; margin-top:10px;">
-                Company relevance <strong>{{.phase3.Relevance.Score}}/100</strong> —
-                truthful reason to contact: <strong>{{if .phase3.Relevance.Relevant}}yes{{else}}no{{end}}</strong>;
-                payment need evidenced: <strong>{{if .phase3.Relevance.PaymentNeedEvidenced}}yes{{else}}no{{end}}</strong>.
-                {{.phase3.Relevance.ObservationCount}} observations grouped into {{.phase3.Relevance.GroupCount}} distinct facts.
-            </p>
-            {{if .phase3.Plans}}
-            <p style="font-size:13px;">Contact plans:
-                {{range .phase3.Plans}}<span style="display:inline-block; margin-right:10px;"><a href="/companies/{{$.company.ID}}/plan?return={{urlquery $.currentURL}}#plan-{{.ID}}">{{.Intent}}</a> → {{.RecipientEmail}} ({{.Status}}, revision {{.Revision}})</span>{{end}}
-            </p>
-            {{else}}
-            <p style="font-size:13px; color:#666;">No contact plan has been recorded. Nothing may be drafted for this company until one is.</p>
-            {{end}}
-            <div class="actions" style="margin-top:10px;">
-                <a href="/companies/{{.company.ID}}/plan?return={{urlquery .currentURL}}" style="display:inline-block; padding:6px 12px; background:#4a6fa5; color:#fff; border-radius:4px; text-decoration:none; font-size:13px;">Open contact plan workspace</a>
-                <form method="POST" action="/companies/{{.company.ID}}/assess" style="display:inline">
-                    <button type="submit">Rerun matching and relevance</button>
-                </form>
-            </div>
-        </div>
-        {{end}}
-
-        {{if .currentDraft}}
-        <div class="card" style="margin-top: 20px;">
-            <h2>Current draft</h2>
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-                {{if .currentDraft.Subject}}<div style="font-weight:600; font-size:14.5px;">{{.currentDraft.Subject}}</div>{{end}}
-                <div>
-                    <span class="badge {{.currentDraft.State}}">{{.currentDraft.State}}</span>
-                    {{if .currentDraft.Decision}} <span class="badge {{.currentDraft.Decision}}">{{.currentDraft.Decision}}</span>{{end}}
-                </div>
-            </div>
-
-            {{if eq .currentDraft.State "needs_manual"}}
-            <div class="draft-reason">Skipped: {{.currentDraft.Body}}</div>
-            {{else}}
-            <div class="draft-body-text">{{.currentDraft.Body}}</div>
-            {{if .currentDraft.DecisionReason}}<div class="draft-reason">Decision reason: {{.currentDraft.DecisionReason}}</div>{{end}}
-            {{end}}
-
-            <div class="actions" style="margin-top:14px;">
-                {{if eq .currentDraft.State "pending"}}
-                    {{if ne .currentDraft.Decision "blocked"}}
-                    <a href="/review?draft={{.currentDraft.ID}}">Open in Review</a>
-                    {{end}}
-                    <form method="POST" action="/companies/{{.company.ID}}/generate-draft" onsubmit="return confirm('Discard this draft and generate a fresh one? The AI budget spends another call.')" style="display:inline">
-                        <input type="hidden" name="regenerate" value="1">
-                        <button type="submit" style="background:#7b1fa2">Regenerate</button>
-                    </form>
-                    {{if eq .currentDraft.Decision "blocked"}}
-                    <form method="POST" action="/drafts/{{.currentDraft.ID}}/discard" onsubmit="return confirm('Discard this blocked draft? This frees the company up for a fresh draft attempt.')" style="display:inline">
-                        <input type="hidden" name="return_to" value="/companies/{{.company.ID}}">
-                        <button type="submit" style="background:#c62828">Discard &amp; allow retry</button>
-                    </form>
-                    {{if .isScoreBlockedDraft}}
-                    <form method="POST" action="/companies/{{.company.ID}}/send" onsubmit="return confirm('Send this draft despite the low score? Only do this after checking the company yourself — this overrides an automated quality check.')" style="display:inline">
-                        <input type="hidden" name="draft_id" value="{{.currentDraft.ID}}">
-                        <input type="hidden" name="override_score_block" value="1">
-                        <button type="submit" style="background:#2e7d32">Send anyway</button>
-                    </form>
-                    {{end}}
-                    {{end}}
-                {{else if eq .currentDraft.State "needs_manual"}}
-                    <form method="POST" action="/companies/{{.company.ID}}/generate-draft" onsubmit="return confirm('Discard this draft and generate a fresh one? The AI budget spends another call.')" style="display:inline">
-                        <input type="hidden" name="regenerate" value="1">
-                        <button type="submit" style="background:#7b1fa2">Regenerate</button>
-                    </form>
-                    <form method="POST" action="/drafts/{{.currentDraft.ID}}/discard" onsubmit="return confirm('Discard this draft? This frees the company up for a fresh draft attempt.')" style="display:inline">
-                        <input type="hidden" name="return_to" value="/companies/{{.company.ID}}">
-                        <button type="submit" style="background:#c62828">Discard &amp; allow retry</button>
-                    </form>
-                {{end}}
-            </div>
-        </div>
-        {{end}}
-
-        {{if .sentEmails}}
-        <div class="card" style="margin-top: 20px;">
-            <h2>Sent emails ({{len .sentEmails}})</h2>
-            {{range .sentEmails}}
-            <div class="email-card">
-                <div class="email-head" onclick="this.nextElementSibling.classList.toggle('open')">
-                    <div>
-                        <div class="email-to">{{.ToValue}}</div>
-                        {{if .Subject}}<div class="email-subject">{{.Subject}}</div>{{end}}
-                    </div>
-                    <div class="email-meta">
-                        {{.SentAt.Format "Jan 2, 2006 15:04"}}
-                        {{if .RepliedAt}}<div class="badge sent" style="margin-top:4px;">replied</div>{{end}}
-                        {{if .BouncedAt}}<div class="badge failed" style="margin-top:4px;">bounced</div>{{end}}
-                    </div>
-                </div>
-                <div class="email-body">
-                    <pre>{{.Body}}</pre>
-                    {{if .BouncedAt}}
-                    <p style="font-size:12.5px; color:#c62828; margin-top:10px;">Bounced{{if .BounceReason}}: {{.BounceReason}}{{end}} — {{.BouncedAt.Format "Jan 2, 2006 15:04"}}</p>
-                    {{else}}
-                    <button type="button" onclick="event.stopPropagation(); resendAfterBounce({{.SendLogID}})" style="margin-top:10px; background:#c62828; color:white; border:none; padding:7px 14px; border-radius:4px; cursor:pointer; font-size:12.5px;">Mark bounced &amp; resend to a different address</button>
-                    {{end}}
-                </div>
-            </div>
-            {{end}}
-        </div>
-        {{end}}
-
-        <div class="card" style="margin-top: 20px;">
-            <h2>Record outcome</h2>
-            <form method="POST" action="/companies/{{.company.ID}}/status">
-                <textarea name="note" placeholder="What did they actually say? (optional, but this is what you'll want to remember later)" style="width:100%; min-height:60px; padding:8px; border:1px solid #ddd; border-radius:4px; font-family:inherit; font-size:13px; margin-bottom:10px; resize:vertical;"></textarea>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                    <button type="submit" name="status" value="replied">Mark Replied</button>
-                    <button type="submit" name="status" value="call">Call Booked</button>
-                    <button type="submit" name="status" value="quoted">Quoted</button>
-                    <button type="submit" name="status" value="won" style="background:#2e7d32">Won</button>
-                    <button type="submit" name="status" value="lost" style="background:#c62828">Lost</button>
-                    <select name="status" style="padding:8px; border:1px solid #ddd; border-radius:4px; margin-left:auto;">
-                        <option value="no_response">No response</option>
-                        <option value="interested">Interested</option>
-                        <option value="not_interested">Not interested</option>
-                        <option value="wrong_contact">Wrong contact</option>
-                        <option value="referred">Referred elsewhere</option>
-                        <option value="meeting">Meeting booked</option>
-                        <option value="proposal">Proposal sent</option>
-                        <option value="skip">Skip</option>
-                    </select>
-                    <button type="submit" style="background:#666">Set outcome above</button>
-                </div>
-            </form>
-        </div>
-
-        <div class="card" style="margin-top: 20px;">
-            <h2>Notes</h2>
-            {{if .company.Notes}}
-            <div class="notes" style="white-space:pre-wrap; margin-bottom:14px;">{{.company.Notes}}</div>
-            {{else}}
-            <p style="color:#999; font-size:13px; margin-bottom:14px;">Nothing logged yet.</p>
-            {{end}}
-            <form method="POST" action="/companies/{{.company.ID}}/notes" style="display:flex; gap:8px;">
-                <input type="text" name="note" placeholder="Add a note without changing status..." style="flex:1; padding:8px; border:1px solid #ddd; border-radius:4px;" required>
-                <button type="submit">Add</button>
-            </form>
-        </div>
-
-        <div class="card" style="margin-top: 20px;">
-            <h2>Suppress (stop contacting)</h2>
-            <form method="POST" action="/companies/{{.company.ID}}/suppress" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <input type="text" name="value" placeholder="email or domain to suppress" value="{{.company.Domain}}" style="flex:1; min-width:200px; padding:8px; border:1px solid #ddd; border-radius:4px;">
-                <input type="text" name="reason" placeholder="reason (optional)" style="flex:1; min-width:150px; padding:8px; border:1px solid #ddd; border-radius:4px;">
-                <button type="submit" style="background:#c62828">Suppress</button>
-            </form>
-        </div>
-
-        <div class="grid">
-            <div>
-                <div class="card">
-                    <h2>Contacts</h2>
-                    <p style="font-size:14px;color:#666">If no contact here is an acceptable recipient, contact discovery can search the public web for an application route or a hiring contact. It stores what it finds with its source; it creates no plan and sends nothing.</p>
-                    <p>
-                      <a href="/companies/{{.company.ID}}/contact-search?return=/companies/{{.company.ID}}">Contact discovery &rarr;</a>
-                    </p>
-                    <form method="POST" action="/companies/{{.company.ID}}/contact-search" style="margin-bottom:12px">
-                      <input type="hidden" name="return" value="/companies/{{.company.ID}}">
-                      <button type="submit">Find contact</button>
-                    </form>
-                    {{range .contacts}}
-                    <div class="contact-item{{if eq .Status "bad"}} bad{{end}}">
-                        <div class="contact-row">
-                            <div class="contact-main">
-                                <div class="contact-kind">{{.Kind}}{{if eq .Status "bad"}} · bad{{end}}</div>
-                                <div class="contact-value">{{.Value}}</div>
-                                {{if .PersonName}}<small>{{.PersonName}}{{if .Role}} — {{.Role}}{{end}}</small>{{end}}
-                                {{if .BadReason}}<div class="contact-reason">{{.BadReason}}</div>{{end}}
-                            </div>
-                            <div class="contact-btns">
-                                <button type="button" onclick="toggleEdit({{.ID}})">Edit</button>
-                                {{if eq .Status "bad"}}
-                                <form method="POST" action="/contacts/{{.ID}}/reactivate" style="display:inline">
-                                    <button type="submit" class="good">Reactivate</button>
-                                </form>
-                                {{else}}
-                                <button type="button" onclick="markBad({{.ID}})">Mark bad</button>
-                                {{end}}
-                                <form method="POST" action="/contacts/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Delete this contact?')">
-                                    <button type="submit" class="danger">Delete</button>
-                                </form>
-                            </div>
-                        </div>
-                        <form class="contact-edit-form" id="edit-{{.ID}}" method="POST" action="/contacts/{{.ID}}/update">
-                            <input type="text" name="value" value="{{.Value}}" placeholder="value" required>
-                            <input type="text" name="person_name" value="{{if .PersonName}}{{.PersonName}}{{end}}" placeholder="name (optional)">
-                            <input type="text" name="role" value="{{if .Role}}{{.Role}}{{end}}" placeholder="role (optional)">
-                            <button type="submit">Save</button>
-                        </form>
-                    </div>
-                    {{else}}
-                    <p style="color: #999; font-size: 14px;">No contacts extracted yet.</p>
-                    {{end}}
-
-                    <form class="add-contact-form" method="POST" action="/companies/{{.company.ID}}/contacts">
-                        <select name="kind">
-                            <option value="email">email</option>
-                            <option value="phone">phone</option>
-                            <option value="whatsapp">whatsapp</option>
-                            <option value="form_url">form_url</option>
-                        </select>
-                        <input type="text" name="value" placeholder="value" required>
-                        <input type="text" name="person_name" placeholder="name (optional)">
-                        <input type="text" name="role" placeholder="role (optional)">
-                        <button type="submit">Add contact</button>
-                    </form>
-                </div>
-
-                <div class="card" style="margin-top: 20px;">
-                    <h2>Evidence & Signals</h2>
-                    {{range .signals}}
-                    <div class="signal">
-                        <div class="signal-kind">{{.Kind}}</div>
-                        <div class="signal-detail">{{.Detail}}</div>
-                        {{if .URL}}<a href="{{.URL}}" class="signal-url" target="_blank" rel="noopener noreferrer">source →</a>{{end}}
-                    </div>
-                    {{else}}
-                    <p style="color: #999; font-size: 14px;">No signals extracted yet. Run enrichment.</p>
-                    {{end}}
-                </div>
-
-                {{if .scoreBreakdown}}
-                <div class="card" style="margin-top: 20px;">
-                    <h2>Score breakdown — {{.company.Score}}/100</h2>
-                    <div style="font-size: 14px; line-height: 1.9;">
-                        {{range .scoreBreakdown}}
-                        <div style="display:flex; justify-content:space-between; gap:12px;">
-                            <span>{{.Label}}</span>
-                            <span style="font-variant-numeric: tabular-nums; color: {{if lt .Points 0}}#c62828{{else}}#2e7d32{{end}};">{{if ge .Points 0}}+{{end}}{{.Points}}</span>
-                        </div>
-                        {{end}}
-                    </div>
-                </div>
-                {{end}}
-            </div>
-
-            <div>
-                <div class="card">
-                    <h2>Details</h2>
-                    <div style="font-size: 14px; line-height: 1.8;">
-                        {{if .company.Location}}<div><strong>Location:</strong> {{.company.Location}}</div>{{end}}
-                        {{if .company.Segment}}<div><strong>Segment:</strong> <span class="badge">{{.company.Segment}}</span></div>{{end}}
-                        <div><strong>Score:</strong> {{.company.Score}} <a href="#" onclick="toggleEdit('score'); return false;" style="font-size:12px; margin-left:6px;">edit</a></div>
-                        <div><strong>Added:</strong> {{.company.CreatedAt.Format "2006-01-02"}}</div>
-                    </div>
-                    <form id="edit-score" class="contact-edit-form" method="POST" action="/companies/{{.company.ID}}/score" style="margin-top:8px;">
-                        <input type="number" name="score" min="0" max="100" value="{{.company.Score}}" style="width:70px;" required>
-                        <input type="text" name="reason" placeholder="Why? (e.g. a bank clearly needs backend devs)" style="flex:1; min-width:220px;">
-                        <button type="submit">Save</button>
-                    </form>
-                    <p style="font-size:11.5px; color:#999; margin-top:4px;">The automated score is a heuristic — override it when it's clearly wrong (e.g. a large, systems-heavy company scored low for lack of scraped signals).</p>
-                    <div style="margin-top:14px; padding-top:14px; border-top:1px solid #f0f0f0; font-size:12.5px; color:#777;">
-                        {{if .isApplicationMode}}
-                        <p>Drafting as a genuine job application instead of a contract pitch.</p>
-                        <form method="POST" action="/companies/{{.company.ID}}/segment/reset" onsubmit="return confirm('Switch back to the auto-detected segment? A live draft is untouched — regenerate separately if you want it rewritten.')" style="margin-top:8px;">
-                            <button type="submit" class="btn-link" style="background:none; border:1px solid #ddd; color:#555; padding:5px 10px; border-radius:4px; font-size:12px; cursor:pointer;">Switch back to auto-detected segment</button>
-                        </form>
-                        {{else}}
-                        <p>Too big for a "let me cover this while you hire" contract pitch? Draft as a real application instead.</p>
-                        <form method="POST" action="/companies/{{.company.ID}}/apply-mode" onsubmit="return confirm('Switch this company to application mode? The next draft will read as a genuine job application, not a contract pitch.')" style="margin-top:8px;">
-                            <button type="submit" class="btn-link" style="background:none; border:1px solid #ddd; color:#555; padding:5px 10px; border-radius:4px; font-size:12px; cursor:pointer;">Switch to application mode</button>
-                        </form>
-                        {{end}}
-                    </div>
-                </div>
-            </div>
-        </div>
+<header class="page-head">
+  <div>
+    <nav class="crumbs back" aria-label="Breadcrumb"><a href="{{if .backURL}}{{.backURL}}{{else}}/companies{{end}}">{{if .backLabel}}{{.backLabel}}{{else}}Back to companies{{end}}</a></nav>
+    <h1>{{.company.Name}}</h1>
+    <div class="page-meta">
+      {{if .company.Domain}}<span>{{.company.Domain}} <span class="badge {{.company.DomainStatus}}">{{if eq .company.DomainStatus "verified"}}Verified{{else if eq .company.DomainStatus "candidate"}}Unverified domain{{else}}{{.company.DomainStatus}}{{end}}</span></span>{{end}}
+      <span>Status <span class="badge {{.company.Status}}">{{.company.Status}}</span></span>
+      {{if .company.Location}}<span>{{.company.Location}}</span>{{end}}
+      <span>Source: {{.company.Source}}</span>
     </div>
+  </div>
+  <div class="page-actions">
+    {{if or (eq .company.DomainStatus "candidate") (eq .company.DomainStatus "failed") (eq .company.DomainStatus "unknown")}}
+    <form method="POST" action="/companies/{{.company.ID}}/domain/verify">
+      <button type="submit" title="Confirm by eye that {{.company.Domain}} really is this company's site">Mark domain verified</button>
+    </form>
+    {{end}}
+    {{if eq .company.Status "new"}}
+    <form method="POST" action="/companies/{{.company.ID}}/enrich">
+      <button type="submit">Research company</button>
+    </form>
+    {{end}}
+    <a class="btn btn-primary" href="/companies/{{.company.ID}}/plan?return={{urlquery .currentURL}}">Open contact plan</a>
+  </div>
+</header>
 
-    <script>
-        function toggleEdit(id) {
-            var el = document.getElementById('edit-' + id);
-            if (el) el.classList.toggle('open');
-        }
+<div class="grid-main">
+<div>
 
-        function markBad(id) {
-            var reason = prompt('Why is this contact bad? (e.g. bounced, wrong person)');
-            if (reason === null) return; // cancelled
-            var form = document.createElement('form');
-            form.method = 'POST';
-            form.action = '/contacts/' + id + '/mark-bad';
-            var input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'reason';
-            input.value = reason;
-            form.appendChild(input);
-            document.body.appendChild(form);
-            form.submit();
-        }
+{{if .phase3}}
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>Fit and outreach</h2>
+      <p>Each advertised role is assessed on its own. Company relevance decides whether there is a truthful reason to get in touch.</p>
+    </div>
+    <form method="POST" action="/companies/{{.company.ID}}/assess"><button type="submit" class="btn-sm">Rerun matching</button></form>
+  </div>
 
-        function resendAfterBounce(sendLogId) {
-            var reason = prompt('What happened? (e.g. "mailbox doesn\'t exist" from the bounce notice)');
-            if (reason === null) return; // cancelled
-            var form = document.createElement('form');
-            form.method = 'POST';
-            form.action = '/sent/' + sendLogId + '/resend';
-            var input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'reason';
-            input.value = reason;
-            form.appendChild(input);
-            document.body.appendChild(form);
-            form.submit();
-        }
-    </script>
+  {{if not .phase3.Profile.Active}}
+  <div class="alert alert-danger"><div><strong>No active candidate profile.</strong> {{.phase3.Profile.Reason}} <a href="/profile">Open profile</a></div></div>
+  {{end}}
+
+  <div class="stat-row">
+    <div class="stat"><div class="stat-label">Company relevance</div><div class="stat-value">{{.phase3.Relevance.Score}}<small> / 100</small></div></div>
+    <div class="stat"><div class="stat-label">Reason to contact</div><div class="stat-value">{{if .phase3.Relevance.Relevant}}<span class="badge green">Yes</span>{{else}}<span class="badge neutral">No</span>{{end}}</div></div>
+    <div class="stat"><div class="stat-label">Payment need evidenced</div><div class="stat-value">{{if .phase3.Relevance.PaymentNeedEvidenced}}<span class="badge green">Yes</span>{{else}}<span class="badge neutral">No</span>{{end}}</div></div>
+    <div class="stat"><div class="stat-label">Evidence facts</div><div class="stat-value" title="{{.phase3.Relevance.ObservationCount}} observations">{{.phase3.Relevance.GroupCount}}</div></div>
+  </div>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Advertised role</th><th>Fit</th><th>Assessment</th></tr></thead>
+    <tbody>
+    {{range .phase3.Opportunities}}
+    <tr>
+      <td><a href="/opportunities/{{.Opportunity.ID}}?return={{urlquery $.currentURL}}">{{if .Opportunity.Facts.Title}}{{.Opportunity.Facts.Title}}{{else}}Unknown advertised title{{end}}</a></td>
+      <td><span class="badge {{.Classification}}">{{if eq .Classification "strong_match"}}Strong match{{else if eq .Classification "possible_match"}}Possible match{{else if eq .Classification "unrelated"}}Unrelated{{else}}{{.Classification}}{{end}}</span></td>
+      <td>{{if .Stale}}<span class="badge amber">Stale</span> <span class="cell-sub">{{.StaleWhy}}</span>{{else}}<span class="muted">Current</span>{{end}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="3" class="muted">No advertised vacancies are stored for this company.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+
+  <div class="card-section">
+    <h3>Contact plans</h3>
+    {{if .phase3.Plans}}
+    <ul class="reason-list">
+      {{range .phase3.Plans}}<li><a href="/companies/{{$.company.ID}}/plan?return={{urlquery $.currentURL}}#plan-{{.ID}}"><span class="reason-title">{{.Intent}}</span></a> to {{.RecipientEmail}} <span class="badge {{.Status}}">{{.Status}}</span> <span class="muted small">revision {{.Revision}}</span></li>{{end}}
+    </ul>
+    {{else}}
+    <p class="muted">No contact plan yet. Nothing can be drafted for this company until you record one in the contact plan workspace.</p>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+{{if .compositions}}
+<section class="card">
+  <div class="card-head"><h2>Email compositions</h2><a href="/compositions?company_id={{.company.ID}}">View all</a></div>
+  <ul class="reason-list">{{range .compositions}}<li><a href="/compositions/{{.ID}}?return={{urlquery $.currentURL}}">{{if .Subject}}{{.Subject}}{{else}}Draft {{.ID}}{{end}}</a> <span class="badge {{.Status}}">{{.Status}}</span></li>{{end}}</ul>
+</section>
+{{end}}
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>Contacts</h2>
+      <p>People and addresses on file. A plan can only use a contact that passes the recipient rules.</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn-sm" href="/companies/{{.company.ID}}/contact-search?return=/companies/{{.company.ID}}">Contact discovery</a>
+      <form method="POST" action="/companies/{{.company.ID}}/contact-search">
+        <input type="hidden" name="return" value="/companies/{{.company.ID}}">
+        <button type="submit" class="btn-sm">Find contact</button>
+      </form>
+    </div>
+  </div>
+
+  {{if .contacts}}
+  <ul class="contact-list">
+    {{range .contacts}}
+    <li class="contact-item{{if eq .Status "bad"}} is-bad{{end}}">
+      <div class="contact-row">
+        <div class="contact-main">
+          <div class="contact-value">{{.Value}}</div>
+          <div class="contact-sub"><span class="badge neutral">{{.Kind}}</span>{{if .PersonName}} {{.PersonName}}{{if .Role}} · {{.Role}}{{end}}{{end}}{{if eq .Status "bad"}} <span class="badge red">Marked bad</span>{{end}}</div>
+          {{if .BadReason}}<div class="contact-reason">{{.BadReason}}</div>{{end}}
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn-sm" onclick="toggleEdit({{.ID}})">Edit</button>
+          {{if eq .Status "bad"}}
+          <form method="POST" action="/contacts/{{.ID}}/reactivate"><button type="submit" class="btn-sm btn-success">Reactivate</button></form>
+          {{else}}
+          <button type="button" class="btn-sm" onclick="markBad({{.ID}})">Mark bad</button>
+          {{end}}
+          <form method="POST" action="/contacts/{{.ID}}/delete" onsubmit="return confirm('Delete this contact?')"><button type="submit" class="btn-sm btn-danger">Delete</button></form>
+        </div>
+      </div>
+      <form class="inline-edit form-row" id="edit-{{.ID}}" method="POST" action="/contacts/{{.ID}}/update" hidden>
+        <label class="field">Value<input type="text" name="value" value="{{.Value}}" required></label>
+        <label class="field">Name<input type="text" name="person_name" value="{{if .PersonName}}{{.PersonName}}{{end}}" placeholder="Optional"></label>
+        <label class="field">Role<input type="text" name="role" value="{{if .Role}}{{.Role}}{{end}}" placeholder="Optional"></label>
+        <button type="submit" class="btn-primary">Save</button>
+      </form>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="empty">No contacts yet. Run contact discovery or add one below.</p>
+  {{end}}
+
+  <details class="disclosure">
+    <summary>Add a contact manually</summary>
+    <div class="disclosure-body">
+      <form class="form-row" method="POST" action="/companies/{{.company.ID}}/contacts">
+        <label class="field narrow">Type
+          <select name="kind">
+            <option value="email">Email</option>
+            <option value="phone">Phone</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="form_url">Form URL</option>
+          </select>
+        </label>
+        <label class="field">Value<input type="text" name="value" placeholder="name@company.com" required></label>
+        <label class="field">Name<input type="text" name="person_name" placeholder="Optional"></label>
+        <label class="field">Role<input type="text" name="role" placeholder="Optional"></label>
+        <button type="submit" class="btn-primary">Add contact</button>
+      </form>
+    </div>
+  </details>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Evidence and signals</h2></div>
+  {{if .signals}}
+  <ul class="reason-list">
+    {{range .signals}}
+    <li>
+      <span class="reason-title">{{.Kind}}</span>
+      <div>{{.Detail}}</div>
+      {{if .URL}}<a href="{{.URL}}" class="small" target="_blank" rel="noopener noreferrer">View source</a>{{end}}
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="empty">No signals yet. Research the company to collect evidence.</p>
+  {{end}}
+</section>
+
+{{if .currentDraft}}
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>Legacy draft</h2>
+      <p>Written by the retired pipeline. It cannot be sent; use the contact plan to compose a v2 email instead.</p>
+    </div>
+    <div class="btn-row">
+      <span class="badge {{.currentDraft.State}}">{{.currentDraft.State}}</span>
+      {{if .currentDraft.Decision}}<span class="badge {{.currentDraft.Decision}}">{{.currentDraft.Decision}}</span>{{end}}
+    </div>
+  </div>
+  {{if .currentDraft.Subject}}<h3>{{.currentDraft.Subject}}</h3>{{end}}
+  {{if eq .currentDraft.State "needs_manual"}}
+  <div class="alert alert-warning"><div>Skipped: {{.currentDraft.Body}}</div></div>
+  {{else}}
+  <pre class="prose">{{.currentDraft.Body}}</pre>
+  {{if .currentDraft.DecisionReason}}<div class="alert alert-warning"><div>Decision reason: {{.currentDraft.DecisionReason}}</div></div>{{end}}
+  {{end}}
+  <div class="btn-row">
+    {{if and (eq .currentDraft.State "pending") (ne .currentDraft.Decision "blocked")}}<a class="btn btn-sm" href="/review?draft={{.currentDraft.ID}}">Open in legacy review</a>{{end}}
+    {{if or (eq .currentDraft.State "needs_manual") (and (eq .currentDraft.State "pending") (eq .currentDraft.Decision "blocked"))}}
+    <form method="POST" action="/drafts/{{.currentDraft.ID}}/discard" onsubmit="return confirm('Discard this legacy draft?')">
+      <input type="hidden" name="return_to" value="/companies/{{.company.ID}}">
+      <button type="submit" class="btn-sm btn-danger">Discard draft</button>
+    </form>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+{{if .sentEmails}}
+<section class="card">
+  <div class="card-head"><h2>Previously sent ({{len .sentEmails}})</h2></div>
+  {{range .sentEmails}}
+  <details class="disclosure">
+    <summary><span>{{if .Subject}}{{.Subject}}{{else}}(no subject){{end}} <span class="muted small">to {{.ToValue}}</span></span><span class="summary-meta">{{.SentAt.Format "2 Jan 2006, 15:04"}}{{if .RepliedAt}} · <span class="badge green">Replied</span>{{end}}{{if .BouncedAt}} · <span class="badge red">Bounced</span>{{end}}</span></summary>
+    <div class="disclosure-body">
+      <pre class="prose">{{.Body}}</pre>
+      {{if .BouncedAt}}<p class="text-danger small">Bounced{{if .BounceReason}}: {{.BounceReason}}{{end}} on {{.BouncedAt.Format "2 Jan 2006, 15:04"}}</p>{{end}}
+    </div>
+  </details>
+  {{end}}
+</section>
+{{end}}
+
+</div>
+
+<aside>
+
+<section class="card">
+  <div class="card-head"><h2>Details</h2></div>
+  <dl class="kv">
+    {{if .company.Location}}<dt>Location</dt><dd>{{.company.Location}}</dd>{{end}}
+    {{if .company.Segment}}<dt>Segment</dt><dd>{{.company.Segment}}</dd>{{end}}
+    <dt>Score</dt><dd>{{.company.Score}} / 100 <button type="button" class="btn-ghost btn-sm" onclick="toggleEdit('score')">Edit</button></dd>
+    <dt>Added</dt><dd>{{.company.CreatedAt.Format "2 Jan 2006"}}</dd>
+    <dt>Opportunities</dt><dd><a href="/opportunities?company_id={{.company.ID}}">{{.opportunityCount}} stored</a></dd>
+    <dt>Compositions</dt><dd><a href="/compositions?company_id={{.company.ID}}">View all</a></dd>
+  </dl>
+  <form id="edit-score" class="stack-form card-section" method="POST" action="/companies/{{.company.ID}}/score" hidden>
+    <label class="field">New score<input type="number" name="score" min="0" max="100" value="{{.company.Score}}" required></label>
+    <label class="field">Reason<input type="text" name="reason" placeholder="Why the heuristic is wrong"></label>
+    <div class="btn-row"><button type="submit" class="btn-primary btn-sm">Save score</button><button type="button" class="btn-sm" onclick="toggleEdit('score')">Cancel</button></div>
+    <p class="help">The automated score is a heuristic. Override it when it is clearly wrong.</p>
+  </form>
+  {{if .isApplicationMode}}
+  <div class="card-section">
+    <p class="help">This company was switched to application mode by the old pipeline.</p>
+    <form method="POST" action="/companies/{{.company.ID}}/segment/reset" onsubmit="return confirm('Switch back to the auto-detected segment?')">
+      <button type="submit" class="btn-sm">Use auto-detected segment</button>
+    </form>
+  </div>
+  {{end}}
+</section>
+
+{{if .scoreBreakdown}}
+<section class="card">
+  <div class="card-head"><h2>Score breakdown</h2><span class="muted">{{.company.Score}} / 100</span></div>
+  <dl class="kv">
+    {{range .scoreBreakdown}}<dt>{{.Label}}</dt><dd class="num {{if lt .Points 0}}text-danger{{else}}text-success{{end}}">{{if ge .Points 0}}+{{end}}{{.Points}}</dd>{{end}}
+  </dl>
+</section>
+{{end}}
+
+<section class="card">
+  <div class="card-head"><h2>Record outcome</h2></div>
+  <form class="stack-form" method="POST" action="/companies/{{.company.ID}}/status">
+    <label class="field">Outcome
+      <select name="status">
+        <option value="replied">Replied</option>
+        <option value="call">Call booked</option>
+        <option value="meeting">Meeting booked</option>
+        <option value="interested">Interested</option>
+        <option value="quoted">Quoted</option>
+        <option value="proposal">Proposal sent</option>
+        <option value="won">Won</option>
+        <option value="lost">Lost</option>
+        <option value="no_response">No response</option>
+        <option value="not_interested">Not interested</option>
+        <option value="wrong_contact">Wrong contact</option>
+        <option value="referred">Referred elsewhere</option>
+      </select>
+    </label>
+    <label class="field">What did they say? <span class="field-hint">Optional, but this is what you will want to remember later.</span>
+      <textarea name="note" rows="3"></textarea>
+    </label>
+    <button type="submit" class="btn-primary">Save outcome</button>
+  </form>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Notes</h2></div>
+  {{if .company.Notes}}<pre class="prose notes">{{.company.Notes}}</pre>{{else}}<p class="muted">No notes yet.</p>{{end}}
+  <form class="form-row" method="POST" action="/companies/{{.company.ID}}/notes">
+    <label class="field"><span class="sr-only">Note</span><input type="text" name="note" placeholder="Add a note" required></label>
+    <button type="submit">Add</button>
+  </form>
+</section>
+
+<section class="card card-tone-danger">
+  <div class="card-head"><div><h2>Stop contacting</h2><p>Suppress an address or the whole domain. Suppressed recipients can never be sent to.</p></div></div>
+  <form class="stack-form" method="POST" action="/companies/{{.company.ID}}/suppress">
+    <label class="field">Email or domain<input type="text" name="value" value="{{.company.Domain}}" placeholder="name@company.com or company.com"></label>
+    <label class="field">Reason<input type="text" name="reason" placeholder="Optional"></label>
+    <div class="btn-row">
+      <button type="submit" class="btn-danger">Suppress</button>
+    </div>
+  </form>
+  <div class="card-section">
+    <form method="POST" action="/companies/{{.company.ID}}/status">
+      <input type="hidden" name="status" value="skip">
+      <button type="submit" class="btn-sm">Skip this company</button>
+    </form>
+  </div>
+</section>
+
+</aside>
+</div>
+
+<script>
+function toggleEdit(id) {
+  var el = document.getElementById('edit-' + id);
+  if (el) el.hidden = !el.hidden;
+}
+function markBad(id) {
+  var reason = prompt('Why is this contact bad? (e.g. bounced, wrong person)');
+  if (reason === null) return;
+  var form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/contacts/' + id + '/mark-bad';
+  var input = document.createElement('input');
+  input.type = 'hidden';
+  input.name = 'reason';
+  input.value = reason;
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
+}
+</script>
 </body>
 </html>

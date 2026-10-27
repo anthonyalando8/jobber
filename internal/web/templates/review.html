@@ -1,235 +1,87 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Review — Prospector</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .top a { color: #0066cc; text-decoration: none; font-size: 14px; }
-        .main { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .card h2 { font-size: 13px; text-transform: uppercase; color: #666; margin-bottom: 12px; letter-spacing: 0.03em; }
-        .company-name { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
-        .company-meta { font-size: 13px; color: #777; margin-bottom: 4px; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #eef; color: #339; margin-right: 6px; }
-        .signal { padding: 10px; border-radius: 4px; margin-bottom: 8px; font-size: 13px; border-left: 3px solid #ddd; }
-        .signal.cited { border-left-color: #0066cc; background: #f0f6ff; }
-        .signal .kind { font-weight: 600; color: #444; }
-        .signal .detail { color: #555; margin-top: 2px; }
-        .signal .url { display: block; margin-top: 4px; font-size: 11px; color: #0066cc; word-break: break-all; }
-        .signal.cited .kind::after { content: " ✓ cited"; color: #0066cc; font-weight: 500; font-size: 11px; }
-        .contact { font-size: 13px; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
-        .contact .kind { color: #999; text-transform: uppercase; font-size: 10px; margin-right: 8px; }
-        input[type=text] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; margin-bottom: 12px; background: #fafafa; }
-        textarea { width: 100%; min-height: 320px; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-family: -apple-system, sans-serif; font-size: 14px; line-height: 1.6; resize: vertical; }
-        .charcount { text-align: right; font-size: 11px; color: #999; margin-top: 4px; }
-        .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
-        button { padding: 10px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; }
-        .btn-primary { background: #0066cc; color: white; }
-        .btn-primary:hover { background: #0052a3; }
-        .btn-secondary { background: #e8e8e8; color: #333; }
-        .btn-secondary:hover { background: #ddd; }
-        .btn-warn { background: #fff3e0; color: #b06000; }
-        .btn-warn:hover { background: #ffe6c2; }
-        .hint { font-size: 12px; color: #999; margin-top: 14px; }
-        kbd { background: #eee; border-radius: 3px; padding: 1px 5px; font-size: 11px; border: 1px solid #ccc; }
-        .empty { text-align: center; padding: 80px 20px; background: white; border-radius: 8px; }
-        .empty h2 { font-size: 20px; margin-bottom: 10px; }
-        .empty p { color: #777; margin-bottom: 20px; }
-        .decision { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 10px; border-radius: 10px; display: inline-block; margin-bottom: 8px; }
-        .decision.auto_send { background: #e8f5e9; color: #2e7d32; }
-        .decision.review_required { background: #fff3e0; color: #b06000; }
-        .decision-reason { font-size: 12px; color: #777; font-family: ui-monospace, monospace; }
-        .send-error { background: #fbe9e8; border-left: 3px solid #b3261e; color: #8c1d17; padding: 10px 14px; border-radius: 4px; font-size: 13px; margin-bottom: 16px; }
-        .send-error strong { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px; opacity: 0.8; }
-        .contact-pick { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 14px; }
-        .contact-pick button { background: #eef2f7; color: #333; border: 1px solid #dde3ea; border-radius: 12px; padding: 3px 10px; font-size: 11.5px; font-weight: 500; cursor: pointer; }
-        .contact-pick button:hover { background: #e2e8f0; }
-        .contact-pick button.bad { background: #fbe9e8; color: #a8342c; border-color: #f3cfcc; text-decoration: line-through; }
-        .contact-pick .cp-note { font-size: 11px; color: #999; align-self: center; }
-
-        .with-queue { display: grid; grid-template-columns: 260px 1fr; gap: 20px; align-items: start; }
-        @media (max-width: 1150px) { .with-queue { grid-template-columns: 1fr; } }
-        .queue-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
-        .queue-card h2 { font-size: 13px; text-transform: uppercase; color: #666; letter-spacing: 0.03em; padding: 16px 16px 10px; }
-        .queue-list { max-height: 720px; overflow-y: auto; }
-        .queue-item { display: block; padding: 10px 16px; border-top: 1px solid #f0f0f0; text-decoration: none; color: inherit; }
-        .queue-item:hover { background: #f7f9fc; text-decoration: none; }
-        .queue-item.active { background: #eef4ff; border-left: 3px solid #0066cc; padding-left: 13px; }
-        .queue-item .qi-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-        .queue-item .qi-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .queue-item .qi-score { font-family: ui-monospace, monospace; font-size: 12px; color: #555; flex-shrink: 0; }
-        .queue-item .qi-domain { font-size: 11px; color: #999; font-family: ui-monospace, monospace; }
-        .queue-item .qi-decision { font-size: 9px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; }
-        .queue-item .qi-decision.auto_send { color: #2e7d32; }
-        .queue-item .qi-decision.review_required { color: #b06000; }
-        .queue-empty { padding: 16px; font-size: 12px; color: #999; }
-    </style>
+<meta charset="UTF-8">
+<title>Legacy review · Prospector</title>
 </head>
 <body>
-<div class="container">
-    <div class="top">
-        <h1>Review</h1>
-        <a href="/">← Dashboard</a>
-    </div>
+<header class="page-head">
+  <div>
+    <span class="badge neutral">Archive</span>
+    <h1>Legacy review</h1>
+    <p class="page-sub">Edit, skip or set aside drafts from the retired pipeline. Legacy sending is permanently closed; write new emails from a company's contact plan.</p>
+  </div>
+</header>
 
-    {{if .empty}}
-        <div class="with-queue">
-            <div class="queue-card">
-                <h2>Queue ({{len .queue}})</h2>
-                <div class="queue-list">
-                    {{range .queue}}
-                    <a class="queue-item" href="/review?draft={{.DraftID}}">
-                        <div class="qi-top"><span class="qi-name">{{.CompanyName}}</span><span class="qi-score">{{.CompanyScore}}</span></div>
-                        <div class="qi-domain">{{.CompanyDomain}}</div>
-                        {{if .Decision}}<div class="qi-decision {{.Decision}}">{{.Decision}}</div>{{end}}
-                    </a>
-                    {{else}}
-                    <div class="queue-empty">Nothing in the queue.</div>
-                    {{end}}
-                </div>
-            </div>
-            <div class="empty">
-                <h2>Nothing pending</h2>
-                {{if .hasSkipped}}
-                    <p>You've skipped every draft that's currently pending. Refresh to see them again.</p>
-                    <a href="/review"><button class="btn-primary">Refresh queue</button></a>
-                {{else}}
-                    <p>No drafts are waiting for review. Run drafting from the dashboard once companies are enriched.</p>
-                {{end}}
-            </div>
-        </div>
+<div class="review-layout">
+<aside class="card flush review-queue">
+  <div class="card-head"><h2>Queue <span class="muted">{{len .queue}}</span></h2></div>
+  <ul class="entity-list">
+    {{range .queue}}
+    <li{{if eq .DraftID $.activeDraftID}} class="is-active"{{end}}><div><a href="/review?draft={{.DraftID}}">{{.CompanyName}}</a><small>{{.CompanyDomain}} · score {{.CompanyScore}}</small></div>{{if .Decision}}<span class="badge {{.Decision}}">{{.Decision}}</span>{{end}}</li>
     {{else}}
-    <div class="with-queue">
-        <div class="queue-card">
-            <h2>Queue ({{len .queue}})</h2>
-            <div class="queue-list">
-                {{range .queue}}
-                <a class="queue-item{{if eq .DraftID $.activeDraftID}} active{{end}}" href="/review?draft={{.DraftID}}">
-                    <div class="qi-top"><span class="qi-name">{{.CompanyName}}</span><span class="qi-score">{{.CompanyScore}}</span></div>
-                    <div class="qi-domain">{{.CompanyDomain}}</div>
-                    {{if .Decision}}<div class="qi-decision {{.Decision}}">{{.Decision}}</div>{{end}}
-                </a>
-                {{else}}
-                <div class="queue-empty">Nothing in the queue.</div>
-                {{end}}
-            </div>
-        </div>
-    <form id="reviewForm" method="POST" action="/review/send">
-        <input type="hidden" name="draft_id" value="{{.draft.ID}}">
-        <input type="hidden" name="company_id" value="{{.company.ID}}">
-        <input type="hidden" name="skipped" value="{{.skippedList}}">
-
-        <div class="main">
-            <div>
-                <div class="card">
-                    {{if .decision}}
-                    <span class="decision {{.decision}}">
-                        {{if eq .decision "auto_send"}}auto-send attempted{{else}}review required{{end}}
-                    </span>
-                    <div class="decision-reason">{{.decisionReason}}</div>
-                    {{end}}
-                    <div class="company-name">{{.company.Name}}</div>
-                    <div class="company-meta">{{.company.Domain}} · {{if .company.Segment}}{{.company.Segment}}{{else}}unsegmented{{end}} · score {{.company.Score}}</div>
-                    <div class="company-meta">source: {{.company.Source}}</div>
-                </div>
-
-                <div class="card">
-                    <h2>Signals ({{len .signals}})</h2>
-                    {{range .signals}}
-                        <div class="signal{{if .Cited}} cited{{end}}">
-                            <div class="kind">{{.Kind}}</div>
-                            <div class="detail">{{.Detail}}</div>
-                            {{if .URL}}<a class="url" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.URL}}</a>{{end}}
-                        </div>
-                    {{else}}
-                        <p style="font-size:13px;color:#999;">No signals recorded.</p>
-                    {{end}}
-                </div>
-
-                <div class="card">
-                    <h2>Contacts <a href="/companies/{{.company.ID}}" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;">— edit on company page →</a></h2>
-                    {{range .contacts}}
-                        <div class="contact">
-                            <span class="kind">{{.Kind}}</span>{{.Value}}{{if .PersonName}} — {{.PersonName}}{{end}}
-                            {{if eq .Status "bad"}}<span style="color:#b3261e;font-size:11px;"> · bad{{if .BadReason}} ({{.BadReason}}){{end}}</span>{{end}}
-                        </div>
-                    {{else}}
-                        <p style="font-size:13px;color:#999;">No contacts recorded.</p>
-                    {{end}}
-                </div>
-            </div>
-
-            <div>
-                {{if .error}}
-                <div class="send-error">
-                    <strong>Send failed</strong>
-                    {{.error}}
-                </div>
-                {{end}}
-
-                <div class="card">
-                    <h2>Send to</h2>
-                    <input type="text" name="to_email" id="toEmailField" value="{{.toEmail}}" placeholder="recipient email address">
-                    <div class="contact-pick">
-                        {{range .contacts}}
-                            {{if eq .Kind "email"}}
-                            <button type="button" class="{{if eq .Status "bad"}}bad{{end}}" onclick="document.getElementById('toEmailField').value='{{.Value}}'" title="{{if eq .Status "bad"}}Marked bad{{if .BadReason}}: {{.BadReason}}{{end}}{{else}}Use this address{{end}}">{{.Value}}</button>
-                            {{end}}
-                        {{end}}
-                        <span class="cp-note">click to fill in — edit the field directly for a corrected/new address</span>
-                    </div>
-
-                    <h2>Subject</h2>
-                    <input type="text" readonly value="{{if .draft.Subject}}{{.draft.Subject}}{{end}}">
-                    <h2>Body — edit before sending</h2>
-                    <textarea name="body" id="bodyField">{{.draft.Body}}</textarea>
-                    <div class="charcount" id="charcount"></div>
-
-                    <div class="actions">
-                        <button type="submit" formaction="/review/send" class="btn-primary">Save &amp; Send</button>
-                        <button type="submit" formaction="/review/save" class="btn-secondary">Save only</button>
-                        <button type="submit" formaction="/review/skip" class="btn-secondary">Skip</button>
-                        <button type="submit" formaction="/review/needs-manual" class="btn-warn">Needs manual</button>
-                    </div>
-
-                    <div class="hint">
-                        <kbd>Cmd/Ctrl+Enter</kbd> to save &amp; send · <kbd>→</kbd> to skip (when not typing in the body)
-                    </div>
-                </div>
-            </div>
-        </div>
-    </form>
-    </div>
-
-    <script>
-        var form = document.getElementById('reviewForm');
-        var body = document.getElementById('bodyField');
-        var charcount = document.getElementById('charcount');
-
-        function updateCount() {
-            charcount.textContent = body.value.length + ' characters';
-        }
-        body.addEventListener('input', updateCount);
-        updateCount();
-
-        document.addEventListener('keydown', function (e) {
-            var inTextarea = document.activeElement === body;
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault();
-                form.action = '/review/send';
-                form.submit();
-            } else if (e.key === 'ArrowRight' && !inTextarea) {
-                form.action = '/review/skip';
-                form.submit();
-            }
-        });
-    </script>
+    <li class="muted">Nothing in the queue.</li>
     {{end}}
+  </ul>
+</aside>
+
+{{if .empty}}
+<div class="card empty-state">
+  <strong>Nothing pending</strong>
+  {{if .hasSkipped}}<p>You have skipped every pending draft.</p><a class="btn btn-primary" href="/review">Show skipped drafts again</a>
+  {{else}}<p>No legacy drafts are waiting for review.</p>{{end}}
+</div>
+{{else}}
+<form id="reviewForm" class="review-main" method="POST" action="/review/save">
+  <input type="hidden" name="draft_id" value="{{.draft.ID}}">
+  <input type="hidden" name="company_id" value="{{.company.ID}}">
+  <input type="hidden" name="skipped" value="{{.skippedList}}">
+  <input type="hidden" name="to_email" value="{{.toEmail}}">
+
+  {{if .error}}<div class="alert alert-danger"><div><strong>Not sent.</strong> {{.error}}</div></div>{{end}}
+
+  <section class="card">
+    <div class="card-head">
+      <div><h2>{{.company.Name}}</h2><p>{{.company.Domain}} · {{if .company.Segment}}{{.company.Segment}}{{else}}unsegmented{{end}} · score {{.company.Score}} · source {{.company.Source}}</p></div>
+      {{if .decision}}<span class="badge {{.decision}}">{{if eq .decision "auto_send"}}auto-send attempted{{else}}review required{{end}}</span>{{end}}
+    </div>
+    {{if .decisionReason}}<div class="alert alert-warning"><div>{{.decisionReason}}</div></div>{{end}}
+    <div class="stack-form">
+      <label class="field">Subject<input type="text" readonly value="{{if .draft.Subject}}{{.draft.Subject}}{{end}}"></label>
+      <label class="field">Body<textarea name="body" id="bodyField" rows="14">{{.draft.Body}}</textarea><span class="field-hint" id="charcount"></span></label>
+    </div>
+    <div class="form-actions">
+      <button type="submit" formaction="/review/save" class="btn-primary">Save</button>
+      <button type="submit" formaction="/review/skip">Skip</button>
+      <button type="submit" formaction="/review/needs-manual">Needs manual</button>
+      <span class="help"><kbd>→</kbd> skips when you are not typing</span>
+    </div>
+  </section>
+
+  <div class="grid-2">
+    <section class="card">
+      <div class="card-head"><h2>Signals <span class="muted">{{len .signals}}</span></h2></div>
+      {{if .signals}}<ul class="reason-list">{{range .signals}}<li><span class="reason-title">{{.Kind}}</span>{{if .Cited}} <span class="badge blue">Cited</span>{{end}}<div class="small">{{.Detail}}</div>{{if .URL}}<a class="small" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.URL}}</a>{{end}}</li>{{end}}</ul>{{else}}<p class="muted">No signals recorded.</p>{{end}}
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>Contacts</h2><a class="small" href="/companies/{{.company.ID}}">Edit on company page</a></div>
+      {{if .contacts}}<ul class="reason-list">{{range .contacts}}<li><span class="badge neutral">{{.Kind}}</span> {{.Value}}{{if .PersonName}} · {{.PersonName}}{{end}}{{if eq .Status "bad"}} <span class="badge red">bad{{if .BadReason}}: {{.BadReason}}{{end}}</span>{{end}}</li>{{end}}</ul>{{else}}<p class="muted">No contacts recorded.</p>{{end}}
+    </section>
+  </div>
+</form>
+<script>
+  var form = document.getElementById('reviewForm');
+  var body = document.getElementById('bodyField');
+  var charcount = document.getElementById('charcount');
+  function updateCount() { charcount.textContent = body.value.length + ' characters'; }
+  body.addEventListener('input', updateCount);
+  updateCount();
+  document.addEventListener('keydown', function (e) {
+    var typing = document.activeElement && (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT');
+    if (e.key === 'ArrowRight' && !typing) { form.action = '/review/skip'; form.submit(); }
+  });
+</script>
+{{end}}
 </div>
 </body>
 </html>

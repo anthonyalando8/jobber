@@ -1,14 +1,15 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact discovery - {{.View.Company.Name}} - Prospector</title><link rel="stylesheet" href="/static/contact-discovery.css?v=1"></head><body>
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Dashboard</a> / <a href="/companies">Companies</a> / <a href="/companies/{{.CompanyID}}">{{.View.Company.Name}}</a> / Contact discovery</nav>
-
-<header>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact discovery - {{.View.Company.Name}} - Prospector</title><link rel="stylesheet" href="/static/contact-discovery.css?v=2"></head><body>
+<header class="page-head">
+<div>
+<nav class="crumbs back" aria-label="Breadcrumb"><a href="/companies/{{.CompanyID}}">Back to {{.View.Company.Name}}</a></nav>
 <h1>Contact discovery</h1>
-<p class="list-intro">{{.View.Company.Name}} &middot; {{.View.Company.Domain}} &mdash; this page finds contact data. It never creates a contact plan, never changes an opportunity's classification and never sends anything. Whether a discovered contact may actually receive a message is decided by the existing recipient rules.</p>
+<p class="page-sub">Finds contact data for {{.View.Company.Name}}{{if .View.Company.Domain}} ({{.View.Company.Domain}}){{end}}. It never creates a contact plan, never changes a classification and never sends anything. Whether a contact may receive a message is decided by the recipient rules.</p>
+</div>
 </header>
 
 {{with .View}}
 <section class="cd-verdict {{.Verdict}}" aria-label="Current state">
-<span class="cd-verdict-mark" aria-hidden="true">{{if eq .Verdict "ready"}}&#10003;{{else if eq .Verdict "review"}}&#9888;{{else}}&#10005;{{end}}</span>
+<span class="cd-verdict-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{{if eq .Verdict "ready"}}<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>{{else if eq .Verdict "review"}}<path d="M12 3 2 20h20Z"/><path d="M12 10v4M12 17h.01"/>{{else}}<circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/>{{end}}</svg></span>
 <div>
 <h2>{{.VerdictTitle}}</h2>
 {{if .ApplicationDestination}}{{if .ApplicationDestination.Acceptable}}<p class="cd-destination">{{.ApplicationDestination.Label}} &mdash; {{.ApplicationDestination.Value}}</p>{{end}}{{end}}
@@ -38,7 +39,7 @@
 
 <form class="cd-action" method="post" action="/companies/{{$.CompanyID}}/contact-search">
 <input type="hidden" name="return" value="{{$.BackURL}}">
-<button type="submit">Find contact</button>
+<button type="submit" class="btn-primary">Find contact</button>
 <p>Runs the same queue and the same pipeline the background worker runs, and clears the cooldown &mdash; an explicit request is information the automatic schedule did not have.{{if not .ProviderOn}} No search provider is configured, so only this employer's own pages will be read.{{end}}</p>
 </form>
 
@@ -102,7 +103,7 @@
 <p class="empty">No candidates have been discovered for this company yet. Use <strong>Find contact</strong> above to run a search now, or wait for the background worker.</p>
 {{end}}
 
-<details class="cd-diagnostics">
+<details class="cd-diagnostics disclosure">
 <summary>Search state, capability and budget</summary>
 <div class="cd-panels">
 
@@ -156,5 +157,5 @@
 </details>
 {{end}}
 
-<p class="page-summary"><a href="{{.BackURL}}">{{.BackLabel}}</a></p>
+
 </body></html>

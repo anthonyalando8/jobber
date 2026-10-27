@@ -1,32 +1,129 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Composition {{.Draft.ID}}</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}textarea{width:100%;min-height:22rem}input[type=text]{width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere}article{border-top:1px solid #ccc;padding:1rem 0}</style></head><body>
-<nav><a href="/companies/{{.Draft.Snapshot.CompanyID}}/plan">Contact plans</a> · <a href="{{if .BackURL}}{{.BackURL}}{{else}}/compositions{{end}}">{{if .BackLabel}}{{.BackLabel}}{{else}}Back to compositions{{end}}</a> · <a href="/threads">Conversations</a> · <a href="/profile">Profile</a></nav>
-<h1>Complete email review</h1><p>Draft {{.Draft.ID}} · {{.Draft.Status}} · content revision {{.Draft.Revision}}. Sending happens only from this page, after explicit approval of this exact content.</p>
-{{if eq .Draft.Status "running"}}<p>A manually requested compose/review run is in progress. <a href="/compositions/{{.Draft.ID}}">Refresh status</a>.</p>{{end}}
-{{if .Draft.StaleReasons}}<h2>Stale inputs</h2><ul>{{range .Draft.StaleReasons}}<li>{{.}}</li>{{end}}</ul><p>Keep this history. Create/select a current plan and deliberately regenerate.</p>{{end}}
-<dl><dt>Authoritative intent</dt><dd>{{.Draft.Snapshot.Intent}}</dd><dt>Applied-for role</dt><dd>{{.Draft.Snapshot.AdvertisedTitle}}</dd><dt>Pinned recipient</dt><dd>{{.Draft.Snapshot.Recipient.Name}} {{.Draft.Snapshot.Recipient.Address}} · {{.Draft.Snapshot.Recipient.Function}}</dd><dt>Profile / plan revisions</dt><dd>{{.Draft.Snapshot.ProfileRevisionID}} / {{.Draft.Snapshot.PlanRevision}}</dd><dt>Snapshot hash</dt><dd>{{.Draft.Snapshot.InputHash}}</dd></dl>
-<form method="post" action="/compositions/{{.Draft.ID}}/edit"><input type="hidden" name="revision" value="{{.Draft.Revision}}"><label>Subject <input type="text" name="subject" value="{{.Email.Subject}}" required maxlength="160"></label><label>Complete body <textarea name="body" required>{{.Email.Body}}</textarea></label><p>Saving creates a new content revision and requires independent full-email review again. It never approves sending.</p><button>Save edit and review</button></form>
-<form method="post" action="/plans/{{.Draft.Snapshot.PlanID}}/compose"><p>Regeneration retains this draft and starts a new draft from the current selected plan.</p><button>Generate a new draft</button></form>
-<h2>Sending</h2>
-<p>Rollout mode {{.Send.Mode}}. {{if .Send.Readiness.Ready}}The send path is ready; every send still needs explicit approval of this exact content.{{else}}The send path is not ready:{{end}}</p>
-{{if not .Send.Readiness.Ready}}<ul>{{range .Send.Readiness.Reasons}}<li>{{.}}</li>{{end}}</ul>{{end}}
-<h3>Approval</h3>
-{{if .Send.Approval}}<p>Approved by {{.Send.Approval.ApprovedBy}} at {{.Send.Approval.ApprovedAt}} for content revision {{.Send.Approval.CompositionRevision}}, recipient {{.Send.Approval.RecipientEmail}}, intent {{.Send.Approval.Intent}}.</p>
-<form method="post" action="/compositions/{{.Draft.ID}}/approval/revoke"><label>Reason <input type="text" name="reason" maxlength="200"></label><button>Revoke approval</button></form>
-{{else}}<p>This draft is not approved to send. “Reviewed” is not approval.</p>
-{{if eq .Draft.Status "reviewed"}}<form method="post" action="/compositions/{{.Draft.ID}}/approval"><input type="hidden" name="revision" value="{{.Draft.Revision}}"><input type="hidden" name="content_hash" value="{{.Send.Hash}}"><label>Approved by <input type="text" name="approved_by" value="operator" maxlength="80" required></label><p>You are approving exactly the subject and body shown above, to {{.Draft.Snapshot.Recipient.Address}}, as {{.Draft.Snapshot.Intent}}. Any later edit voids this approval.</p><button>Approve this exact email for sending</button></form>{{end}}{{end}}
-<h3>Send eligibility</h3>
-{{if .Send.Decision.Allowed}}<p>Preflight passes. Sending transmits once; a duplicate request will attach to the same attempt rather than send again.</p>
-<form method="post" action="/compositions/{{.Draft.ID}}/send"><input type="hidden" name="initiator" value="operator"><button>Send this approved email now</button></form>
-{{else}}<p>Sending is not possible right now. The button is absent rather than disabled, because none of these can be overridden here:</p>
-<ul>{{range .Send.Decision.Blockers}}<li><strong>{{.Code}}</strong>: {{.Text}}</li>{{end}}</ul>{{end}}
-{{if .Send.Decision.Notes}}<h4>Notes</h4><ul>{{range .Send.Decision.Notes}}<li><strong>{{.Code}}</strong>: {{.Text}}</li>{{end}}</ul>{{end}}
-{{if .Send.Attempts}}<h3>Send history</h3><table><tr><th>Attempt</th><th>State</th><th>Stage</th><th>Provider</th><th>Error</th><th>Reserved</th><th>Settled</th></tr>{{range .Send.Attempts}}<tr><td>{{.ID}}</td><td>{{.State}}</td><td>{{.ProviderStage}}</td><td>{{.Provider}}</td><td>{{.ErrorCategory}}</td><td>{{.ReservedAt}}</td><td>{{if .SettledAt}}{{.SettledAt}}{{else}}—{{end}}</td></tr>{{end}}</table>
-<p>Every row is permanent. An uncertain attempt is never retried automatically: reconcile it from the recipient’s side and record the outcome on its thread.</p>{{end}}
-{{if .Send.Thread}}<p><a href="/threads/{{.Send.Thread.ID}}">Conversation {{.Send.Thread.ID}}</a> · {{.Send.Thread.State}} · intent {{.Send.Thread.Intent}} · follow-up step {{.Send.Thread.FollowupStep}}</p>{{end}}
-<h2>Plan review requirements</h2><p>“Reviewed” describes the email checks only. It is not human approval or permission to send.</p>{{range .Draft.Snapshot.ReviewReasons}}<p><strong>{{.Code}}</strong>: {{.Text}}</p>{{end}}
-{{if .Draft.Snapshot.Match}}<p>Role fit: {{.Draft.Snapshot.Match.Classification}}</p><pre>{{printf "%+v" .Draft.Snapshot.Match.Gaps}}</pre>{{end}}
-<h2>Allowed facts</h2>{{range .Draft.Snapshot.AllowedClaims}}<p><strong>{{.ID}}</strong>: {{.Text}}</p>{{end}}
-<h2>Forbidden claims</h2>{{range .Draft.Snapshot.ForbiddenClaims}}<p><strong>{{.Code}}</strong>: {{.Text}}</p>{{end}}
-<h2>Selected source evidence (untrusted text)</h2>{{range .Draft.Snapshot.Sources}}<details><summary>{{.ID}} · {{.Kind}}</summary><pre>{{.Text}}</pre></details>{{end}}
-<h2>Immutable attempt and review history</h2>{{range .Draft.Attempts}}<article><h3>{{.Source}} · attempt {{.Number}} · {{.Failure}}</h3><p>{{.ComposeMetadata.Provider}} / {{.ComposeMetadata.Model}} · reviewer {{.ReviewMetadata.Provider}} / {{.ReviewMetadata.Model}}</p><h4>{{.Email.Subject}}</h4><pre>{{.Email.Body}}</pre>{{range .Validation}}<p><strong>{{.Severity}}: {{.Code}}</strong> {{.Explanation}} <q>{{.Excerpt}}</q></p>{{end}}{{if .Review}}<p>Semantic review complete: {{.Review.Complete}}; passed: {{.Review.Passed}}</p>{{range .Review.Findings}}<p><strong>{{.Severity}}: {{.Code}}</strong> {{.Explanation}} <q>{{.Excerpt}}</q></p>{{end}}{{end}}</article>{{end}}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Composition {{.Draft.ID}} · Prospector</title></head><body>
+<header class="page-head">
+  <div>
+    <nav class="crumbs back" aria-label="Breadcrumb"><a href="{{if .BackURL}}{{.BackURL}}{{else}}/compositions{{end}}">{{if .BackLabel}}{{.BackLabel}}{{else}}Back to compositions{{end}}</a></nav>
+    <h1>{{if .Email.Subject}}{{.Email.Subject}}{{else}}Draft {{.Draft.ID}}{{end}}</h1>
+    <div class="page-meta">
+      <span class="badge {{.Draft.Status}}">{{.Draft.Status}}</span>
+      <span>To {{.Draft.Snapshot.Recipient.Address}}</span>
+      <span>{{.Draft.Snapshot.Intent}}</span>
+      <span>Draft {{.Draft.ID}} · content revision {{.Draft.Revision}}</span>
+    </div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/companies/{{.Draft.Snapshot.CompanyID}}/plan">Contact plan</a>
+  </div>
+</header>
+
+<div class="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><div>Sending happens only from this page, after you explicitly approve this exact content. Any edit voids an approval.</div></div>
+{{if eq .Draft.Status "running"}}<div class="alert alert-warning"><div>A compose and review run is in progress. <a href="/compositions/{{.Draft.ID}}">Refresh status</a></div></div>{{end}}
+{{if .Draft.StaleReasons}}<div class="alert alert-warning"><div><strong>Stale inputs</strong><ul>{{range .Draft.StaleReasons}}<li>{{.}}</li>{{end}}</ul><p>This draft is kept as history. Select a current plan and regenerate deliberately.</p></div></div>{{end}}
+
+<div class="grid-main">
+<div>
+
+<section class="card">
+  <div class="card-head"><div><h2>Email</h2><p>Saving creates a new content revision and sends it back through full review. It never approves sending.</p></div></div>
+  <form class="stack-form" method="post" action="/compositions/{{.Draft.ID}}/edit">
+    <input type="hidden" name="revision" value="{{.Draft.Revision}}">
+    <label class="field">Subject<input type="text" name="subject" value="{{.Email.Subject}}" required maxlength="160"></label>
+    <label class="field">Body<textarea name="body" rows="16" required>{{.Email.Body}}</textarea></label>
+    <div class="btn-row"><button class="btn-primary">Save edit and review</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <div class="card-head"><div><h2>Review requirements</h2><p>“Reviewed” describes the email checks only. It is not human approval or permission to send.</p></div></div>
+  {{if .Draft.Snapshot.ReviewReasons}}<ul class="reason-list">{{range .Draft.Snapshot.ReviewReasons}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul>{{else}}<p class="muted">No plan review requirements.</p>{{end}}
+  {{if .Draft.Snapshot.Match}}<details class="disclosure"><summary>Role fit: {{.Draft.Snapshot.Match.Classification}}</summary><div class="disclosure-body"><pre>{{printf "%+v" .Draft.Snapshot.Match.Gaps}}</pre></div></details>{{end}}
+  <details class="disclosure"><summary>Allowed facts <span class="summary-meta">{{len .Draft.Snapshot.AllowedClaims}}</span></summary><div class="disclosure-body"><ul class="reason-list">{{range .Draft.Snapshot.AllowedClaims}}<li><code>{{.ID}}</code> {{.Text}}</li>{{end}}</ul></div></details>
+  <details class="disclosure"><summary>Forbidden claims <span class="summary-meta">{{len .Draft.Snapshot.ForbiddenClaims}}</span></summary><div class="disclosure-body"><ul class="reason-list">{{range .Draft.Snapshot.ForbiddenClaims}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul></div></details>
+  <details class="disclosure"><summary>Selected source evidence (untrusted text) <span class="summary-meta">{{len .Draft.Snapshot.Sources}}</span></summary><div class="disclosure-body">{{range .Draft.Snapshot.Sources}}<h4>{{.ID}} · {{.Kind}}</h4><pre>{{.Text}}</pre>{{end}}</div></details>
+</section>
+
+<section class="card">
+  <div class="card-head"><div><h2>Attempt and review history</h2><p>Immutable record of every compose and review attempt.</p></div></div>
+  {{range .Draft.Attempts}}
+  <details class="disclosure"><summary>{{.Source}} · attempt {{.Number}}{{if .Failure}} <span class="badge red">{{.Failure}}</span>{{end}}<span class="summary-meta">{{.ComposeMetadata.Provider}} / {{.ComposeMetadata.Model}}</span></summary><div class="disclosure-body">
+    <p class="help">Composer {{.ComposeMetadata.Provider}} / {{.ComposeMetadata.Model}} · reviewer {{.ReviewMetadata.Provider}} / {{.ReviewMetadata.Model}}</p>
+    <h4>{{.Email.Subject}}</h4><pre class="prose">{{.Email.Body}}</pre>
+    {{if .Validation}}<ul class="reason-list">{{range .Validation}}<li><span class="badge {{if eq (printf "%s" .Severity) "error"}}red{{else}}amber{{end}}">{{.Severity}}</span> <code>{{.Code}}</code> {{.Explanation}} <q>{{.Excerpt}}</q></li>{{end}}</ul>{{end}}
+    {{if .Review}}<p class="small">Semantic review complete: {{.Review.Complete}}; passed: {{.Review.Passed}}</p>
+    <ul class="reason-list">{{range .Review.Findings}}<li><span class="badge amber">{{.Severity}}</span> <code>{{.Code}}</code> {{.Explanation}} <q>{{.Excerpt}}</q></li>{{end}}</ul>{{end}}
+  </div></details>
+  {{else}}<p class="muted">No attempts recorded.</p>{{end}}
+</section>
+
+</div>
+<aside>
+
+<section class="card">
+  <div class="card-head"><h2>Sending</h2><span class="badge neutral">{{.Send.Mode}}</span></div>
+  {{if .Send.Readiness.Ready}}<p class="small">The send path is ready. Every send still needs explicit approval of this exact content.</p>
+  {{else}}<div class="alert alert-warning"><div><strong>The send path is not ready</strong><ul>{{range .Send.Readiness.Reasons}}<li>{{.}}</li>{{end}}</ul></div></div>{{end}}
+
+  <div class="card-section">
+  <h3>Approval</h3>
+  {{if .Send.Approval}}
+    <div class="alert alert-success"><div>Approved by {{.Send.Approval.ApprovedBy}} at {{.Send.Approval.ApprovedAt}} for content revision {{.Send.Approval.CompositionRevision}}, recipient {{.Send.Approval.RecipientEmail}}, intent {{.Send.Approval.Intent}}.</div></div>
+    <form class="stack-form" method="post" action="/compositions/{{.Draft.ID}}/approval/revoke">
+      <label class="field">Reason <span class="field-hint">Optional</span><input type="text" name="reason" maxlength="200"></label>
+      <button class="btn-danger">Revoke approval</button>
+    </form>
+  {{else}}
+    <p class="small muted">This draft is not approved to send. “Reviewed” is not approval.</p>
+    {{if eq .Draft.Status "reviewed"}}
+    <form class="stack-form" method="post" action="/compositions/{{.Draft.ID}}/approval">
+      <input type="hidden" name="revision" value="{{.Draft.Revision}}"><input type="hidden" name="content_hash" value="{{.Send.Hash}}">
+      <label class="field">Approved by<input type="text" name="approved_by" value="operator" maxlength="80" required></label>
+      <p class="help">You are approving exactly the subject and body shown, to {{.Draft.Snapshot.Recipient.Address}}, as {{.Draft.Snapshot.Intent}}. Any later edit voids this approval.</p>
+      <button class="btn-primary">Approve this exact email</button>
+    </form>
+    {{end}}
+  {{end}}
+  </div>
+
+  <div class="card-section">
+  <h3>Send eligibility</h3>
+  {{if .Send.Decision.Allowed}}
+    <p class="small">Preflight passes. Sending transmits once; a duplicate request attaches to the same attempt instead of sending again.</p>
+    <form method="post" action="/compositions/{{.Draft.ID}}/send"><input type="hidden" name="initiator" value="operator"><button class="btn-primary" style="width:100%">Send this approved email now</button></form>
+  {{else}}
+    <p class="small muted">Sending is not possible right now. None of these can be overridden here:</p>
+    <ul class="reason-list small">{{range .Send.Decision.Blockers}}<li><code>{{.Code}}</code> {{.Text}}</li>{{end}}</ul>
+  {{end}}
+  {{if .Send.Decision.Notes}}<h4>Notes</h4><ul class="reason-list small">{{range .Send.Decision.Notes}}<li><code>{{.Code}}</code> {{.Text}}</li>{{end}}</ul>{{end}}
+  </div>
+
+  {{if .Send.Attempts}}
+  <div class="card-section">
+  <h3>Send history</h3>
+  <ul class="reason-list small">{{range .Send.Attempts}}<li><span class="cell-strong">Attempt {{.ID}}</span> <span class="badge {{.State}}">{{.State}}</span><div class="muted">{{.ProviderStage}} · {{.Provider}}{{if .ErrorCategory}} · {{.ErrorCategory}}{{end}}</div><div class="muted">Reserved {{.ReservedAt}} · settled {{if .SettledAt}}{{.SettledAt}}{{else}}—{{end}}</div></li>{{end}}</ul>
+  <p class="help">Every row is permanent. An uncertain attempt is never retried automatically: reconcile it from the recipient’s side and record the outcome on its conversation.</p>
+  </div>
+  {{end}}
+  {{if .Send.Thread}}<div class="card-section"><a href="/threads/{{.Send.Thread.ID}}">Conversation {{.Send.Thread.ID}}</a> <span class="badge {{.Send.Thread.State}}">{{.Send.Thread.State}}</span><p class="help">Intent {{.Send.Thread.Intent}} · follow-up step {{.Send.Thread.FollowupStep}}</p></div>{{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Pinned inputs</h2></div>
+  <dl class="kv">
+    <dt>Intent</dt><dd>{{.Draft.Snapshot.Intent}}</dd>
+    <dt>Applied-for role</dt><dd>{{if .Draft.Snapshot.AdvertisedTitle}}{{.Draft.Snapshot.AdvertisedTitle}}{{else}}—{{end}}</dd>
+    <dt>Recipient</dt><dd>{{.Draft.Snapshot.Recipient.Name}} {{.Draft.Snapshot.Recipient.Address}}<small class="muted" style="display:block">{{.Draft.Snapshot.Recipient.Function}}</small></dd>
+    <dt>Profile / plan</dt><dd>revision {{.Draft.Snapshot.ProfileRevisionID}} / {{.Draft.Snapshot.PlanRevision}}</dd>
+    <dt>Snapshot hash</dt><dd class="mono">{{.Draft.Snapshot.InputHash}}</dd>
+  </dl>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Start over</h2></div>
+  <form method="post" action="/plans/{{.Draft.Snapshot.PlanID}}/compose">
+    <p class="help">Keeps this draft and starts a new one from the current selected plan.</p>
+    <button>Generate a new draft</button>
+  </form>
+</section>
+
+</aside>
+</div>
 </body></html>

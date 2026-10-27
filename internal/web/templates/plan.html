@@ -1,159 +1,175 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact plan — {{.View.Company.Name}}</title><style>
-body{font:16px/1.5 system-ui;max-width:1150px;margin:2rem auto;padding:1rem;color:#111}
-section{border:1px solid #ddd;border-radius:8px;padding:1rem;margin:1.2rem 0}
-h2{margin-top:0;font-size:1.15rem}h3{font-size:1rem;margin-bottom:.3rem}
-table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.45rem;border-bottom:1px solid #e2e2e2;vertical-align:top}
-.tag{display:inline-block;padding:.15rem .55rem;border-radius:999px;font-size:.8rem;font-weight:600;border:1px solid}
-.strong_match{background:#e6f4ea;border-color:#94ceab}.possible_match{background:#fdf3d8;border-color:#e2c46b}
-.unrelated{background:#fbe6e6;border-color:#e0a0a0}.not_assessed,.profile_required{background:#eee;border-color:#ccc}
-.preferred{background:#e6f4ea;border-color:#94ceab}.acceptable{background:#eef3fb;border-color:#a9c1e8}
-.review_required{background:#fdf3d8;border-color:#e2c46b}.unusable{background:#fbe6e6;border-color:#e0a0a0}
-.warn{background:#fdf3d8;border:1px solid #e2c46b;padding:.6rem;border-radius:6px}
-.block{background:#fbe6e6;border:1px solid #e0a0a0;padding:.6rem;border-radius:6px}
-ul{margin:.4rem 0 .4rem 1.2rem;padding:0}li{margin:.3rem 0}
-.excerpt{color:#444;font-style:italic}.refs{color:#666;font-size:.82rem}
-.muted{color:#666;font-size:.9rem}
-form.inline{display:inline}
-</style></head><body>
-<nav><a href="/">Dashboard</a> · <a href="{{if .BackURL}}{{.BackURL}}{{else}}/companies/{{.View.Company.ID}}{{end}}">Back to {{.View.Company.Name}}</a> · <a href="/opportunities?company={{.View.Company.ID}}">Opportunities</a> · <a href="/profile">Candidate profile</a> · <a href="/compositions">Email compositions</a></nav>
-<h1>Contact plan — {{.View.Company.Name}}</h1>
-<p class="muted">This page decides <strong>what an email is allowed to say and why we are writing</strong>. Selecting a plan authorizes draft generation only. Use “Compose and review email” for an explicit manual run when configured. Background workers and all sending remain disabled.</p>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact plan · {{.View.Company.Name}} · Prospector</title></head><body>
+<header class="page-head">
+  <div>
+    <nav class="crumbs back" aria-label="Breadcrumb"><a href="{{if .BackURL}}{{.BackURL}}{{else}}/companies/{{.View.Company.ID}}{{end}}">Back to {{.View.Company.Name}}</a></nav>
+    <h1>Contact plan</h1>
+    <p class="page-sub">Decide why you are writing to <strong>{{.View.Company.Name}}</strong>, who receives it, and exactly which facts the email may use.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/opportunities?company={{.View.Company.ID}}">Opportunities</a>
+    <form method="post" action="/companies/{{.View.Company.ID}}/assess"><button>Rerun matching</button></form>
+  </div>
+</header>
 
-{{if not .View.Profile.Active}}<p class="block"><strong>profile_required.</strong> {{.View.Profile.Reason}}</p>{{end}}
+<div class="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><div>Selecting a plan authorizes draft generation only. Use <strong>Compose and review email</strong> on a recorded plan to run it manually when configured. Background workers and all sending remain disabled from this page.</div></div>
 
-<section>
-<h2>Advertised roles at this company</h2>
-<p class="muted">Each vacancy is assessed on its own. The <em>advertised role</em> is what the employer published, the <em>desired role family</em> is what the approved profile seeks, and the <em>email intent</em> is a separate decision below.</p>
-<table><thead><tr><th>Advertised title</th><th>Classification</th><th>Why</th><th></th></tr></thead><tbody>
-{{range .View.Opportunities}}
-<tr>
- <td><a href="/opportunities/{{.Opportunity.ID}}?return={{urlquery $.CurrentURL}}">{{if .Opportunity.Facts.Title}}{{.Opportunity.Facts.Title}}{{else}}Unknown advertised title{{end}}</a><br>
-   <span class="muted">{{.Opportunity.Facts.Source}} · source revision {{.Opportunity.Revision}}</span></td>
- <td><span class="tag {{.Classification}}">{{.Classification}}</span>{{if .Stale}}<br><span class="muted">stale: {{.StaleWhy}}</span>{{end}}</td>
- <td>{{if .Match}}<ul>{{range .Match.Reasons}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul>{{else}}<span class="muted">Not assessed yet.</span>{{end}}</td>
- <td><a href="/companies/{{$.View.Company.ID}}/plan?opportunity={{.Opportunity.ID}}{{if $.Requested}}&amp;intent={{$.Requested}}{{end}}">Select</a></td>
-</tr>
-{{else}}<tr><td colspan="4">No advertised vacancies are stored for this company.</td></tr>{{end}}
-</tbody></table>
-<form method="post" action="/companies/{{.View.Company.ID}}/assess"><button>Rerun matching and company relevance</button></form>
+{{if not .View.Profile.Active}}<div class="alert alert-danger"><div><strong>No active candidate profile.</strong> {{.View.Profile.Reason}} <a href="/profile">Open profile</a></div></div>{{end}}
+
+<div class="grid-main">
+<div>
+
+<section class="card">
+  <div class="card-head"><div><h2><span class="step">1</span>Choose the vacancy</h2><p>Each vacancy is assessed on its own. Pick the one this email is about, or none for a general enquiry.</p></div></div>
+  <div class="table-wrap"><table><thead><tr><th>Advertised role</th><th>Fit</th><th></th></tr></thead><tbody>
+  {{range .View.Opportunities}}
+  <tr{{if eq .Opportunity.ID $.Selected}} class="is-selected"{{end}}>
+    <td><a class="cell-strong" href="/opportunities/{{.Opportunity.ID}}?return={{urlquery $.CurrentURL}}">{{if .Opportunity.Facts.Title}}{{.Opportunity.Facts.Title}}{{else}}Unknown advertised title{{end}}</a>
+      <small>{{.Opportunity.Facts.Source}} · source revision {{.Opportunity.Revision}}</small>
+      {{if .Match}}<details class="inline-details"><summary>Why</summary><ul class="reason-list small">{{range .Match.Reasons}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul></details>{{else}}<small>Not assessed yet.</small>{{end}}</td>
+    <td><span class="badge {{.Classification}}">{{if eq .Classification "strong_match"}}Strong match{{else if eq .Classification "possible_match"}}Possible match{{else if eq .Classification "unrelated"}}Unrelated{{else}}{{.Classification}}{{end}}</span>{{if .Stale}}<small>Stale: {{.StaleWhy}}</small>{{end}}</td>
+    <td class="actions">{{if eq .Opportunity.ID $.Selected}}<span class="badge green">Selected</span>{{else}}<a class="btn btn-sm" href="/companies/{{$.View.Company.ID}}/plan?opportunity={{.Opportunity.ID}}{{if $.Requested}}&amp;intent={{$.Requested}}{{end}}">Select</a>{{end}}</td>
+  </tr>
+  {{else}}<tr><td colspan="3" class="muted">No advertised vacancies are stored for this company.</td></tr>{{end}}
+  </tbody></table></div>
 </section>
 
-<section>
-<h2>Company relevance</h2>
-<p>Score {{.View.Relevance.Score}}/100 · truthful reason to make contact: <strong>{{if .View.Relevance.Relevant}}yes{{else}}no{{end}}</strong> ·
-payment need evidenced: <strong>{{if .View.Relevance.PaymentNeedEvidenced}}yes{{else}}no{{end}}</strong></p>
-<p class="muted">{{.View.Relevance.ObservationCount}} stored observations reduce to {{.View.Relevance.GroupCount}} distinct fact groups. Each group counts once, however often it was seen.</p>
-<table><thead><tr><th>Category</th><th>Points</th></tr></thead><tbody>
-{{range .View.Relevance.Categories}}<tr><td>{{.Label}}</td><td>{{.Points}} / {{.Max}}</td></tr>{{end}}
-</tbody></table>
-<ul>{{range .View.Relevance.Reasons}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul>
+<section class="card">
+  <div class="card-head"><div><h2><span class="step">2</span>Choose the intent</h2><p>Exactly three intents exist. Legacy segment, score and application status take no part in this decision.</p></div></div>
+  <div class="segmented" role="group" aria-label="Intent">
+    <a href="/companies/{{.View.Company.ID}}/plan{{if .Selected}}?opportunity={{.Selected}}{{end}}" {{if not .Requested}}class="active"{{end}}>Let the rules propose</a>
+    {{range .Intents}}<a href="/companies/{{$.View.Company.ID}}/plan?intent={{.Value}}{{if $.Selected}}&amp;opportunity={{$.Selected}}{{end}}" {{if eq .Value $.Requested}}class="active"{{end}}>{{.Name}}</a>{{end}}
+  </div>
+  <div class="decision {{if .Proposal.Decision.Ready}}ok{{else}}blocked{{end}}">
+    <div><span class="muted small">Outcome</span><strong>{{.Proposal.Decision.Outcome}}</strong></div>
+    {{if .Proposal.Decision.Intent}}<div><span class="muted small">Proposed intent</span><strong>{{.Proposal.Decision.Intent}}</strong></div>{{end}}
+    {{if .Proposal.Decision.TargetFamilies}}<div><span class="muted small">Target families</span><strong>{{range .Proposal.Decision.TargetFamilies}}{{.Name}} {{end}}</strong></div>{{end}}
+    {{if .Proposal.Decision.RequiresReview}}<div><span class="badge amber">Requires review</span></div>{{end}}
+  </div>
+  {{if .Proposal.Decision.Blockers}}<div class="alert alert-danger"><div><strong>Blockers</strong><ul>{{range .Proposal.Decision.Blockers}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul></div></div>{{end}}
+  {{if .Proposal.Decision.Reasons}}<details class="disclosure"><summary>Reasons <span class="summary-meta">{{len .Proposal.Decision.Reasons}}</span></summary><div class="disclosure-body"><ul class="reason-list">{{range .Proposal.Decision.Reasons}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul></div></details>{{end}}
 </section>
 
-<section>
-<h2>Research evidence</h2>
-<table><thead><tr><th>Fact</th><th>Establishes</th><th>Cannot establish</th><th>Seen</th></tr></thead><tbody>
-{{range .View.Groups}}<tr>
- <td>{{.Detail}}{{if .Legacy}} <span class="tag not_assessed">legacy detection</span>{{end}}
-   {{if .Excerpt}}<br><span class="excerpt">“{{.Excerpt}}”</span>{{end}}
-   <br><span class="refs">{{range .SourceURLs}}{{.}} {{end}}</span></td>
- <td>{{.Semantics.Establishes}}</td>
- <td>{{if .Semantics.DoesNotEstablish}}<ul>{{range .Semantics.DoesNotEstablish}}<li>{{.}}</li>{{end}}</ul>{{else}}<span class="muted">—</span>{{end}}</td>
- <td>{{.Observations}}×<br><span class="muted">{{.Confidence}}</span></td>
-</tr>{{else}}<tr><td colspan="4">No research evidence is stored for this company.</td></tr>{{end}}
-</tbody></table>
+<section class="card">
+  <div class="card-head"><div><h2><span class="step">3</span>Recipient</h2><p>A person's name is never inferred from a mailbox. Generic mailboxes stay review-required.</p></div>
+    <div class="page-actions">
+      <a class="btn btn-sm" href="/companies/{{.Proposal.View.Company.ID}}/contact-search?return=/companies/{{.Proposal.View.Company.ID}}/plan">Contact discovery</a>
+      <form method="post" action="/companies/{{.Proposal.View.Company.ID}}/contact-search">
+        <input type="hidden" name="return" value="/companies/{{.Proposal.View.Company.ID}}/plan">
+        <button class="btn-sm">Search for a recipient</button>
+      </form>
+    </div>
+  </div>
+  <div class="table-wrap"><table><thead><tr><th>Contact</th><th>Function</th><th>Relevance</th><th>Reason</th></tr></thead><tbody>
+  {{range .Proposal.Recipients}}<tr>
+    <td class="cell-strong">{{.Assessment.Contact.Value}}{{if .Assessment.Named}}<small>{{.Assessment.Contact.Person}}</small>{{end}}</td>
+    <td>{{.Assessment.Function}}</td>
+    <td><span class="badge {{.Relevance}}">{{.Relevance}}</span></td>
+    <td class="small">{{.Reason}}</td>
+  </tr>{{else}}<tr><td colspan="4" class="muted">No contacts on file. Run contact discovery to look for one.</td></tr>{{end}}
+  </tbody></table></div>
+  <p class="help">Searching for a recipient supplies contact data only. It never changes this plan's intent, never creates a plan and never authorizes a send.</p>
 </section>
 
-<section>
-<h2>Intent</h2>
-<p class="muted">Exactly three intents exist. Company business segment, legacy score and legacy application status are historical fields and take no part in this decision.</p>
-<p>
-{{range .Intents}}<a href="/companies/{{$.View.Company.ID}}/plan?intent={{.Value}}{{if $.Selected}}&amp;opportunity={{$.Selected}}{{end}}">{{.Label}}</a> · {{end}}
-<a href="/companies/{{.View.Company.ID}}/plan{{if .Selected}}?opportunity={{.Selected}}{{end}}">Let the rules propose one</a>
-</p>
-<p><strong>Outcome: {{.Proposal.Decision.Outcome}}</strong>{{if .Proposal.Decision.Intent}} · proposed intent <strong>{{.Proposal.Decision.Intent}}</strong>{{end}}{{if .Proposal.Decision.RequiresReview}} · requires review{{end}}</p>
-{{if .Proposal.Decision.TargetFamilies}}<p>Target engineering families: {{range .Proposal.Decision.TargetFamilies}}<strong>{{.Name}}</strong> {{end}}</p>{{end}}
-{{if .Proposal.Decision.Reasons}}<h3>Reasons</h3><ul>{{range .Proposal.Decision.Reasons}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul>{{end}}
-{{if .Proposal.Decision.Blockers}}<h3>Blockers</h3><div class="block"><ul>{{range .Proposal.Decision.Blockers}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul></div>{{end}}
+<section class="card">
+  <div class="card-head"><div><h2><span class="step">4</span>What the email may use</h2><p>The composer may draw only on the items below. Everything else in your profile is out of scope for this plan.</p></div></div>
+  <dl class="kv">
+    <dt>Identity</dt><dd>{{.Proposal.Selection.Identity}}{{if .Proposal.Selection.PrimaryStrength}}, primary strength {{.Proposal.Selection.PrimaryStrength}}{{end}}</dd>
+    <dt>Positioning</dt><dd>{{.Proposal.Selection.Positioning}}</dd>
+  </dl>
+  <h3>Capabilities</h3>
+  {{if .Proposal.Selection.Capabilities}}<ul class="reason-list">{{range .Proposal.Selection.Capabilities}}
+    <li><span class="reason-title">{{.Name}}</span> <span class="badge neutral">{{.UseAs}}</span><div class="small muted">{{.Reason}}</div><span class="refs">{{range .SupportRefs}}{{.}} {{end}}</span></li>
+  {{end}}</ul>{{else}}<p class="muted">None selected.</p>{{end}}
+  <h3>Proof</h3>
+  {{if .Proposal.Selection.Projects}}<ul class="reason-list">{{range .Proposal.Selection.Projects}}
+    <li><span class="reason-title">{{.Name}}</span> <span class="badge neutral">{{.UseAs}}</span><div class="small muted">{{.Reason}}</div><span class="refs">{{range .SupportRefs}}{{.}} {{end}}</span></li>
+  {{end}}</ul>{{else}}<p class="muted">None selected.</p>{{end}}
+  <h3>Claims the composer must never make</h3>
+  <div class="alert alert-warning"><div><ul>{{range .Proposal.Selection.ForbiddenClaims}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul></div></div>
+  {{if .Proposal.Selection.Notes}}<h3>Notes</h3><ul class="reason-list">{{range .Proposal.Selection.Notes}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul>{{end}}
 </section>
 
-<section>
-<h2>Recipient</h2>
-<p class="muted">A person's name is never inferred from a mailbox. A generic or unidentified mailbox can receive a message, but its relevance to this purpose is unverified and stays review-required.</p>
-<table><thead><tr><th>Contact</th><th>Function</th><th>Relevance</th><th>Reason</th></tr></thead><tbody>
-{{range .Proposal.Recipients}}<tr>
- <td>{{.Assessment.Contact.Value}}{{if .Assessment.Named}}<br><span class="muted">{{.Assessment.Contact.Person}}</span>{{end}}</td>
- <td>{{.Assessment.Function}}</td>
- <td><span class="tag {{.Relevance}}">{{.Relevance}}</span></td>
- <td>{{.Reason}}</td>
-</tr>{{else}}<tr><td colspan="4">No contacts are on file for this company.</td></tr>{{end}}
-</tbody></table>
+<section class="card" id="existing-plans">
+  <div class="card-head"><div><h2>Existing plans</h2><p>Changing a recipient creates a new revision and reopens review. Plans are closed, never deleted.</p></div></div>
+  {{if .View.Plans}}
+  <ul class="plan-list">
+  {{range .View.Plans}}<li id="plan-{{.ID}}">
+    <div class="plan-top">
+      <div>
+        <div class="cell-strong">{{.Intent}} <span class="badge {{.Status}}">{{.Status}}</span>{{if .RequiresReview}} <span class="badge amber">Requires review</span>{{end}}</div>
+        <div class="small muted">Revision {{.Revision}} · {{.SelectionOrigin}} · to {{.RecipientEmail}} <span class="badge {{.RecipientRelevance}}">{{.RecipientRelevance}}</span></div>
+        <div class="small">{{if .OpportunityID}}Applying for <a href="/opportunities/{{.OpportunityID}}">{{.OpportunityTitle}}</a> at source revision {{.OpportunityRevision}}
+          {{else if .ProvenanceOpportunityID}}<span class="muted">Provenance only:</span> <a href="/opportunities/{{.ProvenanceOpportunityID}}">{{.ProvenanceTitle}}</a>
+          {{else}}<span class="muted">No vacancy</span>{{end}}{{if .TargetFamilies}} · target {{range .TargetFamilies}}{{.Name}} {{end}}{{end}}</div>
+      </div>
+      {{if eq .Status "selected"}}<form method="post" action="/plans/{{.ID}}/compose"><button class="btn-primary">Compose and review email</button></form>{{end}}
+    </div>
+    <div class="btn-row plan-actions">
+      <form class="form-row" method="post" action="/plans/{{.ID}}/recipient">
+        <label class="sr-only" for="recipient-{{.ID}}">New recipient</label>
+        <select id="recipient-{{.ID}}" name="contact_id">{{range $.Proposal.Recipients}}{{if ne .Relevance "unusable"}}<option value="{{.Assessment.Contact.ID}}">{{.Assessment.Contact.Value}}</option>{{end}}{{end}}</select>
+        <button class="btn-sm">Change recipient</button>
+      </form>
+      <span class="push"></span>
+      <form method="post" action="/plans/{{.ID}}/status"><input type="hidden" name="status" value="paused"><button class="btn-sm">Pause</button></form>
+      <form method="post" action="/plans/{{.ID}}/status"><input type="hidden" name="status" value="closed"><button class="btn-sm btn-danger">Close</button></form>
+    </div>
+  </li>{{end}}
+  </ul>
+  {{else}}<p class="empty">No contact plans have been recorded for this company yet.</p>{{end}}
+  <p class="help">A later send must use the frozen recipient rather than the current best contact.</p>
 </section>
 
-<section>
-<h2>What the future email may use</h2>
-<p class="muted">A later composer may draw only on the items below. Everything else in the approved profile is out of scope for this plan.</p>
-<p>Identity: <strong>{{.Proposal.Selection.Identity}}</strong>{{if .Proposal.Selection.PrimaryStrength}}, primary strength <strong>{{.Proposal.Selection.PrimaryStrength}}</strong>{{end}} · positioning <strong>{{.Proposal.Selection.Positioning}}</strong></p>
-<h3>Capabilities</h3>
-{{if .Proposal.Selection.Capabilities}}<ul>{{range .Proposal.Selection.Capabilities}}
- <li><strong>{{.Name}}</strong> <span class="muted">({{.UseAs}})</span> — {{.Reason}} <span class="refs">{{range .SupportRefs}}{{.}} {{end}}</span></li>
-{{end}}</ul>{{else}}<p>None selected.</p>{{end}}
-<h3>Proof</h3>
-{{if .Proposal.Selection.Projects}}<ul>{{range .Proposal.Selection.Projects}}
- <li><strong>{{.Name}}</strong> <span class="muted">({{.UseAs}})</span> — {{.Reason}} <span class="refs">{{range .SupportRefs}}{{.}} {{end}}</span></li>
-{{end}}</ul>{{else}}<p>None selected.</p>{{end}}
-<h3>Claims the composer must never make</h3>
-<div class="warn"><ul>{{range .Proposal.Selection.ForbiddenClaims}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul></div>
-{{if .Proposal.Selection.Notes}}<h3>Notes</h3><ul>{{range .Proposal.Selection.Notes}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul>{{end}}
+</div>
+<aside>
+
+<section class="card sticky">
+  <div class="card-head"><div><h2><span class="step">5</span>Record this plan</h2></div></div>
+  {{if .Proposal.Decision.Ready}}
+  <form class="stack-form" method="post" action="/companies/{{.View.Company.ID}}/plans">
+    <input type="hidden" name="opportunity_id" value="{{.Selected}}">
+    <label class="field">Intent
+      <select name="intent" required>
+        {{range .Intents}}<option value="{{.Value}}" {{if eq .Value (printf "%s" $.Proposal.Decision.Intent)}}selected{{end}}>{{.Name}}</option>{{end}}
+      </select></label>
+    <label class="field">Recipient
+      <select name="contact_id" required>
+        {{range .Proposal.Recipients}}{{if ne .Relevance "unusable"}}<option value="{{.Assessment.Contact.ID}}">{{.Assessment.Contact.Value}} ({{.Relevance}})</option>{{end}}{{end}}
+      </select></label>
+    <button class="btn-primary" style="width:100%">Record contact plan</button>
+  </form>
+  <p class="help">Recording fixes the intent, target families, pinned vacancy revision, recipient and allowed proof. It does not authorize sending.</p>
+  {{else}}
+  <div class="alert alert-danger"><div>No plan can be recorded from the current decision ({{.Proposal.Decision.Outcome}}). Resolve the blockers first.</div></div>
+  {{end}}
 </section>
 
-<section>
-<h2>Record this plan</h2>
-{{if .Proposal.Decision.Ready}}
-<form method="post" action="/companies/{{.View.Company.ID}}/plans">
- <input type="hidden" name="opportunity_id" value="{{.Selected}}">
- <label>Intent
-  <select name="intent" required>
-   {{range .Intents}}<option value="{{.Value}}" {{if eq .Value (printf "%s" $.Proposal.Decision.Intent)}}selected{{end}}>{{.Label}}</option>{{end}}
-  </select></label>
- <label>Recipient
-  <select name="contact_id" required>
-   {{range .Proposal.Recipients}}{{if ne .Relevance "unusable"}}<option value="{{.Assessment.Contact.ID}}">{{.Assessment.Contact.Value}} — {{.Relevance}}</option>{{end}}{{end}}
-  </select></label>
- <button>Record contact plan</button>
-</form>
-<p><a href="/companies/{{.Proposal.View.Company.ID}}/contact-search?return=/companies/{{.Proposal.View.Company.ID}}/plan">Contact discovery for this company &rarr;</a></p>
-<form class="inline" method="post" action="/companies/{{.Proposal.View.Company.ID}}/contact-search">
- <input type="hidden" name="return" value="/companies/{{.Proposal.View.Company.ID}}/plan">
- <button>Search for a recipient</button></form>
-<p class="muted">Searching for a recipient supplies contact data only. It never changes this plan's intent, never creates a plan, and never authorizes a send.</p>
-<p class="muted">Recording a plan fixes the intent, the target families, the pinned vacancy revision where applicable, the recipient and the allowed proof. It does not authorize sending.</p>
-{{else}}
-<p class="block">No plan can be recorded from the current decision ({{.Proposal.Decision.Outcome}}). Resolve the blockers above first.</p>
-{{end}}
+<section class="card">
+  <div class="card-head"><h2>Company relevance</h2><span class="muted">{{.View.Relevance.Score}} / 100</span></div>
+  <dl class="kv">
+    <dt>Reason to contact</dt><dd>{{if .View.Relevance.Relevant}}<span class="badge green">Yes</span>{{else}}<span class="badge neutral">No</span>{{end}}</dd>
+    <dt>Payment need</dt><dd>{{if .View.Relevance.PaymentNeedEvidenced}}<span class="badge green">Evidenced</span>{{else}}<span class="badge neutral">Not evidenced</span>{{end}}</dd>
+    {{range .View.Relevance.Categories}}<dt>{{.Label}}</dt><dd class="num">{{.Points}} / {{.Max}}</dd>{{end}}
+  </dl>
+  <p class="help">{{.View.Relevance.ObservationCount}} stored observations reduce to {{.View.Relevance.GroupCount}} distinct facts. Each counts once.</p>
+  {{if .View.Relevance.Reasons}}<details class="disclosure"><summary>Reasons</summary><div class="disclosure-body"><ul class="reason-list small">{{range .View.Relevance.Reasons}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul></div></details>{{end}}
 </section>
 
-<section>
-<h2>Existing plans</h2>
-<table><thead><tr><th>Intent</th><th>Vacancy</th><th>Recipient</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-{{range .View.Plans}}<tr id="plan-{{.ID}}">
- <td>{{.Intent}}<br><span class="muted">revision {{.Revision}} · {{.SelectionOrigin}}{{if .RequiresReview}} · requires review{{end}}</span></td>
- <td>{{if .OpportunityID}}applied for <a href="/opportunities/{{.OpportunityID}}">{{.OpportunityTitle}}</a> at source revision {{.OpportunityRevision}}
-     {{else if .ProvenanceOpportunityID}}<span class="muted">provenance only:</span> <a href="/opportunities/{{.ProvenanceOpportunityID}}">{{.ProvenanceTitle}}</a>
-     {{else}}<span class="muted">no vacancy</span>{{end}}
-   {{if .TargetFamilies}}<br><span class="muted">target: {{range .TargetFamilies}}{{.Name}} {{end}}</span>{{end}}</td>
- <td>{{.RecipientEmail}}<br><span class="tag {{.RecipientRelevance}}">{{.RecipientRelevance}}</span></td>
- <td>{{.Status}}{{if eq .Status "selected"}}<form method="post" action="/plans/{{.ID}}/compose"><button>Compose and review email</button></form>{{end}}</td>
- <td>
-  <form class="inline" method="post" action="/plans/{{.ID}}/recipient">
-   <select name="contact_id">{{range $.Proposal.Recipients}}{{if ne .Relevance "unusable"}}<option value="{{.Assessment.Contact.ID}}">{{.Assessment.Contact.Value}}</option>{{end}}{{end}}</select>
-   <button>Change recipient</button></form>
-  <form class="inline" method="post" action="/plans/{{.ID}}/status">
-   <input type="hidden" name="status" value="paused"><button>Pause</button></form>
-  <form class="inline" method="post" action="/plans/{{.ID}}/status">
-   <input type="hidden" name="status" value="closed"><button>Close</button></form>
- </td>
-</tr>{{else}}<tr><td colspan="5">No contact plans have been recorded for this company.</td></tr>{{end}}
-</tbody></table>
-<p class="muted">Changing a recipient creates a new plan revision and reopens review. Plans are closed, never deleted, and a later send path must use the frozen recipient rather than the current best contact.</p>
+<section class="card">
+  <div class="card-head"><h2>Research evidence</h2><span class="muted">{{len .View.Groups}}</span></div>
+  {{if .View.Groups}}
+  <ul class="reason-list small">
+  {{range .View.Groups}}<li>
+    <div>{{.Detail}}{{if .Legacy}} <span class="badge neutral">legacy detection</span>{{end}} <span class="muted">· seen {{.Observations}}× · {{.Confidence}}</span></div>
+    {{if .Excerpt}}<span class="excerpt">“{{.Excerpt}}”</span>{{end}}
+    <div><strong>Establishes:</strong> {{.Semantics.Establishes}}</div>
+    {{if .Semantics.DoesNotEstablish}}<div class="muted"><strong>Cannot establish:</strong> {{range .Semantics.DoesNotEstablish}}{{.}}; {{end}}</div>{{end}}
+    <span class="refs">{{range .SourceURLs}}{{.}} {{end}}</span>
+  </li>{{end}}
+  </ul>
+  {{else}}<p class="muted">No research evidence is stored for this company.</p>{{end}}
 </section>
+
+</aside>
+</div>
 </body></html>

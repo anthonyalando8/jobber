@@ -1,10 +1,62 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Candidate profile</title><style>body{font:16px system-ui;max-width:1000px;margin:2rem auto;padding:1rem}textarea{width:100%;min-height:28rem}pre{white-space:pre-wrap;overflow-wrap:anywhere}article{border-top:1px solid #ccc;padding:1rem 0}button{padding:.6rem}</style></head><body>
-<nav><a href="/">Dashboard</a> · <a href="/opportunities">Opportunities</a></nav>
-<h1>Candidate profile</h1>
-<p>Active revision ID: {{.Active}} (0 means inactive). Sending and AI generation remain disabled during construction.</p>
-<p>Save facts as a new draft, inspect the saved revision, then explicitly approve and activate it. Existing revisions remain unchanged. Include only facts you can confirm; optional sections can be empty.</p>
-<form method="post" action="/profile/drafts"><label for="document">Profile document (JSON; item IDs must be unique and references must resolve)</label><textarea id="document" name="document" required spellcheck="false">{{.Initial}}</textarea><button>Save new draft revision</button></form>
-<h2>Revision history and approval</h2>
-{{range .Revisions}}<article><h3>Revision {{.Revision}} · {{.Status}}{{if .Active}} · ACTIVE{{end}}</h3><p>{{.CreatedAt}}</p><pre>{{.JSON}}</pre>
-{{if not .Active}}<form method="post" action="/profile/activate"><input type="hidden" name="revision_id" value="{{.ID}}"><input type="hidden" name="active_id" value="{{$.Active}}"><input type="hidden" name="hash" value="{{.ContentHash}}"><label><input type="checkbox" name="confirm" value="approved" required> I approve every fact in this exact revision.</label> <button>Approve and activate revision {{.Revision}}</button></form>{{end}}</article>{{end}}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Candidate profile · Prospector</title></head><body>
+<header class="page-head">
+  <div>
+    <h1>Candidate profile</h1>
+    <p class="page-sub">The facts matching and email composition are allowed to use. Save changes as a new draft, check it, then approve and activate it. Saved revisions never change.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="#editor">Edit profile</a></div>
+</header>
+
+{{if not .Active}}<div class="alert alert-warning"><div><strong>No revision is active.</strong> Matching answers “profile required” for every opportunity until you approve and activate one below.</div></div>{{end}}
+
+{{range .Revisions}}{{if .Active}}
+<section class="card">
+  <div class="card-head">
+    <div><h2>{{.Document.Identity}}</h2><p>Primary strength {{.Document.PrimaryStrength}} · {{.Document.SecondaryPosition}}</p></div>
+    <span class="badge green badge-dot">Active · revision {{.Revision}}</span>
+  </div>
+  <div class="stat-row">
+    <div class="stat"><div class="stat-label">Desired roles</div><div class="stat-value">{{len .Document.DesiredRoles}}</div></div>
+    <div class="stat"><div class="stat-label">Technologies</div><div class="stat-value">{{len .Document.Technologies}}</div></div>
+    <div class="stat"><div class="stat-label">Capabilities</div><div class="stat-value">{{len .Document.Capabilities}}</div></div>
+    <div class="stat"><div class="stat-label">Projects</div><div class="stat-value">{{len .Document.Projects}}</div></div>
+    <div class="stat"><div class="stat-label">Resources</div><div class="stat-value">{{len .Document.Resources}}</div></div>
+  </div>
+  <h3>Desired roles</h3>
+  <div class="tag-list">{{range .Document.DesiredRoles}}<span class="chip">{{.Name}}</span>{{end}}</div>
+  {{if .Document.Technologies}}<h3>Technologies</h3><div class="tag-list">{{range .Document.Technologies}}<span class="chip">{{.Name}}</span>{{end}}</div>{{end}}
+  {{if .Document.Projects}}<h3>Projects</h3>
+  <ul class="reason-list">{{range .Document.Projects}}<li><span class="reason-title">{{.Name}}</span>{{if .Description}}<div class="small muted">{{.Description}}</div>{{end}}</li>{{end}}</ul>{{end}}
+</section>
+{{end}}{{end}}
+
+<section class="card" id="editor">
+  <div class="card-head"><div><h2>Edit as a new draft</h2><p>Item IDs must be unique and every reference must resolve. Include only facts you can confirm; optional sections can be empty. Saving does not change the active profile.</p></div></div>
+  <form class="stack-form" method="post" action="/profile/drafts">
+    <label class="field" for="document">Profile document (JSON)</label>
+    <textarea id="document" class="code" name="document" rows="22" required spellcheck="false">{{.Initial}}</textarea>
+    <div class="btn-row"><button class="btn-primary">Save new draft revision</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <div class="card-head"><div><h2>Revision history</h2><p>Newest first. Activating a revision approves it and makes existing assessments stale.</p></div></div>
+  {{range .Revisions}}
+  <details class="disclosure"{{if and (not .Active) (eq .Status "draft")}} open{{end}}>
+    <summary><span>Revision {{.Revision}}</span>
+      {{if .Active}}<span class="badge green">Active</span>{{else}}<span class="badge {{if eq .Status "draft"}}amber{{else}}neutral{{end}}">{{.Status}}</span>{{end}}
+      <span class="summary-meta">{{.CreatedAt.Format "2 Jan 2006, 15:04"}} · {{len .Document.Technologies}} technologies · {{len .Document.Capabilities}} capabilities · {{len .Document.Projects}} projects</span></summary>
+    <div class="disclosure-body">
+      {{if not .Active}}
+      <form class="approve-box" method="post" action="/profile/activate">
+        <input type="hidden" name="revision_id" value="{{.ID}}"><input type="hidden" name="active_id" value="{{$.Active}}"><input type="hidden" name="hash" value="{{.ContentHash}}">
+        <label class="check"><input type="checkbox" name="confirm" value="approved" required> I approve every fact in this exact revision.</label>
+        <button class="btn-primary">Approve and activate revision {{.Revision}}</button>
+      </form>
+      {{end}}
+      <details class="disclosure"><summary>Full document</summary><div class="disclosure-body"><pre>{{.JSON}}</pre></div></details>
+    </div>
+  </details>
+  {{else}}<p class="empty">No revisions saved yet. Write your first draft above.</p>{{end}}
+</section>
 </body></html>

@@ -1,95 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Templates — Prospector</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
-        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
-        header { background: white; padding: 20px; border-bottom: 1px solid #ddd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px; }
-        h1 { font-size: 24px; }
-        a { color: #0066cc; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .saved-banner { background: #e8f5e9; color: #2e7d32; padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13.5px; font-weight: 500; }
-        .intro { font-size: 13px; color: #777; margin-bottom: 20px; line-height: 1.5; background:#fff8e1; border-left:4px solid #e0a800; padding:12px; border-radius:4px; }
-        .v2-box { background: white; border-left: 4px solid #2e7d32; padding: 14px; border-radius: 6px; margin-bottom: 18px; font-size: 13px; line-height: 1.5; }
-        .v2-box h2 { font-size: 14px; margin-bottom: 8px; }
-        .v2-box p { margin-bottom: 6px; }
-        .legacy-body { white-space: pre-wrap; overflow-wrap: anywhere; background: #f6f6f6; padding: 10px; border-radius: 4px; font-size: 13px; line-height: 1.5; }
-        .segment-group { margin-bottom: 28px; }
-        .segment-group > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #ddd; }
-        .tmpl-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 14px; overflow: hidden; }
-        .tmpl-head { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f0f0; }
-        .tmpl-head .chan { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #0066cc; }
-        .tmpl-head .badge { font-size: 10px; text-transform: uppercase; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: #eceff1; color: #607d8b; }
-        .tmpl-body { padding: 16px; }
-        .vars-line { font-size: 11.5px; color: #999; margin-bottom: 10px; }
-        .vars-line code { background: #f0f4ff; color: #003d99; padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; margin-right: 4px; }
-        label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: #999; margin-bottom: 4px; margin-top: 10px; }
-        label:first-of-type { margin-top: 0; }
-        input[type=text] { width: 100%; padding: 9px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13.5px; }
-        textarea { width: 100%; min-height: 220px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: -apple-system, sans-serif; font-size: 13.5px; line-height: 1.6; resize: vertical; }
-        .actions { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
-        button { background: #0066cc; color: white; padding: 8px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; }
-        button:hover { background: #0052a3; }
-        .charcount { font-size: 11px; color: #999; }
-    </style>
+<meta charset="UTF-8">
+<title>Legacy templates · Prospector</title>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Message text</h1>
-            <a href="/">← Back to Dashboard</a>
-        </header>
+<header class="page-head">
+  <div>
+    <span class="badge neutral">Archive</span>
+    <h1>Message templates</h1>
+    <p class="page-sub">Where outgoing email text comes from today, and the old templates kept for reference.</p>
+  </div>
+</header>
 
-        <div class="v2-box">
-            <h2>V2 — the text actually in use</h2>
-            <p>Every message the system can send today is written by the v2 composer against a versioned prompt, then checked by the deterministic validators and an independent semantic reviewer. Those prompts live in <code>internal/composition/prompts</code> and are changed in the repository and reviewed like any other code, deliberately not edited live against a running database.</p>
-            <p>Rollout mode <strong>{{.Mode}}</strong>. Automatic sending: <strong>{{if .AutomaticSending}}enabled{{else}}disabled{{end}}</strong>. Auto-send intents: <strong>{{if .AutoSendIntents}}{{range .AutoSendIntents}}{{.}} {{end}}{{else}}none{{end}}</strong>.</p>
-        </div>
+<section class="card">
+  <div class="card-head"><div><h2>In use: the v2 composer</h2><p>Every message the system can send is written by the v2 composer against a versioned prompt, then checked by deterministic validators and an independent semantic reviewer.</p></div><span class="badge green">Active</span></div>
+  <p class="small">Those prompts live in <code>internal/composition/prompts</code> and are changed and reviewed in the repository like any other code, never edited live against a running database.</p>
+  <dl class="kv">
+    <dt>Rollout mode</dt><dd>{{.Mode}}</dd>
+    <dt>Automatic sending</dt><dd>{{if .AutomaticSending}}<span class="badge amber">Enabled</span>{{else}}<span class="badge neutral">Disabled</span>{{end}}</dd>
+    <dt>Auto-send intents</dt><dd>{{if .AutoSendIntents}}{{range .AutoSendIntents}}{{.}} {{end}}{{else}}None{{end}}</dd>
+  </dl>
+</section>
 
-        <div class="intro">
-            <strong>Legacy — historical reference, read-only.</strong>
-            These are the templates the pre-v2 pipeline filled in from company signals. They are retained exactly as they were, because old drafts and sent messages were built from them and their wording is part of that history. They no longer produce any outgoing message, and they cannot be edited: the payments-heavy copy below stays inert no matter that it still exists in the database.
-        </div>
+<div class="alert alert-warning"><div><strong>Legacy templates are read-only history.</strong> The pre-v2 pipeline filled these in from company signals. They are kept exactly as they were because old drafts and sent messages were built from them. They no longer produce any outgoing message and cannot be edited.</div></div>
 
-        {{$currentSegment := ""}}
-        {{range .templates}}
-        {{if ne .Segment $currentSegment}}
-            {{if $currentSegment}}</div>{{end}}
-            <div class="segment-group">
-            <h2>{{.Segment}}</h2>
-            {{$currentSegment = .Segment}}
-        {{end}}
-
-        <div class="tmpl-card">
-            <div class="tmpl-head">
-                <span class="chan">{{.Channel}}{{if .RoleFilter}} · {{.RoleFilter}}{{end}}</span>
-                {{if .DisplayOnly}}<span class="badge">display only — copy/paste, never auto-sent</span>{{end}}
-            </div>
-            <div class="tmpl-body">
-                <div class="vars-line">Legacy placeholders: {{range .Vars}}<code>{{.}}</code>{{end}}</div>
-                {{if .Subject}}<label>Subject</label><p>{{.Subject}}</p>{{end}}
-                <label>Body (as written, read-only)</label>
-                <pre class="legacy-body">{{.Body}}</pre>
-            </div>
-        </div>
-        {{end}}
-        {{if $currentSegment}}</div>{{end}}
-    </div>
-
-    <script>
-        function updateCount(el) {
-            var counter = el.nextElementSibling;
-            if (counter) counter.textContent = el.value.length + ' characters';
-        }
-        document.querySelectorAll('textarea').forEach(updateCount);
-
-        function confirmSave(form) {
-            return true; // straightforward save, no destructive action to confirm
-        }
-    </script>
+{{$currentSegment := ""}}
+{{range .templates}}
+{{if ne .Segment $currentSegment}}<h2 class="section-gap" style="margin-bottom:10px">{{.Segment}}</h2>{{$currentSegment = .Segment}}{{end}}
+<details class="disclosure card-like">
+  <summary><span>{{if .Subject}}{{.Subject}}{{else}}{{.Channel}} template{{end}}</span><span class="summary-meta">{{.Channel}}{{if .RoleFilter}} · {{.RoleFilter}}{{end}}{{if .DisplayOnly}} · display only{{end}}</span></summary>
+  <div class="disclosure-body">
+    <p class="help">Legacy placeholders: {{range .Vars}}<code>{{.}}</code> {{end}}</p>
+    {{if .DisplayOnly}}<p class="help">Display only: copy and paste, never sent automatically.</p>{{end}}
+    <pre class="prose">{{.Body}}</pre>
+  </div>
+</details>
+{{end}}
 </body>
 </html>

@@ -79,9 +79,9 @@ func (h *Handler) CompanyPlan(w http.ResponseWriter, r *http.Request) {
 		"Requested": string(requested),
 		"Selected":  selected,
 		"Intents": []map[string]string{
-			{"Value": string(plan.SpecificJobApplication), "Label": plan.SpecificJobApplication.Label()},
-			{"Value": string(plan.SpeculativeJobEnquiry), "Label": plan.SpeculativeJobEnquiry.Label()},
-			{"Value": string(plan.ServiceOutreach), "Label": plan.ServiceOutreach.Label()},
+			{"Value": string(plan.SpecificJobApplication), "Label": plan.SpecificJobApplication.Label(), "Name": "Apply for a specific job"},
+			{"Value": string(plan.SpeculativeJobEnquiry), "Label": plan.SpeculativeJobEnquiry.Label(), "Name": "Speculative job enquiry"},
+			{"Value": string(plan.ServiceOutreach), "Label": plan.ServiceOutreach.Label(), "Name": "Offer services"},
 		},
 	})
 }

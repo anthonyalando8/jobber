@@ -1,152 +1,77 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drafts — Prospector</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
-        .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
-        header { background: white; padding: 20px; border-bottom: 1px solid #ddd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px; }
-        h1 { font-size: 24px; }
-        a { color: #0066cc; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-        .filters input, .filters select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
-        .filters input[type=text] { flex: 1; min-width: 200px; }
-        .filters button { background: #0066cc; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
-        .filters .clear { color: #999; font-size: 13px; }
-        .result-count { font-size: 13px; color: #777; margin-bottom: 14px; }
-        .draft-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 14px; overflow: hidden; }
-        .draft-head { padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-        .draft-head:hover { background: #fafafa; }
-        .draft-main { min-width: 0; }
-        .draft-company { font-weight: 700; font-size: 15px; }
-        .draft-domain { font-size: 12.5px; color: #777; font-family: ui-monospace, monospace; margin-top: 2px; }
-        .draft-subject { font-size: 13px; color: #444; margin-top: 3px; }
-        .draft-meta { text-align: right; flex-shrink: 0; }
-        .draft-when { font-size: 12px; color: #999; }
-        .badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
-        .badge.pending { background: #e3f2fd; color: #1976d2; }
-        .badge.needs_manual { background: #fff3e0; color: #e65100; }
-        .badge.sent { background: #e8f5e9; color: #2e7d32; }
-        .badge.approved { background: #e8f5e9; color: #2e7d32; }
-        .badge.discarded { background: #eceff1; color: #607d8b; }
-        .badge.blocked { background: #ffebee; color: #c62828; }
-        .badge.review_required { background: #fff3e0; color: #b06000; }
-        .badge.auto_send { background: #f1eaf9; color: #6b3fa0; }
-        .draft-body { display: none; padding: 0 18px 18px; border-top: 1px solid #f0f0f0; }
-        .draft-body.open { display: block; }
-        .draft-body pre { white-space: pre-wrap; font-family: -apple-system, sans-serif; font-size: 13.5px; line-height: 1.6; color: #333; margin-top: 14px; }
-        .draft-body .reason { background: #fff3e0; color: #b06000; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-top: 12px; }
-        .draft-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
-        .draft-actions a.btn, .draft-actions button { background: #0066cc; color: white; padding: 7px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 12.5px; text-decoration: none; display: inline-block; }
-        .draft-actions button.danger { background: #c62828; }
-        .draft-actions a.secondary { background: #e8e8e8; color: #333; }
-        .empty-state { background: white; border-radius: 8px; padding: 40px; text-align: center; color: #999; }
-        .pagination { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; font-size: 13px; flex-wrap: wrap; }
-        .pagination a { background: white; border: 1px solid #ddd; padding: 6px 14px; border-radius: 4px; }
-        .pagination a.disabled { color: #ccc; pointer-events: none; border-color: #eee; }
-        .pagination a.page-num { min-width: 32px; text-align: center; padding: 6px 10px; }
-        .pagination a.page-num.current { background: #0066cc; color: white; border-color: #0066cc; font-weight: 600; pointer-events: none; }
-        .pagination .ellipsis { color: #999; padding: 0 4px; }
-    </style>
+<meta charset="UTF-8">
+<title>Legacy draft queue · Prospector</title>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Drafts</h1>
-            <a href="/">← Back to Dashboard</a>
-        </header>
+<header class="page-head">
+  <div>
+    <span class="badge neutral">Archive</span>
+    <h1>Legacy draft queue</h1>
+    <p class="page-sub">Drafts produced by the retired pipeline. They cannot be sent; write new emails from a company's contact plan.</p>
+  </div>
+</header>
 
-        <form class="filters" method="GET" action="/drafts">
-            <input type="text" name="q" value="{{.query}}" placeholder="Search company name or domain...">
-            <select name="state">
-                <option value="">All states</option>
-                <option value="pending" {{if eq .state "pending"}}selected{{end}}>Pending (awaiting review or blocked)</option>
-                <option value="needs_manual" {{if eq .state "needs_manual"}}selected{{end}}>Needs manual (AI skipped it)</option>
-                <option value="sent" {{if eq .state "sent"}}selected{{end}}>Sent</option>
-                <option value="discarded" {{if eq .state "discarded"}}selected{{end}}>Discarded</option>
-            </select>
-            <select name="created">
-                <option value="">Any time</option>
-                <option value="5m" {{if eq .created "5m"}}selected{{end}}>Last 5 minutes</option>
-                <option value="1h" {{if eq .created "1h"}}selected{{end}}>Last hour</option>
-                <option value="today" {{if eq .created "today"}}selected{{end}}>Today</option>
-                <option value="7d" {{if eq .created "7d"}}selected{{end}}>Last 7 days</option>
-            </select>
-            <button type="submit">Filter</button>
-            {{if or .query .state .created}}<a class="clear" href="/drafts">Clear</a>{{end}}
-        </form>
+<form class="browse-filters" method="GET" action="/drafts">
+  <label class="search-field">Search<input type="search" name="q" value="{{.query}}" placeholder="Company name or domain"></label>
+  <label>State
+    <select name="state">
+      <option value="">All states</option>
+      <option value="pending" {{if eq .state "pending"}}selected{{end}}>Pending</option>
+      <option value="needs_manual" {{if eq .state "needs_manual"}}selected{{end}}>Needs manual</option>
+      <option value="sent" {{if eq .state "sent"}}selected{{end}}>Sent</option>
+      <option value="discarded" {{if eq .state "discarded"}}selected{{end}}>Discarded</option>
+    </select>
+  </label>
+  <label>Created
+    <select name="created">
+      <option value="">Any time</option>
+      <option value="5m" {{if eq .created "5m"}}selected{{end}}>Last 5 minutes</option>
+      <option value="1h" {{if eq .created "1h"}}selected{{end}}>Last hour</option>
+      <option value="today" {{if eq .created "today"}}selected{{end}}>Today</option>
+      <option value="7d" {{if eq .created "7d"}}selected{{end}}>Last 7 days</option>
+    </select>
+  </label>
+  <div class="filter-actions">{{if or .query .state .created}}<a href="/drafts">Clear</a>{{end}}<button type="submit" class="btn-primary">Apply</button></div>
+</form>
 
-        <div class="result-count">{{.total}} draft{{if ne .total 1}}s{{end}} · page {{.page}} of {{.totalPages}}</div>
+<div class="list-toolbar"><div class="result-summary"><strong>{{.total}} draft{{if ne .total 1}}s{{end}}</strong><span>Page {{.page}} of {{.totalPages}}</span></div></div>
 
-        {{if .drafts}}
-        {{range .drafts}}
-        <div class="draft-card">
-            <div class="draft-head" onclick="this.nextElementSibling.classList.toggle('open')">
-                <div class="draft-main">
-                    <div class="draft-company">{{.CompanyName}} <span style="font-weight:400;color:#999;">· score {{.CompanyScore}}</span></div>
-                    <div class="draft-domain">{{.CompanyDomain}}</div>
-                    {{if .Subject}}<div class="draft-subject">{{.Subject}}</div>{{end}}
-                </div>
-                <div class="draft-meta">
-                    <div class="draft-when">{{.CreatedAt.Format "Jan 2, 15:04"}}</div>
-                    <div><span class="badge {{.State}}">{{.State}}</span>{{if .Decision}} <span class="badge {{.Decision}}">{{.Decision}}</span>{{end}}</div>
-                </div>
-            </div>
-            <div class="draft-body">
-                {{if eq .State "needs_manual"}}
-                <div class="reason">Skipped: {{.Body}}</div>
-                {{else}}
-                <pre>{{.Body}}</pre>
-                {{if .DecisionReason}}<div class="reason">Decision reason: {{.DecisionReason}}</div>{{end}}
-                {{end}}
-
-                <div class="draft-actions">
-                    <a class="btn secondary" href="/companies/{{.CompanyID}}">View company</a>
-                    {{if eq .State "pending"}}
-                        {{if ne .Decision "blocked"}}
-                        <a class="btn" href="/review?draft={{.DraftID}}">Open in Review</a>
-                        {{end}}
-                        <form method="POST" action="/companies/{{.CompanyID}}/generate-draft" onsubmit="return confirm('Discard this draft and generate a fresh one? The AI budget spends another call.')">
-                            <input type="hidden" name="regenerate" value="1">
-                            <button type="submit" style="background:#7b1fa2">Regenerate</button>
-                        </form>
-                        {{if eq .Decision "blocked"}}
-                        <form method="POST" action="/drafts/{{.DraftID}}/discard" onsubmit="return confirm('Discard this blocked draft? This frees the company up for a fresh draft attempt.')">
-                            <input type="hidden" name="return_to" value="{{$.currentURL}}">
-                            <button type="submit" class="danger">Discard &amp; allow retry</button>
-                        </form>
-                        {{end}}
-                    {{else if eq .State "needs_manual"}}
-                        <form method="POST" action="/companies/{{.CompanyID}}/generate-draft" onsubmit="return confirm('Discard this draft and generate a fresh one? The AI budget spends another call.')">
-                            <input type="hidden" name="regenerate" value="1">
-                            <button type="submit" style="background:#7b1fa2">Regenerate</button>
-                        </form>
-                        <form method="POST" action="/drafts/{{.DraftID}}/discard" onsubmit="return confirm('Discard this draft? This frees the company up for a fresh draft attempt.')">
-                            <input type="hidden" name="return_to" value="{{$.currentURL}}">
-                            <button type="submit" class="danger">Discard &amp; allow retry</button>
-                        </form>
-                    {{end}}
-                </div>
-            </div>
-        </div>
-        {{end}}
-
-        <div class="pagination">
-            {{if .hasPrev}}<a href="{{.prevURL}}">← Prev</a>{{else}}<a class="disabled">← Prev</a>{{end}}
-            {{range .pageLinks}}
-                {{if .Ellipsis}}<span class="ellipsis">…</span>
-                {{else}}<a class="page-num{{if .Current}} current{{end}}" href="{{.URL}}">{{.Number}}</a>
-                {{end}}
-            {{end}}
-            {{if .hasNext}}<a href="{{.nextURL}}">Next →</a>{{else}}<a class="disabled">Next →</a>{{end}}
-        </div>
-        {{else}}
-        <div class="empty-state">No drafts match{{if or .query .state .created}} these filters{{end}}.</div>
-        {{end}}
+{{if .drafts}}
+{{range .drafts}}
+<details class="disclosure card-like">
+  <summary><span><span class="cell-strong">{{.CompanyName}}</span> <span class="muted small">{{.CompanyDomain}} · score {{.CompanyScore}}</span>{{if .Subject}}<span class="small" style="display:block">{{.Subject}}</span>{{end}}</span>
+    <span class="summary-meta"><span class="badge {{.State}}">{{.State}}</span>{{if .Decision}} <span class="badge {{.Decision}}">{{.Decision}}</span>{{end}} {{.CreatedAt.Format "2 Jan, 15:04"}}</span></summary>
+  <div class="disclosure-body">
+    {{if eq .State "needs_manual"}}
+    <div class="alert alert-warning"><div>Skipped: {{.Body}}</div></div>
+    {{else}}
+    <pre class="prose">{{.Body}}</pre>
+    {{if .DecisionReason}}<div class="alert alert-warning"><div>Decision reason: {{.DecisionReason}}</div></div>{{end}}
+    {{end}}
+    <div class="btn-row">
+      <a class="btn btn-sm" href="/companies/{{.CompanyID}}">View company</a>
+      <a class="btn btn-sm btn-primary" href="/companies/{{.CompanyID}}/plan">Open contact plan</a>
+      {{if and (eq .State "pending") (ne .Decision "blocked")}}<a class="btn btn-sm" href="/review?draft={{.DraftID}}">Open in review</a>{{end}}
+      {{if or (eq .State "needs_manual") (and (eq .State "pending") (eq .Decision "blocked"))}}
+      <form method="POST" action="/drafts/{{.DraftID}}/discard" onsubmit="return confirm('Discard this legacy draft?')">
+        <input type="hidden" name="return_to" value="{{$.currentURL}}">
+        <button type="submit" class="btn-sm btn-danger">Discard</button>
+      </form>
+      {{end}}
     </div>
+  </div>
+</details>
+{{end}}
+
+<nav class="pagination" aria-label="Pages">
+  {{if .hasPrev}}<a href="{{.prevURL}}">Previous</a>{{else}}<span class="disabled">Previous</span>{{end}}
+  {{range .pageLinks}}{{if .Ellipsis}}<span class="disabled">…</span>{{else}}<a class="{{if .Current}}current{{end}}" href="{{.URL}}">{{.Number}}</a>{{end}}{{end}}
+  {{if .hasNext}}<a href="{{.nextURL}}">Next</a>{{else}}<span class="disabled">Next</span>{{end}}
+</nav>
+{{else}}
+<div class="card empty-state"><strong>No drafts match{{if or .query .state .created}} these filters{{end}}</strong></div>
+{{end}}
 </body>
 </html>

@@ -1,140 +1,175 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Opportunity {{.ID}}</title><style>
-body{font:16px/1.5 system-ui;max-width:1100px;margin:2rem auto;padding:1rem;color:#111}
-pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f6f6;padding:.8rem;border-radius:6px}
-dt{font-weight:bold;margin-top:.7rem}dd{margin-left:0}
-section{border:1px solid #ddd;border-radius:8px;padding:1rem;margin:1.2rem 0}
-h2{margin-top:0;font-size:1.15rem}
-.tag{display:inline-block;padding:.15rem .55rem;border-radius:999px;font-size:.8rem;font-weight:600;border:1px solid}
-.strong_match{background:#e6f4ea;border-color:#94ceab}.possible_match{background:#fdf3d8;border-color:#e2c46b}
-.unrelated{background:#fbe6e6;border-color:#e0a0a0}.none{background:#eee;border-color:#ccc}
-.stale{background:#fdf3d8;border:1px solid #e2c46b;padding:.6rem;border-radius:6px}
-ul{margin:.4rem 0 .4rem 1.2rem;padding:0}li{margin:.3rem 0}
-.excerpt{color:#444;font-style:italic}
-.suppressed{background:#fbe6e6;border:1px solid #e0a0a0;padding:.7rem;border-radius:6px}
-.suppressed-head{font-weight:600}
-.suppression-form{display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end;margin-top:.5rem}
-.suppression-form label{display:flex;flex-direction:column;font-size:.85rem;gap:.2rem}
-.suppression-form input[type=text]{min-width:18rem}
-.reason-help{color:#555;font-size:.82rem;margin:.3rem 0 0}
-.history{font-size:.86rem;color:#444}
-.evidence{font-size:.8rem;color:#555}
-.refs{color:#666;font-size:.82rem}
-table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.45rem;border-bottom:1px solid #e2e2e2;vertical-align:top}
-</style></head><body>
-<nav><a href="/">Dashboard</a> · <a href="{{if .BackURL}}{{.BackURL}}{{else}}/opportunities{{end}}">{{if .BackLabel}}{{.BackLabel}}{{else}}Back to opportunities{{end}}</a> · <a href="/profile">Candidate profile</a> · <a href="/companies/{{.CompanyID}}/plan">Contact plan workspace</a></nav>
-<h1>{{if .Facts.Title}}{{.Facts.Title}}{{else}}Unknown advertised title{{end}}</h1>
-<p><a href="/companies/{{.CompanyID}}?return={{urlquery .CurrentURL}}">{{if .CompanyName}}{{.CompanyName}}{{else}}{{.Facts.CompanyName}}{{end}}</a> · Opportunity {{.ID}} · Source revision {{.Revision}}</p>
-
-<section>
-<h2>Availability</h2>
-{{if .Suppression}}
-  <div class="suppressed">
-    <p class="suppressed-head">Suppressed as {{.Suppression.ReasonLabel}} &mdash; {{.Suppression.BasisLabel}}.</p>
-    <p>Recorded by {{.Suppression.DecidedBy}} on {{.Suppression.DecidedAt.Format "2 Jan 2006 15:04"}}, against source revision {{.Suppression.OpportunityRevision}}.{{if .Suppression.Note}} Note: {{.Suppression.Note}}{{end}}</p>
-    <p>It is out of the priority list, the dashboard queue and contact discovery. Nothing about it has been deleted.</p>
-    {{if .SuppressionOutdated}}<p><strong>The source has published revision {{.Revision}} since this was suppressed.</strong> The employer may have reopened the role. Reinstate it if the current source facts below say it is live again.</p>{{end}}
-    {{if .Suppression.Automatic}}<p class="evidence">Decided automatically from: {{range $key, $value := .Suppression.Evidence}}{{$key}}={{$value}} {{end}}</p>{{end}}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{{if .Facts.Title}}{{.Facts.Title}}{{else}}Opportunity {{.ID}}{{end}} · Prospector</title></head><body>
+<header class="page-head">
+  <div>
+    <nav class="crumbs back" aria-label="Breadcrumb"><a href="{{if .BackURL}}{{.BackURL}}{{else}}/opportunities{{end}}">{{if .BackLabel}}{{.BackLabel}}{{else}}Back to opportunities{{end}}</a></nav>
+    <h1>{{if .Facts.Title}}{{.Facts.Title}}{{else}}Unknown advertised title{{end}}</h1>
+    <div class="page-meta">
+      <span><a href="/companies/{{.CompanyID}}?return={{urlquery .CurrentURL}}">{{if .CompanyName}}{{.CompanyName}}{{else}}{{.Facts.CompanyName}}{{end}}</a></span>
+      {{if .Match}}<span class="badge {{.Match.Classification}}">{{if eq .Match.Classification "strong_match"}}Strong match{{else if eq .Match.Classification "possible_match"}}Possible match{{else if eq .Match.Classification "unrelated"}}Unrelated{{else}}{{.Match.Classification}}{{end}}</span>{{end}}
+      {{if .Suppression}}<span class="badge red">Suppressed</span>{{end}}
+      {{if .Facts.Location}}<span>{{.Facts.Location}}</span>{{end}}
+      <span>{{.Facts.Source}} · revision {{.Revision}}</span>
+    </div>
   </div>
-  <form method="post" action="/opportunities/{{.ID}}/reinstate" class="suppression-form">
+  <div class="page-actions">
+    <form method="post" action="/opportunities/{{.ID}}/assess"><button>Rerun fit assessment</button></form>
+    <a class="btn btn-primary" href="/companies/{{.CompanyID}}/plan?opportunity={{.ID}}">Plan outreach</a>
+  </div>
+</header>
+
+<div class="grid-main">
+<div>
+
+<section class="card">
+  <div class="card-head"><div><h2>Candidate fit</h2><p>How this posting's stated requirements compare with your approved profile.</p></div></div>
+  {{if not .Profile.Active}}
+    <div class="alert alert-danger"><div><strong>No active candidate profile.</strong> {{.Profile.Reason}} <a href="/profile">Open profile</a></div></div>
+  {{else if not .Match}}
+    <p class="empty">No fit assessment yet. Use <strong>Rerun fit assessment</strong> to create one.</p>
+  {{else}}
+    {{if .Stale}}<div class="alert alert-warning"><div><strong>This assessment is out of date.</strong> {{.StaleWhy}}. Rerun matching before choosing a plan.</div></div>{{end}}
+    <div class="stat-row">
+      <div class="stat"><div class="stat-label">Classification</div><div class="stat-value"><span class="badge {{.Match.Classification}}">{{if eq .Match.Classification "strong_match"}}Strong match{{else if eq .Match.Classification "possible_match"}}Possible match{{else if eq .Match.Classification "unrelated"}}Unrelated{{else}}{{.Match.Classification}}{{end}}</span></div></div>
+      <div class="stat"><div class="stat-label">Role family</div><div class="stat-value" style="font-size:14px">{{if .Match.FamilyName}}{{.Match.FamilyName}}{{else}}None{{end}} <small>({{.Match.FamilyConfidence}})</small></div></div>
+      <div class="stat"><div class="stat-label">Ranking score</div><div class="stat-value">{{.Match.Score}}<small> / 100</small></div></div>
+      <div class="stat"><div class="stat-label">Requirements</div><div class="stat-value">{{len .Match.Matched}}<small> met · {{len .Match.Gaps}} open</small></div></div>
+    </div>
+    <p class="help">Advertised title “{{if .Match.OriginalTitle}}{{.Match.OriginalTitle}}{{else}}unknown{{end}}”. Matcher {{.Match.MatcherVersion}}, profile revision {{.Match.ProfileRevisionID}}{{if .Assessed}}, assessed {{.Assessed}}{{end}}. The score only orders the queue; the classification and reasons below decide anything.</p>
+
+    {{if .Match.Blockers}}
+    <div class="alert alert-warning"><div><strong>What prevents a stronger classification</strong>
+      <ul>{{range .Match.Blockers}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul></div></div>
+    {{end}}
+
+    <h3>Requirements you meet</h3>
+    {{if .Match.Matched}}<ul class="reason-list">{{range .Match.Matched}}
+      <li><span class="reason-title">{{.Requirement.Term}}</span> <span class="badge neutral">{{.Requirement.Type}}</span>{{if .Requirement.Mandatory}} <span class="badge blue">Mandatory</span>{{end}}
+        <span class="excerpt">“{{.Requirement.Excerpt}}”</span>
+        <span class="refs">{{range .ProfileRefs}}{{.}} {{end}}</span></li>
+    {{end}}</ul>{{else}}<p class="muted">No stated requirement is supported by an approved fact.</p>{{end}}
+
+    <h3>Gaps and unknowns</h3>
+    {{if .Match.Gaps}}<ul class="reason-list">{{range .Match.Gaps}}
+      <li><span class="reason-title">{{if .Requirement.Term}}{{.Requirement.Term}}{{else}}Unnamed condition{{end}}</span> <span class="badge {{if eq (printf "%s" .Outcome) "unmet"}}red{{else}}neutral{{end}}">{{.Outcome}}</span>
+        <div class="small muted">{{.Note}}</div>
+        <span class="excerpt">“{{.Requirement.Excerpt}}”</span></li>
+    {{end}}</ul>{{else}}<p class="muted">No unmet or unknown requirement was recorded.</p>{{end}}
+
+    {{if .Match.Unparsed}}
+    <details class="disclosure"><summary>Lines not recognized <span class="summary-meta">{{len .Match.Unparsed}}</span></summary><div class="disclosure-body">
+      <p class="help">Not recognizing a requirement is not evidence that it does not exist.</p>
+      <ul class="reason-list">{{range .Match.Unparsed}}<li class="excerpt">“{{.Excerpt}}”</li>{{end}}</ul>
+    </div></details>
+    {{end}}
+
+    <details class="disclosure"><summary>Why this classification <span class="summary-meta">{{len .Match.Reasons}} reasons</span></summary><div class="disclosure-body">
+      <ul class="reason-list">{{range .Match.Reasons}}<li>{{.Text}} <code>{{.Code}}</code><span class="refs">{{range .Refs}}{{.}} {{end}}</span></li>{{end}}</ul>
+    </div></details>
+  {{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><div><h2>Company relevance</h2><p>Whether the company is worth contacting is a separate question from whether this job suits you.</p></div></div>
+  {{if .Relevance}}
+    <div class="stat-row">
+      <div class="stat"><div class="stat-label">Score</div><div class="stat-value">{{.Relevance.Score}}<small> / 100</small></div></div>
+      <div class="stat"><div class="stat-label">Relevant to contact</div><div class="stat-value">{{if .Relevance.Relevant}}<span class="badge green">Yes</span>{{else}}<span class="badge neutral">No</span>{{end}}</div></div>
+      <div class="stat"><div class="stat-label">Payment need evidenced</div><div class="stat-value">{{if .Relevance.PaymentNeedEvidenced}}<span class="badge green">Yes</span>{{else}}<span class="badge neutral">No</span>{{end}}</div></div>
+      <div class="stat"><div class="stat-label">Evidence facts</div><div class="stat-value">{{.Relevance.GroupCount}}<small> from {{.Relevance.ObservationCount}}</small></div></div>
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>Category</th><th>Points</th></tr></thead><tbody>
+    {{range .Relevance.Categories}}<tr><td>{{.Label}}</td><td class="num nowrap">{{.Points}} / {{.Max}}</td></tr>{{end}}
+    </tbody></table></div>
+    <details class="disclosure"><summary>Reasons <span class="summary-meta">{{len .Relevance.Reasons}}</span></summary><div class="disclosure-body">
+      <ul class="reason-list">{{range .Relevance.Reasons}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul>
+    </div></details>
+  {{else}}
+    <p class="muted">Company relevance has not been assessed yet.</p>
+  {{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><div><h2>Posting</h2><p>The employer's own words as stored. Nothing here is a claim about you.</p></div>{{if .Facts.URL}}<a class="btn btn-sm" href="{{.Facts.URL}}" target="_blank" rel="noopener noreferrer">View original</a>{{end}}</div>
+  <pre class="prose">{{.Facts.Description}}</pre>
+  {{if .Documents}}
+  <details class="disclosure"><summary>Source snapshots <span class="summary-meta">{{len .Documents}}</span></summary><div class="disclosure-body">
+    {{range $i,$doc:=.Documents}}<h4>{{if eq $i 0}}Current source snapshot{{else}}Earlier source snapshot{{end}}</h4><pre>{{$doc}}</pre>{{end}}
+  </div></details>
+  {{end}}
+</section>
+
+</div>
+<aside>
+
+<section class="card">
+  <div class="card-head"><h2>Next steps</h2></div>
+  <div class="stack">
+    <a class="btn btn-primary" style="width:100%" href="/companies/{{.CompanyID}}/plan?opportunity={{.ID}}">Choose an intent and recipient</a>
+    <a class="btn" style="width:100%" href="/companies/{{.CompanyID}}/contact-search?return=/opportunities/{{.ID}}">Contact discovery</a>
+    <form method="post" action="/companies/{{.CompanyID}}/contact-search">
+      <input type="hidden" name="return" value="/opportunities/{{.ID}}">
+      <button style="width:100%">Find contact now</button>
+    </form>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Posting details</h2></div>
+  <dl class="kv">
+    <dt>Source</dt><dd>{{.Facts.Source}}</dd>
+    <dt>Original URL</dt><dd>{{if .Facts.URL}}<a href="{{.Facts.URL}}" target="_blank" rel="noopener noreferrer">{{.Facts.URL}}</a>{{else}}Unavailable{{end}}</dd>
+    <dt>Location</dt><dd>{{if .Facts.Location}}{{.Facts.Location}}{{else}}Unknown{{end}}</dd>
+    <dt>Employment</dt><dd>{{if .Facts.EmploymentType}}{{.Facts.EmploymentType}}{{else}}Unknown{{end}}</dd>
+    <dt>Remote</dt><dd>{{.Facts.RemoteStatus}}</dd>
+    <dt>Availability</dt><dd>{{.Facts.Availability}}</dd>
+    <dt>Description</dt><dd>{{.Facts.DescriptionStatus}}</dd>
+    <dt>Published</dt><dd>{{if .Facts.PublishedAt}}{{.Facts.PublishedAt}}{{else}}Unknown{{end}}</dd>
+    <dt>Expires</dt><dd>{{if .Facts.ExpiresAt}}{{.Facts.ExpiresAt}}{{else}}Unknown{{end}}</dd>
+    <dt>First seen</dt><dd>{{.DiscoveredAt}}</dd>
+    <dt>Last seen</dt><dd>{{.LastSeenAt}}</dd>
+    <dt>Updated</dt><dd>{{.UpdatedAt}}</dd>
+    <dt>Search title</dt><dd>{{.Facts.NormalizedTitle}}</dd>
+  </dl>
+</section>
+
+<section class="card{{if .Suppression}} card-tone-danger{{end}}">
+  <div class="card-head"><h2>Availability</h2></div>
+{{if .Suppression}}
+  <div class="alert alert-danger"><div>
+    <p><strong>Suppressed as {{.Suppression.ReasonLabel}} &mdash; {{.Suppression.BasisLabel}}.</strong></p>
+    <p>Recorded by {{.Suppression.DecidedBy}} on {{.Suppression.DecidedAt.Format "2 Jan 2006 15:04"}}, against source revision {{.Suppression.OpportunityRevision}}.{{if .Suppression.Note}} Note: {{.Suppression.Note}}{{end}}</p>
+    <p class="small">It is out of the priority list, the dashboard queue and contact discovery. Nothing has been deleted.</p>
+    {{if .Suppression.Automatic}}<p class="small">Decided automatically from: {{range $key, $value := .Suppression.Evidence}}{{$key}}={{$value}} {{end}}</p>{{end}}
+  </div></div>
+  {{if .SuppressionOutdated}}<div class="alert alert-warning"><div><strong>The source has published revision {{.Revision}} since this was suppressed.</strong> The employer may have reopened the role. Reinstate it if the posting is live again.</div></div>{{end}}
+  <form method="post" action="/opportunities/{{.ID}}/reinstate" class="stack-form">
     <input type="hidden" name="return" value="{{.BackURL}}">
-    <label>Why it is live again (optional)<input type="text" name="note" maxlength="500" placeholder="e.g. employer reposted it"></label>
+    <label class="field">Why it is live again <span class="field-hint">Optional</span><input type="text" name="note" maxlength="500" placeholder="e.g. employer reposted it"></label>
     <button type="submit">Reinstate this opportunity</button>
   </form>
 {{else}}
-  <p>This opportunity is in the working queues. Suppress it when the posting has expired, been filled or been taken down &mdash; it leaves the priority list, the dashboard queue and contact discovery, and nothing is deleted.</p>
-  <form method="post" action="/opportunities/{{.ID}}/suppress" class="suppression-form">
+  <p class="help">Suppress the posting once it has expired, been filled or taken down. It leaves the working queues; nothing is deleted.</p>
+  <form method="post" action="/opportunities/{{.ID}}/suppress" class="stack-form">
     <input type="hidden" name="return" value="{{.BackURL}}">
-    <label>Reason<select name="reason" required>{{range .SuppressionReasons}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select></label>
-    <label>Note (optional)<input type="text" name="note" maxlength="500" placeholder="What you saw, and where"></label>
-    <button type="submit">Suppress this opportunity</button>
+    <label class="field">Reason<select name="reason" required>{{range .SuppressionReasons}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select></label>
+    <label class="field">Note <span class="field-hint">Optional</span><input type="text" name="note" maxlength="500" placeholder="What you saw, and where"></label>
+    <button type="submit" class="btn-danger">Suppress this opportunity</button>
   </form>
-  <dl class="reason-help">{{range .SuppressionReasons}}<dt>{{.Label}}</dt><dd>{{.Help}}</dd>{{end}}</dl>
+  <details class="disclosure"><summary>What the reasons mean</summary><div class="disclosure-body">
+    <dl class="kv stacked">{{range .SuppressionReasons}}<dt>{{.Label}}</dt><dd>{{.Help}}</dd>{{end}}</dl>
+  </div></details>
 {{end}}
 {{if .SuppressionHistory}}
-  <h3>Suppression history</h3>
-  <ul class="history">{{range .SuppressionHistory}}
+  <div class="card-section">
+  <h3>History</h3>
+  <ul class="reason-list small">{{range .SuppressionHistory}}
     <li>{{.ReasonLabel}} ({{.BasisLabel}}) by {{.DecidedBy}} on {{.DecidedAt.Format "2 Jan 2006 15:04"}}{{if .Note}} &mdash; {{.Note}}{{end}}
     {{if not .Live}}<br>Reinstated by {{.SupersededBy}} on {{.SupersededAt.Format "2 Jan 2006 15:04"}}{{if .SupersedeNote}} &mdash; {{.SupersedeNote}}{{end}}{{end}}</li>
   {{end}}</ul>
+  </div>
 {{end}}
 </section>
 
-<section>
-<h2>Candidate fit</h2>
-{{if not .Profile.Active}}
-  <p class="stale"><strong>profile_required.</strong> {{.Profile.Reason}}</p>
-{{else if not .Match}}
-  <p>No fit assessment has been stored for this vacancy yet.</p>
-{{else}}
-  {{if .Stale}}<p class="stale"><strong>Stale assessment.</strong> {{.StaleWhy}}. It is not treated as current; rerun matching before selecting a plan.</p>{{end}}
-  <p><span class="tag {{.Match.Classification}}">{{.Match.Classification}}</span>
-     Advertised title <strong>{{if .Match.OriginalTitle}}{{.Match.OriginalTitle}}{{else}}unknown{{end}}</strong> ·
-     role family confidence <strong>{{.Match.FamilyConfidence}}</strong>{{if .Match.FamilyName}} ({{.Match.FamilyName}}){{end}} ·
-     matcher {{.Match.MatcherVersion}} against profile revision {{.Match.ProfileRevisionID}}{{if .Assessed}} · assessed {{.Assessed}}{{end}}</p>
-  <p>Ranking score {{.Match.Score}}/100. The score orders a queue; the classification and the reasons below are what decide anything.</p>
-
-  <h3>Matched</h3>
-  {{if .Match.Matched}}<ul>{{range .Match.Matched}}
-    <li><strong>{{.Requirement.Term}}</strong> ({{.Requirement.Type}}{{if .Requirement.Mandatory}}, mandatory{{end}}) — {{.Note}}<br>
-    <span class="excerpt">“{{.Requirement.Excerpt}}”</span><br><span class="refs">{{range .ProfileRefs}}{{.}} {{end}}</span></li>
-  {{end}}</ul>{{else}}<p>No stated requirement is supported by an approved fact.</p>{{end}}
-
-  <h3>Unmet and unknown</h3>
-  {{if .Match.Gaps}}<ul>{{range .Match.Gaps}}
-    <li><strong>{{if .Requirement.Term}}{{.Requirement.Term}}{{else}}unnamed condition{{end}}</strong> — <em>{{.Outcome}}</em>. {{.Note}}<br>
-    <span class="excerpt">“{{.Requirement.Excerpt}}”</span></li>
-  {{end}}</ul>{{else}}<p>No unmet or unknown requirement was recorded.</p>{{end}}
-
-  {{if .Match.Unparsed}}
-  <h3>Source requirements not recognized</h3>
-  <p>These lines could not be matched to a known term. Not recognizing a requirement is not evidence that it does not exist.</p>
-  <ul>{{range .Match.Unparsed}}<li class="excerpt">“{{.Excerpt}}”</li>{{end}}</ul>
-  {{end}}
-
-  <h3>Why this classification</h3>
-  <ul>{{range .Match.Reasons}}<li><code>{{.Code}}</code> — {{.Text}} <span class="refs">{{range .Refs}}{{.}} {{end}}</span></li>{{end}}</ul>
-  {{if .Match.Blockers}}
-  <h3>What prevents a stronger classification</h3>
-  <ul>{{range .Match.Blockers}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul>
-  {{end}}
-{{end}}
-<form method="post" action="/opportunities/{{.ID}}/assess"><button>Rerun fit assessment</button></form>
-</section>
-
-<section>
-<h2>Company relevance</h2>
-{{if .Relevance}}
-  <p>Score {{.Relevance.Score}}/100 · relevant to contact: <strong>{{if .Relevance.Relevant}}yes{{else}}no{{end}}</strong> ·
-  payment need evidenced: <strong>{{if .Relevance.PaymentNeedEvidenced}}yes{{else}}no{{end}}</strong> ·
-  {{.Relevance.ObservationCount}} observations grouped into {{.Relevance.GroupCount}} distinct facts.</p>
-  <table><thead><tr><th>Category</th><th>Points</th></tr></thead><tbody>
-  {{range .Relevance.Categories}}<tr><td>{{.Label}}</td><td>{{.Points}} / {{.Max}}</td></tr>{{end}}
-  </tbody></table>
-  <ul>{{range .Relevance.Reasons}}<li><code>{{.Code}}</code> — {{.Text}}</li>{{end}}</ul>
-{{else}}
-  <p>Company relevance has not been assessed. Whether this job suits the candidate and whether the company is worth contacting are separate questions.</p>
-{{end}}
-<p><a href="/companies/{{.CompanyID}}/plan?opportunity={{.ID}}">Choose an intent and recipient for this company →</a></p>
-<p><a href="/companies/{{.CompanyID}}/contact-search?return=/opportunities/{{.ID}}">Contact discovery for this employer →</a></p>
-<form class="inline" method="post" action="/companies/{{.CompanyID}}/contact-search">
- <input type="hidden" name="return" value="/opportunities/{{.ID}}">
- <button>Find contact</button></form>
-</section>
-
-<section>
-<h2>Source facts</h2>
-<p>These are the employer's own words as stored. Nothing here is a candidate claim.</p>
-<dl><dt>First discovered / last observed / content updated</dt><dd>{{.DiscoveredAt}} / {{.LastSeenAt}} / {{.UpdatedAt}}</dd>
-<dt>Source</dt><dd>{{.Facts.Source}}</dd>
-<dt>Original source URL</dt><dd>{{if .Facts.URL}}<a href="{{.Facts.URL}}" target="_blank" rel="noopener noreferrer">{{.Facts.URL}}</a>{{else}}Unavailable{{end}}</dd>
-<dt>Normalized title (search only)</dt><dd>{{.Facts.NormalizedTitle}}</dd>
-<dt>Location</dt><dd>{{if .Facts.Location}}{{.Facts.Location}}{{else}}Unknown{{end}}</dd>
-<dt>Employment type</dt><dd>{{if .Facts.EmploymentType}}{{.Facts.EmploymentType}}{{else}}Unknown{{end}}</dd>
-<dt>Remote status</dt><dd>{{.Facts.RemoteStatus}}</dd>
-<dt>Availability</dt><dd>{{.Facts.Availability}}</dd>
-<dt>Description quality</dt><dd>{{.Facts.DescriptionStatus}}</dd>
-<dt>Published / expires</dt><dd>{{if .Facts.PublishedAt}}{{.Facts.PublishedAt}}{{else}}Unknown{{end}} / {{if .Facts.ExpiresAt}}{{.Facts.ExpiresAt}}{{else}}Unknown{{end}}</dd></dl>
-<h3>Source description</h3><pre>{{.Facts.Description}}</pre>
-<h3>Source revision history</h3>{{range $i,$doc:=.Documents}}<details><summary>{{if eq $i 0}}Current source snapshot{{else}}Earlier source snapshot{{end}}</summary><pre>{{$doc}}</pre></details>{{end}}
-</section>
+</aside>
+</div>
 </body></html>

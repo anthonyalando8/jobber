@@ -1,12 +1,20 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Legacy drafts</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f6f6;padding:.6rem}article{border-top:1px solid #ccc;padding:1rem 0}.note{background:#fff8e1;border-left:4px solid #e0a800;padding:.8rem}</style></head><body>
-<nav><a href="/">Dashboard</a> · <a href="/compositions">Compositions</a> · <a href="/legacy/threads">Legacy threads</a> · <a href="/templates">Templates</a></nav>
-<h1>Legacy drafts ({{len .Drafts}})</h1>
-<p class="note">{{.Explanation}}</p>
-<p>These are kept exactly as the old pipeline wrote them. There is no approve or send control on this page, and there is no v2 route that will accept one of these drafts.</p>
-{{range .Drafts}}<article>
-<h2>Draft {{.ID}} — <a href="/companies/{{.CompanyID}}">{{.CompanyName}}</a></h2>
-<p>State {{.State}}{{if .Decision}} · legacy decision {{.Decision}}{{end}} · created {{.CreatedAt}} · <strong>legacy pipeline, not sendable</strong></p>
-<h3>{{.Subject}}</h3><pre>{{.Body}}</pre>
-<p><a href="/companies/{{.CompanyID}}/plan">Create or select a contact plan for {{.CompanyName}}</a> to write a v2 message instead.</p>
-</article>{{else}}<p>No legacy unsent drafts remain.</p>{{end}}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Legacy drafts · Prospector</title></head><body>
+<header class="page-head">
+  <div>
+    <span class="badge neutral">Archive</span>
+    <h1>Legacy drafts <span class="muted">{{len .Drafts}}</span></h1>
+    <p class="page-sub">Kept exactly as the old pipeline wrote them. Nothing here can be approved or sent, and no v2 route accepts these drafts.</p>
+  </div>
+</header>
+<div class="alert alert-warning"><div>{{.Explanation}}</div></div>
+{{range .Drafts}}
+<details class="disclosure card-like">
+  <summary><span><span class="cell-strong">{{if .Subject}}{{.Subject}}{{else}}Draft {{.ID}}{{end}}</span> <span class="muted small">· {{.CompanyName}}</span></span><span class="summary-meta">{{.State}}{{if .Decision}} · {{.Decision}}{{end}} · {{.CreatedAt}}</span></summary>
+  <div class="disclosure-body">
+    <p class="small muted">Draft {{.ID}} · state {{.State}}{{if .Decision}} · legacy decision {{.Decision}}{{end}} · <strong>legacy pipeline, not sendable</strong></p>
+    <pre class="prose">{{.Body}}</pre>
+    <div class="btn-row"><a class="btn btn-sm" href="/companies/{{.CompanyID}}">Open {{.CompanyName}}</a><a class="btn btn-sm btn-primary" href="/companies/{{.CompanyID}}/plan">Create or select a contact plan</a></div>
+  </div>
+</details>
+{{else}}<div class="card empty-state"><strong>No legacy drafts remain</strong>Everything from the old pipeline has been sent or discarded.</div>{{end}}
 </body></html>

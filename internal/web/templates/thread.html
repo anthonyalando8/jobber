@@ -1,27 +1,53 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Conversation {{.Thread.ID}}</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:.4rem;text-align:left}</style></head><body>
-<nav><a href="{{if .BackURL}}{{.BackURL}}{{else}}/threads{{end}}">{{if .BackLabel}}{{.BackLabel}}{{else}}Back to conversations{{end}}</a> · <a href="/companies/{{.Thread.CompanyID}}">Company</a> · <a href="/compositions/{{.Thread.RootDraftID}}">Originating draft</a></nav>
-<h1>Conversation {{.Thread.ID}}</h1>
-<dl><dt>State</dt><dd>{{.Thread.State}} {{if .Thread.StateReason}}({{.Thread.StateReason}}){{end}}</dd>
-<dt>Frozen intent</dt><dd>{{.Thread.Intent}}</dd>
-<dt>Recipient</dt><dd>{{.Thread.RecipientEmail}}</dd>
-<dt>Follow-up step</dt><dd>{{.Thread.FollowupStep}}</dd>
-<dt>Last sent</dt><dd>{{if .Thread.LastSentAt}}{{.Thread.LastSentAt}}{{else}}—{{end}}</dd>
-<dt>Root message id</dt><dd>{{.Thread.RootMessageID}}</dd></dl>
-<h2>History</h2>
-{{if .Events}}<table><tr><th>When</th><th>Event</th><th>Source</th><th>Detail</th></tr>{{range .Events}}<tr><td>{{.OccurredAt}}</td><td>{{.Kind}}</td><td>{{.Source}}</td><td>{{.Detail}}</td></tr>{{end}}</table>{{else}}<p>Nothing has been recorded since the first send.</p>{{end}}
-<h2>Record a delivery fact</h2>
-<p>No provider webhook is wired up, so what happened after acceptance is recorded by hand. A permanent bounce marks the contact bad and suppresses the address, and a do-not-contact request suppresses it too — neither can be undone from this page.</p>
-<form method="post" action="/threads/{{.Thread.ID}}/events">
-<label>What happened
-<select name="kind" required>
-<option value="replied">They replied</option>
-<option value="bounced_permanent">Permanent bounce — suppresses this address</option>
-<option value="bounced_transient">Transient bounce</option>
-<option value="do_not_contact">They asked not to be contacted — suppresses this address</option>
-<option value="reconciled">An uncertain send was reconciled</option>
-<option value="closed">Close this conversation</option>
-<option value="note">Note</option>
-</select></label>
-<label>Detail <input type="text" name="detail" maxlength="400"></label>
-<button>Record</button></form>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Conversation {{.Thread.ID}} · Prospector</title></head><body>
+<header class="page-head">
+  <div>
+    <nav class="crumbs back" aria-label="Breadcrumb"><a href="{{if .BackURL}}{{.BackURL}}{{else}}/threads{{end}}">{{if .BackLabel}}{{.BackLabel}}{{else}}Back to conversations{{end}}</a></nav>
+    <h1>{{.Thread.RecipientEmail}}</h1>
+    <div class="page-meta"><span class="badge {{.Thread.State}}">{{.Thread.State}}</span>{{if .Thread.StateReason}}<span>{{.Thread.StateReason}}</span>{{end}}<span>Conversation {{.Thread.ID}}</span></div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/companies/{{.Thread.CompanyID}}">Company</a>
+    <a class="btn" href="/compositions/{{.Thread.RootDraftID}}">Originating draft</a>
+  </div>
+</header>
+<div class="grid-main">
+<div>
+<section class="card">
+  <div class="card-head"><h2>History</h2></div>
+  {{if .Events}}
+  <ol class="timeline">{{range .Events}}<li><div class="timeline-head"><span class="cell-strong">{{.Kind}}</span><span class="muted small">{{.OccurredAt}} · {{.Source}}</span></div>{{if .Detail}}<div>{{.Detail}}</div>{{end}}</li>{{end}}</ol>
+  {{else}}<p class="empty">Nothing has been recorded since the first send.</p>{{end}}
+</section>
+<section class="card">
+  <div class="card-head"><div><h2>Record what happened</h2><p>No provider webhook is wired up, so delivery facts are recorded by hand. A permanent bounce marks the contact bad and suppresses the address; a do-not-contact request suppresses it too. Neither can be undone here.</p></div></div>
+  <form class="form-row" method="post" action="/threads/{{.Thread.ID}}/events">
+    <label class="field">What happened
+      <select name="kind" required>
+        <option value="replied">They replied</option>
+        <option value="bounced_permanent">Permanent bounce — suppresses this address</option>
+        <option value="bounced_transient">Transient bounce</option>
+        <option value="do_not_contact">They asked not to be contacted — suppresses this address</option>
+        <option value="reconciled">An uncertain send was reconciled</option>
+        <option value="closed">Close this conversation</option>
+        <option value="note">Note</option>
+      </select></label>
+    <label class="field">Detail<input type="text" name="detail" maxlength="400" placeholder="Optional"></label>
+    <button class="btn-primary">Record</button>
+  </form>
+</section>
+</div>
+<aside>
+<section class="card">
+  <div class="card-head"><h2>Details</h2></div>
+  <dl class="kv">
+    <dt>State</dt><dd>{{.Thread.State}}{{if .Thread.StateReason}} ({{.Thread.StateReason}}){{end}}</dd>
+    <dt>Frozen intent</dt><dd>{{.Thread.Intent}}</dd>
+    <dt>Recipient</dt><dd>{{.Thread.RecipientEmail}}</dd>
+    <dt>Follow-up step</dt><dd>{{.Thread.FollowupStep}}</dd>
+    <dt>Last sent</dt><dd>{{if .Thread.LastSentAt}}{{.Thread.LastSentAt}}{{else}}—{{end}}</dd>
+    <dt>Root message</dt><dd class="mono">{{.Thread.RootMessageID}}</dd>
+  </dl>
+</section>
+</aside>
+</div>
 </body></html>

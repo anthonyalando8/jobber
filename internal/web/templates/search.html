@@ -1,1 +1,21 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Search - Prospector</title></head><body><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Dashboard</a> / Search</nav><h1>Search Prospector</h1><form class="browse-filters" action="/search" method="get"><label class="search-field">Companies and opportunities<input name="q" type="search" value="{{.Query}}" placeholder="Company, role, location or source" maxlength="200"></label><div class="filter-actions"><button>Search</button></div></form>{{range .Warnings}}<p class="filter-warning">{{.}}</p>{{end}}{{if .Query}}<h2>Companies &middot; {{.CompanyCount}}</h2><ul class="entity-list">{{range .Companies}}<li><a href="/companies/{{.ID}}?return={{urlquery $.CurrentURL}}">{{.Name}}</a><small>{{.Domain}}</small></li>{{else}}<li>No matching companies.</li>{{end}}</ul><a href="/companies?q={{urlquery .Query}}">View all matching companies</a><h2>Opportunities &middot; {{.OpportunityCount}}</h2><ul class="entity-list">{{range .Opportunities}}<li><a href="/opportunities/{{.ID}}?return={{urlquery $.CurrentURL}}">{{.Facts.Title}}</a><small>{{.CompanyName}} &middot; {{.Fit}}</small></li>{{else}}<li>No matching opportunities.</li>{{end}}</ul><a href="/opportunities?q={{urlquery .Query}}">View all matching opportunities</a>{{else}}<p class="list-intro">Enter a company, role, location or source to search the complete workspace.</p>{{end}}</body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Search · Prospector</title></head><body>
+<header class="page-head">
+  <div><h1>Search</h1><p class="page-sub">Find companies and opportunities across the whole workspace.</p></div>
+</header>
+<form class="browse-filters" action="/search" method="get"><label class="search-field">Search<input name="q" type="search" value="{{.Query}}" placeholder="Company, role, location or source" maxlength="200" autofocus></label><div class="filter-actions"><button class="btn-primary">Search</button></div></form>
+{{range .Warnings}}<p class="filter-warning">{{.}}</p>{{end}}
+{{if .Query}}
+<div class="grid-2">
+<section class="card flush">
+  <div class="card-head"><h2>Companies <span class="muted">{{.CompanyCount}}</span></h2><a href="/companies?q={{urlquery .Query}}">View all</a></div>
+  <ul class="entity-list">{{range .Companies}}<li><div><a href="/companies/{{.ID}}?return={{urlquery $.CurrentURL}}">{{.Name}}</a><small>{{.Domain}}</small></div></li>{{else}}<li class="muted">No matching companies.</li>{{end}}</ul>
+</section>
+<section class="card flush">
+  <div class="card-head"><h2>Opportunities <span class="muted">{{.OpportunityCount}}</span></h2><a href="/opportunities?q={{urlquery .Query}}">View all</a></div>
+  <ul class="entity-list">{{range .Opportunities}}<li><div><a href="/opportunities/{{.ID}}?return={{urlquery $.CurrentURL}}">{{.Facts.Title}}</a><small>{{.CompanyName}}</small></div><div class="entity-meta"><span class="badge {{.Fit}}">{{.Fit}}</span></div></li>{{else}}<li class="muted">No matching opportunities.</li>{{end}}</ul>
+</section>
+</div>
+{{else}}
+<div class="card empty-state"><strong>Start typing to search</strong>Search by company name, role title, location or source.</div>
+{{end}}
+</body></html>

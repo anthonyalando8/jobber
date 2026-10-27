@@ -1,169 +1,149 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Companies — Prospector</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        header { background: white; padding: 20px; border-bottom: 1px solid #ddd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-        h1 { font-size: 24px; }
-        .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-        .filters input, .filters select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
-        .filters input[type=text] { flex: 1; min-width: 200px; }
-        .filters button { background: #0066cc; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
-        .filters .clear { color: #999; font-size: 13px; }
-        .result-count { font-size: 13px; color: #777; margin-bottom: 10px; }
-        .pagination { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 20px; font-size: 13px; }
-        .pagination a { background: white; border: 1px solid #ddd; padding: 6px 14px; border-radius: 4px; }
-        .pagination a.disabled { color: #ccc; pointer-events: none; border-color: #eee; }
-        .empty-state { background: white; border-radius: 8px; padding: 40px; text-align: center; color: #999; }
-        table { width: 100%; background: white; border-collapse: collapse; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        th { background: #f9f9f9; padding: 12px; text-align: left; font-weight: 600; border-bottom: 1px solid #ddd; font-size: 12px; text-transform: uppercase; }
-        td { padding: 12px; border-bottom: 1px solid #f0f0f0; }
-        tr:hover { background: #fafafa; }
-        a { color: #0066cc; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
-        .badge.new { background: #e3f2fd; color: #1976d2; }
-        .badge.enriched { background: #f3e5f5; color: #7b1fa2; }
-        .badge.drafted { background: #fff3e0; color: #e65100; }
-        .badge.sent { background: #e8f5e9; color: #2e7d32; }
-        .badge.agency { background: #f0f4ff; color: #003d99; }
-        .badge.incubator { background: #fff0f5; color: #c2185b; }
-        .badge.hiring { background: #e0f2f1; color: #004d40; }
-        .badge.sme { background: #fff8e1; color: #f57f17; }
-        .badge.verified { background: #e8f5e9; color: #2e7d32; }
-        .badge.candidate { background: #fff3e0; color: #e65100; }
-        .badge.failed { background: #ffebee; color: #c62828; }
-        .badge.manual { background: #eceff1; color: #37474f; }
-        .badge.unknown { background: #eceff1; color: #78909c; }
-        .domain-fix { display: flex; gap: 6px; align-items: center; }
-        .domain-fix input { padding: 5px 7px; border: 1px solid #ddd; border-radius: 4px; font-size: 12.5px; width: 170px; }
-        .domain-fix button { background: #0066cc; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; }
-        .pagination a.page-num { min-width: 32px; text-align: center; }
-        .pagination a.page-num.current { background: #0066cc; color: white; border-color: #0066cc; font-weight: 600; pointer-events: none; }
-        .pagination .ellipsis { color: #999; padding: 0 4px; }
-    </style>
+<meta charset="UTF-8">
+<title>Companies · Prospector</title>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Companies</h1>
-            <a href="/" style="color: #0066cc;">← Back to Dashboard</a>
-        </header>
+<header class="page-head">
+  <div>
+    <h1>Companies</h1>
+    <p class="page-sub">Employers discovered from job sources. Open one to review its fit, contacts and contact plan.</p>
+  </div>
+</header>
 
-        {{range .warnings}}<p class="filter-warning" role="status">{{.}}</p>{{end}}<div class="active-filters">{{range .activeFilters}}<span>{{.}}</span>{{end}}</div><form class="filters" method="GET" action="/companies">
-            <input aria-label="Search companies" type="text" name="q" value="{{.query}}" placeholder="Search name or domain...">
-            <select aria-label="Status" name="status">
-                <option value="">All statuses</option>
-                <option value="new" {{if eq .status "new"}}selected{{end}}>New</option>
-                <option value="enriched" {{if eq .status "enriched"}}selected{{end}}>Enriched</option>
-                <option value="drafted" {{if eq .status "drafted"}}selected{{end}}>Drafted</option>
-                <option value="sent" {{if eq .status "sent"}}selected{{end}}>Sent</option>
-                <option value="replied" {{if eq .status "replied"}}selected{{end}}>Replied</option>
-                <option value="won" {{if eq .status "won"}}selected{{end}}>Won</option>
-                <option value="lost" {{if eq .status "lost"}}selected{{end}}>Lost</option>
-                <option value="skip" {{if eq .status "skip"}}selected{{end}}>Skipped</option>
-            </select>
-            <select aria-label="Segment" name="segment">
-                <option value="">All segments</option>
-                <option value="agency" {{if eq .segment "agency"}}selected{{end}}>Agency</option>
-                <option value="incubator" {{if eq .segment "incubator"}}selected{{end}}>Incubator</option>
-                <option value="hiring" {{if eq .segment "hiring"}}selected{{end}}>Hiring</option>
-                <option value="hiring_us" {{if eq .segment "hiring_us"}}selected{{end}}>Hiring (US/remote)</option>
-                <option value="enterprise" {{if eq .segment "enterprise"}}selected{{end}}>Enterprise</option>
-                <option value="sme" {{if eq .segment "sme"}}selected{{end}}>SME</option>
-            </select>
-            <select aria-label="Domain Status" name="domain_status">
-                <option value="">All domain statuses</option>
-                <option value="verified" {{if eq .domainStatus "verified"}}selected{{end}}>Verified</option>
-                <option value="manual" {{if eq .domainStatus "manual"}}selected{{end}}>Manual</option>
-                <option value="candidate" {{if eq .domainStatus "candidate"}}selected{{end}}>Candidate (unverified)</option>
-                <option value="failed" {{if eq .domainStatus "failed"}}selected{{end}}>Failed</option>
-            </select>
-            <select aria-label="Market" name="market">
-                <option value="">Kenya + US/international</option>
-                <option value="kenya" {{if eq .market "kenya"}}selected{{end}}>Kenya only</option>
-                <option value="us" {{if eq .market "us"}}selected{{end}}>US/international only</option>
-            </select>
-            <select aria-label="Created" name="created">
-                <option value="">Any time</option>
-                <option value="5m" {{if eq .created "5m"}}selected{{end}}>Last 5 minutes</option>
-                <option value="1h" {{if eq .created "1h"}}selected{{end}}>Last hour</option>
-                <option value="today" {{if eq .created "today"}}selected{{end}}>Today</option>
-                <option value="7d" {{if eq .created "7d"}}selected{{end}}>Last 7 days</option>
-            </select>
-<input aria-label="Source" name="source" value="{{.source}}" placeholder="Any source">
-<select aria-label="Research state" name="research"><option value="">Any research state</option><option value="queue" {{if eq .research "queue"}}selected{{end}}>Waiting in research queue</option><option value="researched" {{if eq .research "researched"}}selected{{end}}>Researched</option><option value="unresearched" {{if eq .research "unresearched"}}selected{{end}}>Never researched</option><option value="recent" {{if eq .research "recent"}}selected{{end}}>Researched in past 24h</option></select>
-<select aria-label="Has opportunities" name="has_opportunities"><option value="">Any opportunity coverage</option><option value="yes" {{if eq .hasOpportunities "yes"}}selected{{end}}>Has opportunities</option><option value="no" {{if eq .hasOpportunities "no"}}selected{{end}}>No opportunities</option></select>
-<select aria-label="Has strong matches" name="has_strong"><option value="">Any match coverage</option><option value="yes" {{if eq .hasStrong "yes"}}selected{{end}}>Has current strong match</option><option value="no" {{if eq .hasStrong "no"}}selected{{end}}>No current strong match</option></select>
-            <button type="submit">Filter</button>
-            <a class="clear" href="/companies">Clear filters</a>
-        </form>
+{{range .warnings}}<p class="filter-warning" role="status">{{.}}</p>{{end}}
 
-        {{if eq .research "queue"}}<p class="list-intro">Waiting companies match the dashboard queue eligibility. Existing attempt cooldown may defer work. <a href="/#research">See live worker status and recent failures</a>.</p>{{end}}<div class="result-count">{{.total}} compan{{if eq .total 1}}y{{else}}ies{{end}} · page {{.page}} of {{.totalPages}}</div>
-
-        {{if .companies}}
-        <table>
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Domain</th>
-                    <th>Domain status</th>
-                    <th>Segment</th>
-                    <th>Score</th>
-                    <th>Status</th>
-                    <th>Source</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {{range .companies}}
-                <tr>
-                    <td><a href="/companies/{{.ID}}?return={{urlquery $.currentURL}}"><strong>{{.Name}}</strong></a></td>
-                    <td>
-                        {{if or (eq .DomainStatus "failed") (eq .DomainStatus "candidate")}}
-                        <form class="domain-fix" method="POST" action="/companies/{{.ID}}/domain/update">
-                            <input type="hidden" name="return_to" value="{{$.currentURL}}">
-                            <input type="text" name="domain" value="{{.Domain}}" placeholder="real-domain.com" required>
-                            <button type="submit">Fix</button>
-                        </form>
-                        {{else}}
-                        {{.Domain}}
-                        {{end}}
-                    </td>
-                    <td><span class="badge {{.DomainStatus}}">{{.DomainStatus}}</span></td>
-                    <td>
-                        {{if .Segment}}
-                        <span class="badge {{.Segment}}">{{.Segment}}</span>
-                        {{else}}
-                        —
-                        {{end}}
-                    </td>
-                    <td>{{.Score}}</td>
-                    <td><span class="badge {{.Status}}">{{.Status}}</span></td>
-                    <td><small>{{.Source}}</small></td>
-                    <td><a href="/companies/{{.ID}}?return={{urlquery $.currentURL}}">View</a></td>
-                </tr>
-                {{end}}
-            </tbody>
-        </table>
-
-        <div class="pagination">
-            {{if .hasPrev}}<a href="{{.prevURL}}">← Prev</a>{{else}}<a class="disabled">← Prev</a>{{end}}
-            {{range .pageLinks}}
-                {{if .Ellipsis}}<span class="ellipsis">…</span>
-                {{else}}<a class="page-num{{if .Current}} current{{end}}" href="{{.URL}}">{{.Number}}</a>
-                {{end}}
-            {{end}}
-            {{if .hasNext}}<a href="{{.nextURL}}">Next →</a>{{else}}<a class="disabled">Next →</a>{{end}}
-        </div>
-        {{else}}
-        <div class="empty-state">No companies match these filters. <a href="/companies">Clear filters</a>.</div>
-        {{end}}
+<form class="browse-filters" method="GET" action="/companies">
+  <label class="search-field">Search<input type="search" name="q" value="{{.query}}" placeholder="Company name or domain"></label>
+  <label>Status
+    <select name="status">
+      <option value="">All statuses</option>
+      <option value="new" {{if eq .status "new"}}selected{{end}}>New</option>
+      <option value="enriched" {{if eq .status "enriched"}}selected{{end}}>Enriched</option>
+      <option value="drafted" {{if eq .status "drafted"}}selected{{end}}>Drafted</option>
+      <option value="sent" {{if eq .status "sent"}}selected{{end}}>Sent</option>
+      <option value="replied" {{if eq .status "replied"}}selected{{end}}>Replied</option>
+      <option value="won" {{if eq .status "won"}}selected{{end}}>Won</option>
+      <option value="lost" {{if eq .status "lost"}}selected{{end}}>Lost</option>
+      <option value="skip" {{if eq .status "skip"}}selected{{end}}>Skipped</option>
+    </select>
+  </label>
+  <label>Domain
+    <select name="domain_status">
+      <option value="">Any domain status</option>
+      <option value="verified" {{if eq .domainStatus "verified"}}selected{{end}}>Verified</option>
+      <option value="manual" {{if eq .domainStatus "manual"}}selected{{end}}>Manual</option>
+      <option value="candidate" {{if eq .domainStatus "candidate"}}selected{{end}}>Unverified</option>
+      <option value="failed" {{if eq .domainStatus "failed"}}selected{{end}}>Failed</option>
+    </select>
+  </label>
+  <label>Research
+    <select name="research">
+      <option value="">Any research state</option>
+      <option value="queue" {{if eq .research "queue"}}selected{{end}}>Waiting in research queue</option>
+      <option value="researched" {{if eq .research "researched"}}selected{{end}}>Researched</option>
+      <option value="unresearched" {{if eq .research "unresearched"}}selected{{end}}>Never researched</option>
+      <option value="recent" {{if eq .research "recent"}}selected{{end}}>Researched in past 24h</option>
+    </select>
+  </label>
+  <div class="filter-actions"><a href="/companies">Clear</a><button type="submit" class="btn-primary">Apply</button></div>
+  <details class="filter-more" {{if or .segment .market .created .source .hasOpportunities .hasStrong}}open{{end}}>
+    <summary>More filters</summary>
+    <div class="filter-more-grid">
+      <label>Segment
+        <select name="segment">
+          <option value="">All segments</option>
+          <option value="agency" {{if eq .segment "agency"}}selected{{end}}>Agency</option>
+          <option value="incubator" {{if eq .segment "incubator"}}selected{{end}}>Incubator</option>
+          <option value="hiring" {{if eq .segment "hiring"}}selected{{end}}>Hiring</option>
+          <option value="hiring_us" {{if eq .segment "hiring_us"}}selected{{end}}>Hiring (US/remote)</option>
+          <option value="enterprise" {{if eq .segment "enterprise"}}selected{{end}}>Enterprise</option>
+          <option value="sme" {{if eq .segment "sme"}}selected{{end}}>SME</option>
+        </select>
+      </label>
+      <label>Market
+        <select name="market">
+          <option value="">Kenya + international</option>
+          <option value="kenya" {{if eq .market "kenya"}}selected{{end}}>Kenya only</option>
+          <option value="us" {{if eq .market "us"}}selected{{end}}>US/international only</option>
+        </select>
+      </label>
+      <label>Added
+        <select name="created">
+          <option value="">Any time</option>
+          <option value="5m" {{if eq .created "5m"}}selected{{end}}>Last 5 minutes</option>
+          <option value="1h" {{if eq .created "1h"}}selected{{end}}>Last hour</option>
+          <option value="today" {{if eq .created "today"}}selected{{end}}>Today</option>
+          <option value="7d" {{if eq .created "7d"}}selected{{end}}>Last 7 days</option>
+        </select>
+      </label>
+      <label>Source<input name="source" value="{{.source}}" placeholder="Any source"></label>
+      <label>Opportunities
+        <select name="has_opportunities">
+          <option value="">Any</option>
+          <option value="yes" {{if eq .hasOpportunities "yes"}}selected{{end}}>Has opportunities</option>
+          <option value="no" {{if eq .hasOpportunities "no"}}selected{{end}}>No opportunities</option>
+        </select>
+      </label>
+      <label>Strong matches
+        <select name="has_strong">
+          <option value="">Any</option>
+          <option value="yes" {{if eq .hasStrong "yes"}}selected{{end}}>Has a current strong match</option>
+          <option value="no" {{if eq .hasStrong "no"}}selected{{end}}>No current strong match</option>
+        </select>
+      </label>
     </div>
+  </details>
+</form>
+
+{{if eq .research "queue"}}<p class="list-intro">These companies are eligible for the research queue. A recent attempt may delay the next one. <a href="/#research">See worker status</a>.</p>{{end}}
+
+<div class="list-toolbar">
+  <div class="result-summary"><strong>{{.total}} compan{{if eq .total 1}}y{{else}}ies{{end}}</strong><span>Page {{.page}} of {{.totalPages}}</span></div>
+  <div class="active-filters" aria-label="Active filters">{{range .activeFilters}}<span>{{.}}</span>{{end}}</div>
+</div>
+
+{{if .companies}}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Company</th><th>Domain</th><th>Status</th><th>Score</th><th>Source</th><th></th></tr>
+  </thead>
+  <tbody>
+  {{range .companies}}
+  <tr>
+    <td><a class="cell-strong" href="/companies/{{.ID}}?return={{urlquery $.currentURL}}">{{.Name}}</a>{{if .Segment}}<small>{{.Segment}}</small>{{end}}</td>
+    <td>
+      {{if or (eq .DomainStatus "failed") (eq .DomainStatus "candidate")}}
+      <form class="domain-fix" method="POST" action="/companies/{{.ID}}/domain/update">
+        <input type="hidden" name="return_to" value="{{$.currentURL}}">
+        <label class="sr-only" for="domain-{{.ID}}">Domain for {{.Name}}</label>
+        <input id="domain-{{.ID}}" type="text" name="domain" value="{{.Domain}}" placeholder="real-domain.com" required>
+        <button type="submit" class="btn-sm">Save</button>
+      </form>
+      <small><span class="badge {{.DomainStatus}}">{{if eq .DomainStatus "candidate"}}Unverified{{else}}{{.DomainStatus}}{{end}}</span></small>
+      {{else}}
+      {{.Domain}} <span class="badge {{.DomainStatus}}">{{.DomainStatus}}</span>
+      {{end}}
+    </td>
+    <td><span class="badge {{.Status}}">{{.Status}}</span></td>
+    <td class="num nowrap">{{.Score}}<span class="score-bar" aria-hidden="true"><span style="width:{{.Score}}%"></span></span></td>
+    <td class="muted">{{.Source}}</td>
+    <td class="actions"><a class="btn btn-sm" href="/companies/{{.ID}}?return={{urlquery $.currentURL}}">Open</a></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<nav class="pagination" aria-label="Company pages">
+  {{if .hasPrev}}<a href="{{.prevURL}}">Previous</a>{{else}}<span class="disabled">Previous</span>{{end}}
+  {{range .pageLinks}}{{if .Ellipsis}}<span class="disabled">…</span>{{else}}<a class="{{if .Current}}current{{end}}" href="{{.URL}}" {{if .Current}}aria-current="page"{{end}}>{{.Number}}</a>{{end}}{{end}}
+  {{if .hasNext}}<a href="{{.nextURL}}">Next</a>{{else}}<span class="disabled">Next</span>{{end}}
+</nav>
+{{else}}
+<div class="card empty-state"><strong>No companies match these filters</strong><a href="/companies">Clear filters</a></div>
+{{end}}
 </body>
 </html>

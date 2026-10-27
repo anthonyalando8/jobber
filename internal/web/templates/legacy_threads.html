@@ -1,21 +1,35 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Legacy threads</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f6f6;padding:.6rem}article{border-top:1px solid #ccc;padding:1rem 0}.note{background:#fff8e1;border-left:4px solid #e0a800;padding:.8rem}label{display:block;margin:.4rem 0}input[type=text]{width:100%}</style></head><body>
-<nav><a href="/">Dashboard</a> · <a href="/legacy/drafts">Legacy drafts</a> · <a href="/threads">v2 conversations</a> · <a href="/sent">Sent</a></nav>
-<h1>Legacy sent threads</h1>
-<p class="note">These messages were sent by the pre-v2 pipeline, which did not record what each one was for. Intent is never guessed here — not from the company's segment, not from the old application flag, not from the wording of the template that produced it. A thread gets an intent only because you state one, and <strong>unknown is a legitimate answer</strong>: it simply means no v2 follow-up will be offered.</p>
-<p>{{.Unclassified}} of the threads shown still have no classification. {{if .OnlyUnclassified}}<a href="/legacy/threads">Show all</a>{{else}}<a href="/legacy/threads?filter=unclassified">Show only unclassified</a>{{end}}</p>
-{{range .Threads}}<article>
-<h2>Thread {{.SendLogID}} — <a href="/companies/{{.CompanyID}}">{{.CompanyName}}</a></h2>
-<p>Sent {{.SentAt}} to {{.ToValue}}{{if .RepliedAt}} · replied {{.RepliedAt}}{{end}}{{if .BouncedAt}} · bounced {{.BouncedAt}} ({{.BounceReason}}){{end}}{{if .Followup1Sent}} · follow-up 1 sent {{.Followup1Sent}}{{end}}{{if .Followup2Sent}} · follow-up 2 sent {{.Followup2Sent}}{{end}}</p>
-<p>Original intent: {{if .Classification}}<strong>{{.Classification.Intent}}</strong> — classified by {{.Classification.ClassifiedBy}} on {{.Classification.ClassifiedAt}}. Basis: {{.Classification.Basis}}{{else}}<strong>unknown / not yet classified</strong>{{end}}</p>
-<p>Profile revision, opportunity, selected evidence and review result: <strong>unknown</strong>. None of these was recorded when this message was sent, and none is reconstructed here.</p>
-<details><summary>Message as sent (unchanged)</summary><h3>{{.Subject}}</h3><pre>{{.Body}}</pre></details>
-<form method="post" action="/legacy/threads/{{.SendLogID}}/classify">
-<label>What was this message actually for?
-<select name="intent" required>{{range $.Intents}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
-<label>What are you basing that on? <input type="text" name="basis" maxlength="400" required placeholder="e.g. the message names the Backend Engineer vacancy at this company"></label>
-<label>Opportunity ID, if you can identify it (optional) <input type="text" name="opportunity_id" maxlength="20"></label>
-<label>Recipient contact ID, if still known (optional) <input type="text" name="recipient_contact_id" maxlength="20"></label>
-<p>{{if .Classification}}Recording a new answer supersedes the current one; the previous statement is kept.{{else}}This records your conclusion. It does not create, approve or send anything.{{end}}</p>
-<button>Record classification</button></form>
-</article>{{else}}<p>No legacy sent threads.</p>{{end}}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Legacy conversations · Prospector</title></head><body>
+<header class="page-head">
+  <div>
+    <span class="badge neutral">Archive</span>
+    <h1>Legacy conversations</h1>
+    <p class="page-sub">{{.Unclassified}} of the threads shown still have no classification.</p>
+  </div>
+  <div class="page-actions">{{if .OnlyUnclassified}}<a class="btn" href="/legacy/threads">Show all</a>{{else}}<a class="btn" href="/legacy/threads?filter=unclassified">Show only unclassified</a>{{end}}</div>
+</header>
+<div class="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><div>These messages were sent by the pre-v2 pipeline, which did not record what each one was for. Intent is never guessed here, not from the segment, the old application flag or the template wording. A thread gets an intent only when you state one, and <strong>unknown is a legitimate answer</strong>: it means no v2 follow-up will be offered.</div></div>
+{{range .Threads}}
+<section class="card">
+  <div class="card-head">
+    <div><h2>{{if .Subject}}{{.Subject}}{{else}}Thread {{.SendLogID}}{{end}}</h2>
+      <p><a href="/companies/{{.CompanyID}}">{{.CompanyName}}</a> · sent {{.SentAt}} to {{.ToValue}}{{if .Followup1Sent}} · follow-up 1 sent {{.Followup1Sent}}{{end}}{{if .Followup2Sent}} · follow-up 2 sent {{.Followup2Sent}}{{end}}</p></div>
+    <div class="btn-row">{{if .RepliedAt}}<span class="badge green">Replied {{.RepliedAt}}</span>{{end}}{{if .BouncedAt}}<span class="badge red" title="{{.BounceReason}}">Bounced {{.BouncedAt}}</span>{{end}}{{if .Classification}}<span class="badge blue">{{.Classification.Intent}}</span>{{else}}<span class="badge amber">Unclassified</span>{{end}}</div>
+  </div>
+  <p class="small">Original intent: {{if .Classification}}<strong>{{.Classification.Intent}}</strong> — classified by {{.Classification.ClassifiedBy}} on {{.Classification.ClassifiedAt}}. Basis: {{.Classification.Basis}}{{else}}<strong>unknown / not yet classified</strong>{{end}}</p>
+  <p class="help">Profile revision, opportunity, selected evidence and review result: unknown. None of these was recorded when this message was sent, and none is reconstructed here.</p>
+  <details class="disclosure"><summary>Message as sent (unchanged)</summary><div class="disclosure-body"><h4>{{.Subject}}</h4><pre class="prose">{{.Body}}</pre></div></details>
+  <details class="disclosure"><summary>{{if .Classification}}Reclassify{{else}}Classify this thread{{end}}</summary><div class="disclosure-body">
+  <form class="stack-form" method="post" action="/legacy/threads/{{.SendLogID}}/classify">
+    <div class="form-grid">
+      <label class="field">What was this message actually for?<select name="intent" required>{{range $.Intents}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+      <label class="field">Opportunity ID <span class="field-hint">Optional</span><input type="text" name="opportunity_id" maxlength="20"></label>
+      <label class="field">Recipient contact ID <span class="field-hint">Optional</span><input type="text" name="recipient_contact_id" maxlength="20"></label>
+    </div>
+    <label class="field">What are you basing that on?<input type="text" name="basis" maxlength="400" required placeholder="e.g. the message names the Backend Engineer vacancy at this company"></label>
+    <p class="help">{{if .Classification}}Recording a new answer supersedes the current one; the previous statement is kept.{{else}}This records your conclusion. It does not create, approve or send anything.{{end}}</p>
+    <div class="btn-row"><button class="btn-primary">Record classification</button></div>
+  </form>
+  </div></details>
+</section>
+{{else}}<div class="card empty-state"><strong>No legacy conversations</strong></div>{{end}}
 </body></html>
