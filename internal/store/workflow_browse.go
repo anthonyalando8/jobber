@@ -10,10 +10,10 @@ type CompositionListFilter struct {
 	CompanyID                int64
 }
 
-const compositionAttentionPredicate = `d.state NOT IN ('sent','discarded') AND (h.status='review_required' OR (h.status='reviewed' AND NOT EXISTS(SELECT 1 FROM send_approval a WHERE a.draft_id=h.draft_id AND a.composition_revision=h.current_revision AND a.revoked_at IS NULL)))`
+const compositionAttentionPredicate = `d.state NOT IN ('sent','discarded') AND (h.status IN ('review_required','reviewed') AND NOT EXISTS(SELECT 1 FROM send_approval a WHERE a.draft_id=h.draft_id AND a.composition_revision=h.current_revision AND a.revoked_at IS NULL))`
 const compositionBrowseFrom = ` FROM draft_composition h JOIN draft d ON d.id=h.draft_id JOIN company c ON c.id=d.company_id `
 const compositionBrowseWhere = ` WHERE ($1='' OR c.name ILIKE $1 OR COALESCE(d.subject,'') ILIKE $1) AND (($2='discarded')=(d.state='discarded')) AND ($2='' OR $2='discarded' OR CASE WHEN h.status='running' AND h.lease_until<now() THEN 'failed' ELSE h.status END=$2)
- AND ($3='' OR ($3='required' AND (` + compositionAttentionPredicate + `)) OR ($3='semantic_review' AND h.status='review_required' AND d.state NOT IN ('sent','discarded')) OR ($3='approval_pending' AND h.status='reviewed' AND d.state NOT IN ('sent','discarded') AND NOT EXISTS(SELECT 1 FROM send_approval a WHERE a.draft_id=h.draft_id AND a.composition_revision=h.current_revision AND a.revoked_at IS NULL))) AND ($4=0 OR d.company_id=$4) `
+ AND ($3='' OR ($3='required' AND (` + compositionAttentionPredicate + `)) OR ($3='semantic_review' AND h.status='review_required' AND d.state NOT IN ('sent','discarded') AND NOT EXISTS(SELECT 1 FROM send_approval a WHERE a.draft_id=h.draft_id AND a.composition_revision=h.current_revision AND a.revoked_at IS NULL)) OR ($3='approval_pending' AND h.status='reviewed' AND d.state NOT IN ('sent','discarded') AND NOT EXISTS(SELECT 1 FROM send_approval a WHERE a.draft_id=h.draft_id AND a.composition_revision=h.current_revision AND a.revoked_at IS NULL))) AND ($4=0 OR d.company_id=$4) `
 
 func (f CompositionListFilter) args() []any {
 	return []any{likeSearch(f.Query), f.Status, f.Attention, f.CompanyID}

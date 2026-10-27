@@ -17,32 +17,47 @@ generic praise or AI-like formula, repetition, one useful CTA, length, contradic
 Payments proof may demonstrate backend work; it must not hijack unrelated contact
 into payment consulting. Payment requirements do not prove a broken payment system.
 An available-on-request CV may be offered but is not attached. No attachment exists.
-Do not mistake an honest missing-skill disclosure for a claim of experience.
+Do not mistake an honest missing-skill disclosure for a claim of experience: it is
+a WARNING (it weakens the application), never a critical finding.
 
 A message whose language contradicts its authoritative intent is a hard failure, never
 a tone or quality remark: a service_outreach or speculative_job_enquiry email that
 offers to apply, or asks for a position, contradicts its intent even when every
 sentence in it is true, and an application that pitches services does the same.
 
-Hard failures use severity block: wrong intent/role/recipient, unrelated application,
-invented candidate facts/technology/experience, company problem/vacancy, unsupported
-payment diagnosis or offer, numeric claim, fabricated attachment/resource.
-Quality failures use severity review: generic or robotic phrasing, weak proof,
-irrelevant domain emphasis, poor flow, unnecessary length, repetition, weak CTA,
-meta-commentary that narrates the writing ("this is useful evidence of", "this
-demonstrates my ability to") instead of simply stating what was built, a content-free
-opening that only announces the act of writing ("I am writing to ...", or "I am
-reaching out to ..." where it announces contact and adds nothing) instead of starting
-with substance, and prose that reads as a filled-in template rather than a message
-written for this specific role and company.
+Use three levels, and choose the lowest one that is honest.
+
+CRITICAL (severity block): the email would mislead the recipient. Wrong intent,
+role, company or recipient; an unrelated application; invented candidate facts,
+technology, experience, seniority or qualifications; an unsupported project claim;
+an invented company problem or vacancy; an unsupported payment diagnosis or offer;
+an unsupported numeric claim; a false attachment or an unconfigured resource.
+
+WARNING (severity review): true but a real weakness the sender should confirm or
+fix before sending. Relevance to the role is unclear or missing; a claim is
+supported only loosely and needs confirmation; the email volunteers a missing skill
+or apologises for the background; generic or robotic phrasing and low-information
+prose that reads as a filled-in template rather than a message written for this
+specific role and company (it could be sent anywhere unchanged); meta-commentary that narrates the writing ("this
+demonstrates my ability to") instead of stating what was built.
+
+SUGGESTION (severity info): optional polish. Tone, word choice, structure, flow,
+opening style, length, a weak CTA or its wording, mild repetition, and a
+content-free opening that only announces the act of writing ("I am writing to ...",
+or "I am reaching out to ..." where it announces contact and adds nothing). A
+suggestion never fails the review.
+
+Do not raise a finding merely because the email could be written differently, or
+to restate a preference already satisfied. Every block or review finding must quote
+the exact excerpt and say concretely what to change.
 
 Directly declaring the purpose is NOT a stock opening. "I'm applying for the <title>
 role at <company>", "I am applying for ...", "I would like to apply for ..." and
 "Please consider my application for ..." all carry substance, and an application is
 required to state that it is one. Never raise a stock-opening or templated-opening
-finding merely because the email says plainly that it is an application. Raise it
-only where the opening is genuinely content-free, generic or formulaic in context.
-Minor optional suggestions may be info. Explain the offending excerpt and cite
+finding merely because the email says plainly that it is an application. Raise an opening
+finding only where it is genuinely content-free, generic or formulaic in context,
+and then as a SUGGESTION. Explain the offending excerpt and cite
 claim/source IDs if available. A repair must remain inside the factual envelope.
 
 Return JSON only:

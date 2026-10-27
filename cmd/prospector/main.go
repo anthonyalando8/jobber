@@ -140,6 +140,7 @@ func main() {
 		// Phase 5: approval and sending. CompositionSend is the only send route in the
 		// application; every other historical send/resend/follow-up route is permanently closed.
 		r.Post("/compositions/{id}/approval", handler.CompositionApprove)
+		r.Post("/compositions/{id}/approval/manual", handler.CompositionApproveManual)
 		r.Post("/compositions/{id}/approval/revoke", handler.CompositionRevoke)
 		r.Post("/compositions/{id}/send", handler.CompositionSend)
 		r.Get("/threads", handler.Threads)

@@ -127,7 +127,7 @@ func (s *Service) load(ctx context.Context, r Request) (*view, error) {
 	if composed.Revision > 0 && len(composed.Attempts) >= composed.Revision {
 		last := composed.Attempts[composed.Revision-1]
 		deterministic = !composition.NeedsReview(last.Validation)
-		semantic = last.Review != nil && last.Review.Passed && last.Review.Complete
+		semantic = last.Review != nil && last.Review.Passed && last.Review.Complete && !composed.ReviewOutdated()
 	}
 
 	identity := send.Identity{
@@ -179,7 +179,8 @@ func (s *Service) load(ctx context.Context, r Request) (*view, error) {
 		Now: time.Now().UTC(), Mode: s.mode, Ready: s.readiness, Identity: identity,
 		CompositionExists: true, CompositionStatus: composed.Status, CurrentRevision: composed.Revision,
 		DeterministicPassed: deterministic, SemanticPassed: semantic, StaleReasons: composed.StaleReasons,
-		PlanStatus: v.planRow.Status, Approval: v.approval.ToPolicy(),
+		DeterministicCritical: len(store.ManualApprovalBlockers(snapshot, v.email)) > 0,
+		PlanStatus:            v.planRow.Status, Approval: v.approval.ToPolicy(),
 		Contact: contactState, CompanyID: snapshot.CompanyID, Domain: v.company.Domain,
 		AddressSuppressed: addressSuppressed, DomainSuppressed: domainSuppressed,
 		PriorAttempts: priorAttempts, ActiveThreadsForDomain: activeThreads,

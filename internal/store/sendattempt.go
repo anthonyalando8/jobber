@@ -33,7 +33,16 @@ type SendApproval struct {
 	ApprovedAt          time.Time
 	RevokedAt           *time.Time
 	RevokedReason       string
+	// Basis is ApprovalReviewed (approved after the AI review passed) or ApprovalManualOverride
+	// (a person approved despite AI feedback). OverrideNote is the person's reason, if given.
+	Basis        string
+	OverrideNote string
 }
+
+const (
+	ApprovalReviewed       = "reviewed"
+	ApprovalManualOverride = "manual_override"
+)
 
 // ToPolicy converts the stored approval into the shape the preflight rules read.
 func (a *SendApproval) ToPolicy() *send.Approval {
@@ -45,6 +54,7 @@ func (a *SendApproval) ToPolicy() *send.Approval {
 		InputHash: a.InputHash, RecipientContactID: a.RecipientContactID,
 		RecipientEmail: a.RecipientEmail, Intent: plan.Intent(a.Intent),
 		ApprovedBy: a.ApprovedBy, ApprovedAt: a.ApprovedAt, Revoked: a.RevokedAt != nil,
+		ManualOverride: a.Basis == ApprovalManualOverride,
 	}
 }
 
@@ -90,7 +100,7 @@ func (db *DB) ApproveForSend(ctx context.Context, draftID int64, revision int, c
 	a := &SendApproval{
 		DraftID: draftID, CompositionRevision: revision, ContentHash: storedHash, InputHash: inputHash,
 		RecipientContactID: snapshot.Recipient.ContactID, RecipientEmail: snapshot.Recipient.Address,
-		Intent: string(snapshot.Intent), ApprovedBy: approvedBy,
+		Intent: string(snapshot.Intent), ApprovedBy: approvedBy, Basis: ApprovalReviewed,
 	}
 	err = tx.QueryRow(ctx,
 		`INSERT INTO send_approval(draft_id,composition_revision,content_hash,input_hash,
@@ -98,6 +108,102 @@ func (db *DB) ApproveForSend(ctx context.Context, draftID int64, revision int, c
 		 VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,approved_at`,
 		a.DraftID, a.CompositionRevision, a.ContentHash, a.InputHash,
 		a.RecipientContactID, a.RecipientEmail, a.Intent, a.ApprovedBy).Scan(&a.ID, &a.ApprovedAt)
+	if err != nil {
+		return nil, err
+	}
+	return a, tx.Commit(ctx)
+}
+
+// ErrNotManuallyApprovable explains why a person cannot approve this email over the AI review.
+type ErrNotManuallyApprovable struct{ Reason string }
+
+func (e *ErrNotManuallyApprovable) Error() string { return e.Reason }
+
+// ManualApprovalBlockers are the deterministic checks that even a person's approval cannot
+// override, for the email as it stands: critical factual problems (a false attachment, an
+// unconfigured link, a technology outside the plan, the wrong title...). They are recomputed
+// from the text with the current rules rather than read from history.
+func ManualApprovalBlockers(s composition.Snapshot, e composition.Email) []composition.Finding {
+	out := []composition.Finding{}
+	for _, f := range composition.Validate(s, e) {
+		if f.Severity == "block" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// ApproveManually records a person's approval of an email the AI review did not pass, after they
+// have read its findings. It is the same authorization as ApproveForSend, bound to the same exact
+// revision, content and recipient, but recorded as a manual override so it is never mistaken for
+// an AI pass; the review status and findings are left exactly as they are. It refuses while a
+// critical deterministic check fails, because those are facts, not editorial opinions.
+func (db *DB) ApproveManually(ctx context.Context, draftID int64, revision int, contentHash, approvedBy, note string) (*SendApproval, error) {
+	if strings.TrimSpace(approvedBy) == "" {
+		return nil, fmt.Errorf("an approval must record who gave it")
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	var status string
+	var current int
+	var rawSnapshot []byte
+	var inputHash string
+	err = tx.QueryRow(ctx, `SELECT CASE WHEN status='running' AND lease_until<now() THEN 'failed' ELSE status END,current_revision,snapshot,input_hash FROM draft_composition WHERE draft_id=$1 FOR UPDATE`, draftID).
+		Scan(&status, &current, &rawSnapshot, &inputHash)
+	if err != nil {
+		return nil, err
+	}
+	switch status {
+	case "review_required":
+	case "reviewed":
+		return nil, &ErrNotManuallyApprovable{"the AI review passed this email; use the normal approval"}
+	default:
+		return nil, &ErrNotManuallyApprovable{"this email is " + status + "; wait for it to finish, or save an edit, before approving"}
+	}
+	if revision != current {
+		return nil, &ErrNotManuallyApprovable{fmt.Sprintf("revision %d is not the current revision %d; reload before approving", revision, current)}
+	}
+	var storedHash string
+	var rawAttempt []byte
+	if err = tx.QueryRow(ctx, `SELECT content_hash,attempt FROM draft_composition_revision WHERE draft_id=$1 AND revision=$2`, draftID, revision).Scan(&storedHash, &rawAttempt); err != nil {
+		return nil, err
+	}
+	if contentHash != storedHash {
+		return nil, &ErrNotManuallyApprovable{"the content changed since it was displayed; reload and read it before approving"}
+	}
+	snapshot, err := decodeSnapshot(rawSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	var attempt composition.Attempt
+	if err = json.Unmarshal(rawAttempt, &attempt); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(attempt.Email.Subject) == "" || strings.TrimSpace(attempt.Email.Body) == "" {
+		return nil, &ErrNotManuallyApprovable{"this revision has no complete email to approve"}
+	}
+	if blockers := ManualApprovalBlockers(snapshot, attempt.Email); len(blockers) > 0 {
+		codes := []string{}
+		for _, f := range blockers {
+			codes = append(codes, f.Code)
+		}
+		return nil, &ErrNotManuallyApprovable{"fix the critical checks first: " + strings.Join(codes, ", ")}
+	}
+	a := &SendApproval{
+		DraftID: draftID, CompositionRevision: revision, ContentHash: storedHash, InputHash: inputHash,
+		RecipientContactID: snapshot.Recipient.ContactID, RecipientEmail: snapshot.Recipient.Address,
+		Intent: string(snapshot.Intent), ApprovedBy: approvedBy, Basis: ApprovalManualOverride,
+		OverrideNote: strings.TrimSpace(note),
+	}
+	err = tx.QueryRow(ctx,
+		`INSERT INTO send_approval(draft_id,composition_revision,content_hash,input_hash,
+		   recipient_contact_id,recipient_email,intent,approved_by,basis,override_note)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,approved_at`,
+		a.DraftID, a.CompositionRevision, a.ContentHash, a.InputHash,
+		a.RecipientContactID, a.RecipientEmail, a.Intent, a.ApprovedBy, a.Basis, a.OverrideNote).Scan(&a.ID, &a.ApprovedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -121,11 +227,11 @@ func (db *DB) LiveApproval(ctx context.Context, draftID int64) (*SendApproval, e
 	a := &SendApproval{}
 	err := db.QueryRow(ctx,
 		`SELECT id,draft_id,composition_revision,content_hash,input_hash,recipient_contact_id,
-		        recipient_email,intent,approved_by,approved_at,revoked_at,revoked_reason
+		        recipient_email,intent,approved_by,approved_at,revoked_at,revoked_reason,basis,override_note
 		 FROM send_approval WHERE draft_id=$1 AND revoked_at IS NULL`, draftID).
 		Scan(&a.ID, &a.DraftID, &a.CompositionRevision, &a.ContentHash, &a.InputHash,
 			&a.RecipientContactID, &a.RecipientEmail, &a.Intent, &a.ApprovedBy, &a.ApprovedAt,
-			&a.RevokedAt, &a.RevokedReason)
+			&a.RevokedAt, &a.RevokedReason, &a.Basis, &a.OverrideNote)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}

@@ -241,7 +241,13 @@ func TestCleanReviewCannotOverrideDeterministicBlock(t *testing.T) {
 			if !hasCode(last.Validation, tc.wantCode) {
 				t.Fatalf("deterministic finding was lost after review: %v", codes(last.Validation))
 			}
-			if last.Review == nil || !last.Review.Passed {
+			// A critical finding is held without consulting the reviewer at all; anything else
+			// reaches the (wrongly passing) reviewer and is still held.
+			if HasBlock(last.Validation) {
+				if last.Review != nil || last.Failure != "validation_failed" {
+					t.Fatalf("a critical finding should be held before review, got failure %q", last.Failure)
+				}
+			} else if last.Review == nil || !last.Review.Passed {
 				t.Fatal("this case requires the reviewer to have wrongly passed")
 			}
 		})

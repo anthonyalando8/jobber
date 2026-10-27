@@ -14,12 +14,29 @@ import (
 )
 
 type ComposedDraft struct {
-	ID           int64
-	Snapshot     composition.Snapshot
-	Status       string
-	Revision     int
-	Attempts     []composition.Attempt
+	ID       int64
+	Snapshot composition.Snapshot
+	Status   string
+	Revision int
+	Attempts []composition.Attempt
+	// StaleReasons are changes to the facts the email was written from (plan, profile, job,
+	// recipient). They block editing, approval and sending.
 	StaleReasons []string
+	// ProviderChanges say the prompt or model behind the latest compose or review has changed
+	// since. They do not make the text wrong: editing re-runs the current reviewer, and only
+	// a review_* change withholds the AI "passed" verdict (see ReviewOutdated).
+	ProviderChanges []string
+}
+
+// ReviewOutdated reports whether the latest AI review ran under a prompt or model that is no
+// longer the configured one, so its verdict should not count until the email is reviewed again.
+func (d *ComposedDraft) ReviewOutdated() bool {
+	for _, c := range d.ProviderChanges {
+		if strings.HasPrefix(c, "review_") {
+			return true
+		}
+	}
+	return false
 }
 
 // CompositionExistsError refuses a second email for the same plan, or for the same vacancy and
@@ -182,11 +199,11 @@ func (db *DB) GetComposition(ctx context.Context, id int64) (*ComposedDraft, err
 			}
 			seenStages[stage] = true
 			if meta.PromptHash != composition.CurrentPromptHash(stage, string(d.Snapshot.Intent)) {
-				d.StaleReasons = append(d.StaleReasons, stage+"_prompt_changed")
+				d.ProviderChanges = append(d.ProviderChanges, stage+"_prompt_changed")
 			}
 			current, configErr := composition.NewConfigured(strings.ToUpper(stage))
 			if configErr != nil || current.Provider != meta.Provider || current.Model != meta.Model {
-				d.StaleReasons = append(d.StaleReasons, stage+"_routing_changed")
+				d.ProviderChanges = append(d.ProviderChanges, stage+"_routing_changed")
 			}
 		}
 		if len(seenStages) == 2 {

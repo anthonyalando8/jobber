@@ -42,11 +42,12 @@ var findingFixes = map[string]string{
 
 // attemptOutcomes explains why the latest check did not finish, and what to do.
 var attemptOutcomes = map[string]string{
-	"review_unavailable":         "The AI review did not complete, so nothing has been checked yet. Your text is saved: click Save edit and review to run the review again. If it keeps failing, check the reviewer provider on the dashboard.",
+	"review_unavailable":         "The AI review did not complete, so this email has only been through the automatic factual checks. Click Save edit and review to try the AI review again, or, if you are happy with the email as it is, use Approve manually.",
 	"review_budget_unavailable":  "The AI request budget is used up for now, so the review did not run. Wait for the budget to free up, then click Save edit and review.",
 	"compose_budget_unavailable": "The AI request budget is used up for now, so no draft was written. Try Discard and compose again later.",
 	"compose_failed":             "The writer failed to produce an email. Write it yourself in the editor and click Save edit and review, or try Discard and compose again.",
 	"review_pending":             "The review is still running. Refresh this page in a minute.",
+	"validation_failed":          "The checks below failed, so the AI review was not run: it cannot override them. Fix them and click Save edit and review.",
 }
 
 type compositionFix struct {
@@ -61,6 +62,9 @@ type compositionFixes struct {
 	Outcome string
 	// ErrorCategory is the provider's error category when the review did not complete.
 	ErrorCategory string
+	// Removed are generated sentences dropped automatically because they only pointed out a
+	// technology the candidate does not have.
+	Removed []string
 }
 
 // currentFixes lists what stands between the latest version of the email and approval: the
@@ -79,6 +83,10 @@ func currentFixes(d *store.ComposedDraft) compositionFixes {
 	}
 	seen := map[string]int{}
 	add := func(f composition.Finding, reviewer bool) {
+		if f.Code == "removed_gap_sentence" {
+			out.Removed = append(out.Removed, f.Excerpt)
+			return
+		}
 		if f.Severity == "info" {
 			return
 		}

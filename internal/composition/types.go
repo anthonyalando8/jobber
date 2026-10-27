@@ -121,6 +121,11 @@ type WriteRequest struct {
 	Snapshot Snapshot  `json:"snapshot"`
 	Previous *Email    `json:"previous,omitempty"`
 	Findings []Finding `json:"repair_findings,omitempty"`
+	// ApprovedTechnologies are the only technology names the email may use, and
+	// DoNotMention the ones the job asks for that the candidate does not have. Both come from
+	// the same rules the validator applies, so the writer knows the checks in advance.
+	ApprovedTechnologies []string `json:"approved_technologies"`
+	DoNotMention         []string `json:"do_not_mention"`
 }
 
 // Independent interfaces permit different providers/models without coupling the

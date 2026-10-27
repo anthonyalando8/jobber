@@ -153,7 +153,8 @@ func (h *Handler) CompositionView(w http.ResponseWriter, r *http.Request) {
 	}
 	renderTemplate(w, "composition.html", map[string]any{
 		"Draft": d, "BackURL": safeReturn(r.URL.Query().Get("return"), "/compositions"), "BackLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/compositions")), "Email": email, "Send": h.buildSendView(r.Context(), id, email),
-		"Fixes": currentFixes(d), "Existing": r.URL.Query().Get("existing") == "1"})
+		"Fixes": currentFixes(d), "Existing": r.URL.Query().Get("existing") == "1",
+		"ManualBlockers": store.ManualApprovalBlockers(d.Snapshot, email)})
 }
 
 func (h *Handler) CompositionEdit(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +178,8 @@ func (h *Handler) CompositionEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Cannot load draft", 404)
 		return
 	}
+	// Only a change to the facts makes a draft stale. A changed prompt or model does not: saving
+	// an edit is exactly how the email reaches the current reviewer.
 	if d.Revision != revision || d.Status == "running" || len(d.StaleReasons) > 0 {
 		http.Error(w, "Draft changed, is running or is stale; reload or deliberately regenerate from a current plan", 409)
 		return
@@ -201,6 +204,13 @@ func (h *Handler) CompositionEdit(w http.ResponseWriter, r *http.Request) {
 	owner, err := h.db.ClaimComposition(r.Context(), id, revision, 1, hour, day)
 	if err != nil {
 		http.Error(w, err.Error(), 409)
+		return
+	}
+	// An approval covers exact bytes; an edit withdraws it so it can never be read as covering
+	// the new text.
+	if err = h.db.RevokeApproval(r.Context(), id, "content edited"); err != nil {
+		_ = h.db.FinishComposition(r.Context(), id, owner, "failed")
+		http.Error(w, "Could not withdraw the previous approval", 500)
 		return
 	}
 	// Save the edited bytes before the network request, invalidating old review.

@@ -66,6 +66,9 @@ func checkV2Schema(ctx context.Context, conn *pgx.Conn, version int, report *Sch
 	if version >= 29 {
 		specs["company_alias"] = "normalized_name:text company_id:bigint decided_by:text created_at:timestamp_with_time_zone"
 	}
+	if version >= 30 {
+		specs["send_approval"] += " basis:text override_note:text"
+	}
 	for name, spec := range specs {
 		table, ok := report.Tables[name]
 		if !ok {

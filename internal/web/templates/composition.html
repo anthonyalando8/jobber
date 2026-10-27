@@ -23,13 +23,14 @@
 <div class="grid-main">
 <div>
 
+{{if .Fixes.Removed}}<div class="alert"><div><strong>Removed automatically from the generated draft</strong>, because each only pointed out a technology you do not have:<ul>{{range .Fixes.Removed}}<li><q>{{.}}</q></li>{{end}}</ul></div></div>{{end}}
 {{if or .Fixes.Items .Fixes.Outcome}}
 <section class="card card-tone-warning" id="fixes">
-  <div class="card-head"><div><h2>What's stopping this email</h2><p>Change the text below to fix each item, then click <strong>Save edit and review</strong>. When every check passes, the status becomes <em>reviewed</em> and the Approve button appears.</p></div></div>
+  <div class="card-head"><div><h2>What's stopping this email</h2><p>Change the text below to fix each item, then click <strong>Save edit and review</strong>. When every check passes, the status becomes <em>reviewed</em> and the Approve button appears. <strong>Must fix</strong> items are factual and always need fixing; if only AI feedback or warnings remain and you are happy with the email, use <strong>Approve manually</strong> in the Approval panel.</p></div></div>
   {{if .Fixes.Outcome}}<div class="alert alert-warning"><div>{{.Fixes.Outcome}}{{if .Fixes.ErrorCategory}} <span class="muted">(error: <code>{{.Fixes.ErrorCategory}}</code>)</span>{{end}}</div></div>{{end}}
   {{if .Fixes.Items}}<ol class="fix-list">{{range .Fixes.Items}}
     <li>
-      <div class="fix-head"><span class="badge {{if eq .Severity "block"}}red{{else}}amber{{end}}">{{if eq .Severity "block"}}Must fix{{else}}Needs change{{end}}</span> <strong>{{.Problem}}</strong> <code>{{.Code}}</code>{{if .Reviewer}} <span class="muted small">· AI reviewer</span>{{end}}</div>
+      <div class="fix-head">{{if .Reviewer}}<span class="badge {{if eq .Severity "block"}}red{{else}}amber{{end}}">{{if eq .Severity "block"}}AI: critical{{else}}AI: warning{{end}}</span>{{else}}<span class="badge {{if eq .Severity "block"}}red{{else}}amber{{end}}">{{if eq .Severity "block"}}Must fix{{else}}Warning{{end}}</span>{{end}} <strong>{{.Problem}}</strong> <code>{{.Code}}</code></div>
       {{range .Excerpts}}<blockquote class="fix-excerpt">{{.}}</blockquote>{{end}}
       <p class="fix-how"><strong>How to fix:</strong> {{.Fix}}</p>
     </li>{{end}}
@@ -80,7 +81,11 @@
   <div class="card-section">
   <h3>Approval</h3>
   {{if .Send.Approval}}
-    <div class="alert alert-success"><div>Approved by {{.Send.Approval.ApprovedBy}} at {{.Send.Approval.ApprovedAt}} for content revision {{.Send.Approval.CompositionRevision}}, recipient {{.Send.Approval.RecipientEmail}}, intent {{.Send.Approval.Intent}}.</div></div>
+    {{if eq .Send.Approval.Basis "manual_override"}}
+    <div class="alert alert-warning"><div><strong>Approved manually, despite AI feedback.</strong> {{.Send.Approval.ApprovedBy}} approved content revision {{.Send.Approval.CompositionRevision}} for {{.Send.Approval.RecipientEmail}} at {{.Send.Approval.ApprovedAt.Format "2 Jan 2006, 15:04"}} UTC. The AI review did not pass this email; its findings are kept above.{{if .Send.Approval.OverrideNote}} Note: “{{.Send.Approval.OverrideNote}}”{{end}}</div></div>
+    {{else}}
+    <div class="alert alert-success"><div>Approved after the AI review passed, by {{.Send.Approval.ApprovedBy}} at {{.Send.Approval.ApprovedAt}} for content revision {{.Send.Approval.CompositionRevision}}, recipient {{.Send.Approval.RecipientEmail}}, intent {{.Send.Approval.Intent}}.</div></div>
+    {{end}}
     <form class="stack-form" method="post" action="/compositions/{{.Draft.ID}}/approval/revoke">
       <label class="field">Reason <span class="field-hint">Optional</span><input type="text" name="reason" maxlength="200"></label>
       <button class="btn-danger">Revoke approval</button>
@@ -94,6 +99,22 @@
       <p class="help">You are approving exactly the subject and body shown, to {{.Draft.Snapshot.Recipient.Address}}, as {{.Draft.Snapshot.Intent}}. Any later edit voids this approval.</p>
       <button class="btn-primary">Approve this exact email</button>
     </form>
+    {{else if eq .Draft.Status "review_required"}}
+    <div class="manual-approval">
+      <h4>Approve manually</h4>
+      <p class="help">The AI review has not passed this email. If you have read its feedback and the email is right as it stands, you can approve it yourself. This is recorded as a manual approval, the AI findings stay on record, and nothing is sent until you press Send.</p>
+      {{if .ManualBlockers}}
+      <div class="alert alert-danger"><div><strong>Fix these first.</strong> These are factual checks, not AI opinions, and a manual approval cannot override them:<ul>{{range .ManualBlockers}}<li><code>{{.Code}}</code> {{.Explanation}}{{if .Excerpt}} <q>{{.Excerpt}}</q>{{end}}</li>{{end}}</ul></div></div>
+      {{else}}
+      <form class="stack-form" method="post" action="/compositions/{{.Draft.ID}}/approval/manual">
+        <input type="hidden" name="revision" value="{{.Draft.Revision}}"><input type="hidden" name="content_hash" value="{{.Send.Hash}}">
+        <label class="field">Approved by<input type="text" name="approved_by" value="operator" maxlength="80" required></label>
+        <label class="field">Why it is fine <span class="field-hint">Optional</span><input type="text" name="note" maxlength="500" placeholder="e.g. the warnings are stylistic"></label>
+        <label class="check"><input type="checkbox" name="acknowledge" value="yes" required> I have read the AI feedback and approve this exact email to {{.Draft.Snapshot.Recipient.Address}} anyway.</label>
+        <button class="btn-primary">Approve manually</button>
+      </form>
+      {{end}}
+    </div>
     {{end}}
   {{end}}
   </div>
@@ -102,7 +123,7 @@
   <h3>Send eligibility</h3>
   {{if .Send.Decision.Allowed}}
     <p class="small">Preflight passes. Sending transmits once; a duplicate request attaches to the same attempt instead of sending again.</p>
-    <form method="post" action="/compositions/{{.Draft.ID}}/send"><input type="hidden" name="initiator" value="operator"><button class="btn-primary" style="width:100%">Send this approved email now</button></form>
+    <form method="post" action="/compositions/{{.Draft.ID}}/send" onsubmit="return confirm('Send this email to {{.Draft.Snapshot.Recipient.Address}} now? This cannot be undone.')"><input type="hidden" name="initiator" value="operator"><button class="btn-primary" style="width:100%">Send this approved email now</button></form>
   {{else}}
     <p class="small muted">Sending is not possible right now. None of these can be overridden here:</p>
     <ul class="reason-list small">{{range .Send.Decision.Blockers}}<li><code>{{.Code}}</code> {{.Text}}</li>{{end}}</ul>

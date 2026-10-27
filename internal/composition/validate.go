@@ -3,6 +3,7 @@ package composition
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -14,9 +15,69 @@ var urlPattern = regexp.MustCompile(`https?://[^\s<>"\)]+`)
 var numberPattern = regexp.MustCompile(`\b[0-9]+(?:[.,][0-9]+)*\b`)
 var placeholderPattern = regexp.MustCompile(`(?i)\{\{|\}\}|\[(?:your|company|name|insert|role|link)[^\]]*\]|<(?:name|company|role)>`)
 var attachmentPattern = regexp.MustCompile(`(?i)\b(?:attached|attachment|enclosed)\b`)
-var applicationPattern = regexp.MustCompile(`(?i)\b(?:apply|applying|application)\b`)
+var applicationPattern = regexp.MustCompile(`(?i)\b(?:apply|applying|application|candidacy)\b`)
+var interestPattern = regexp.MustCompile(`(?i)\binterest(?:ed)? in\b`)
 var paymentPattern = regexp.MustCompile(`(?i)\b(?:payment|payments|m-pesa|mpesa|checkout|reconciliation|billing|collections)\b`)
 var paymentOfferPattern = regexp.MustCompile(`(?i)(?:\byour\b|\byou need\b|\bhelp (?:you|with)\b|\bfix\b|\bbroken\b|\bfailing\b|\boutsourc|\bimprov|\bintegrat.*for you)`)
+
+// gapPattern recognises a sentence that describes a technology as missing, contrasted away or
+// still being learned, rather than claiming it.
+var gapPattern = regexp.MustCompile(`(?i)(?:haven't|have not|has not|not yet|no experience|no direct|no professional|not used|not worked|\bgap\b|still learning|rather than|instead of|do not have|don't have|\black\b|limited experience|less experience|new to|unfamiliar)`)
+
+// technologyApproval answers whether a vocabulary technology is inside the snapshot's approved
+// technologies, under its canonical name or any alias.
+func technologyApproval(s Snapshot) func(canonical string, aliases []string) bool {
+	allowed := map[string]bool{}
+	for _, t := range s.Technologies {
+		for _, name := range append([]string{t.Name}, t.Aliases...) {
+			allowed[strings.ToLower(name)] = true
+		}
+	}
+	return func(canonical string, aliases []string) bool {
+		ok := allowed[strings.ToLower(canonical)]
+		for _, alias := range aliases {
+			ok = ok || allowed[strings.ToLower(alias)]
+		}
+		return ok
+	}
+}
+
+func mentionsTechnology(text, canonical string, aliases []string) bool {
+	for _, alias := range aliases {
+		if canonical == "Go" && alias == "Go" {
+			if regexp.MustCompile(`\bGo\b`).MatchString(text) {
+				return true
+			}
+		} else if phrase(text, alias) {
+			return true
+		}
+	}
+	return false
+}
+
+// ApprovedTechnologies are the technology names the email may use.
+func ApprovedTechnologies(s Snapshot) []string {
+	out := []string{}
+	for _, t := range s.Technologies {
+		out = append(out, t.Name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// UnapprovedTechnologies lists the technologies named in text that the snapshot does not approve:
+// exactly the ones Validate would flag if the email named them.
+func UnapprovedTechnologies(s Snapshot, text string) []string {
+	approved := technologyApproval(s)
+	out := []string{}
+	for canonical, aliases := range opportunity.TechnologyVocabulary() {
+		if !approved(canonical, aliases) && mentionsTechnology(text, canonical, aliases) {
+			out = append(out, canonical)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 func phrase(text, term string) bool {
 	if strings.TrimSpace(term) == "" {
@@ -81,7 +142,10 @@ func Validate(s Snapshot, e Email) []Finding {
 		if !strings.Contains(normalized(e.Subject), normalized(s.AdvertisedTitle)) || !strings.Contains(normalized(e.Body), normalized(s.AdvertisedTitle)) {
 			add("block", "application_title_mismatch", "Use the exact selected advertised title in subject and application declaration.", s.AdvertisedTitle)
 		}
-		if !applicationPattern.MatchString(e.Body) {
+		// Naming the exact advertised role together with interest in it ("my interest in the
+		// Senior Backend Engineer role") states the purpose as clearly as the word "apply".
+		statedInterest := interestPattern.MatchString(e.Body) && strings.Contains(normalized(e.Body), normalized(s.AdvertisedTitle))
+		if !applicationPattern.MatchString(e.Body) && !statedInterest {
 			add("review", "application_intent_unclear", "The body does not clearly state application intent.", "")
 		}
 	} else {
@@ -154,33 +218,16 @@ func Validate(s Snapshot, e Email) []Finding {
 			add("block", "invented_recipient_name", "Generic recipient has no approved personal name.", first)
 		}
 	}
-	allowedTech := map[string]bool{}
-	for _, t := range s.Technologies {
-		for _, name := range append([]string{t.Name}, t.Aliases...) {
-			allowedTech[strings.ToLower(name)] = true
-		}
-	}
+	approved := technologyApproval(s)
 	for canonical, aliases := range opportunity.TechnologyVocabulary() {
-		allowed := allowedTech[strings.ToLower(canonical)]
-		for _, alias := range aliases {
-			allowed = allowed || allowedTech[strings.ToLower(alias)]
-		}
-		if allowed {
+		if approved(canonical, aliases) {
 			continue
 		}
 		for _, sentence := range strings.Split(strings.ReplaceAll(text, "\n", ". "), ". ") {
-			mentioned := false
-			for _, alias := range aliases {
-				if canonical == "Go" && alias == "Go" {
-					mentioned = mentioned || regexp.MustCompile(`\bGo\b`).MatchString(sentence)
-				} else {
-					mentioned = mentioned || phrase(sentence, alias)
-				}
-			}
-			if !mentioned {
+			if !mentionsTechnology(sentence, canonical, aliases) {
 				continue
 			}
-			if regexp.MustCompile(`(?i)(?:haven't|have not|not yet|no experience|not used|not worked|gap|still learning)`).MatchString(sentence) {
+			if gapPattern.MatchString(sentence) {
 				add("review", "acknowledged_skill_gap", "Confirm the technology is described only as an honest gap.", sentence)
 			} else {
 				add("block", "unapproved_technology", "Technology is outside the approved selected factual envelope.", sentence)
@@ -226,7 +273,7 @@ func Validate(s Snapshot, e Email) []Finding {
 	}
 	words := len(strings.Fields(e.Body))
 	if words > 260 || words < 60 {
-		add("review", "length_guidance", "Prefer a concise but informative first contact; roughly 100–220 words is guidance, not a quota.", fmt.Sprint(words))
+		add("info", "length_guidance", "Prefer a concise but informative first contact; roughly 100–220 words is guidance, not a quota.", fmt.Sprint(words))
 	}
 	return findings
 }

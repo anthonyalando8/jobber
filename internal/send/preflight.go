@@ -44,6 +44,9 @@ type Approval struct {
 	ApprovedBy          string
 	ApprovedAt          time.Time
 	Revoked             bool
+	// ManualOverride is a person approving an email the AI review did not pass. It answers the
+	// AI's editorial objections, and nothing else: every other check below still applies.
+	ManualOverride bool
 }
 
 // ContactState is the recipient as it exists right now, for comparison against the pinned one.
@@ -86,7 +89,10 @@ type Preflight struct {
 	CurrentRevision     int
 	DeterministicPassed bool
 	SemanticPassed      bool
-	StaleReasons        []string
+	// DeterministicCritical is true when the current text fails a critical deterministic check
+	// under the current rules. Even a manual approval cannot send such an email.
+	DeterministicCritical bool
+	StaleReasons          []string
 
 	// Pinned plan and approval.
 	PlanStatus string
@@ -162,17 +168,34 @@ func Evaluate(in Preflight) Decision {
 		d.Blockers = d.Blockers.Add("no_composition", "There is no v2 composition for this draft.")
 		return d
 	}
-	if in.CompositionStatus != "reviewed" {
-		d.Blockers = d.Blockers.Add("not_reviewed",
-			"The composition status is "+in.CompositionStatus+"; only a reviewed draft can be approved or sent.")
-	}
-	if !in.DeterministicPassed {
-		d.Blockers = d.Blockers.Add("deterministic_validation_failed",
-			"Deterministic validation reported findings on the approved revision. Semantic review cannot override this.")
-	}
-	if !in.SemanticPassed {
-		d.Blockers = d.Blockers.Add("semantic_review_failed",
-			"The complete-email semantic review did not pass.")
+	manual := in.Approval != nil && !in.Approval.Revoked && in.Approval.ManualOverride
+	if manual {
+		// A person read the AI findings and approved anyway. That settles the AI review and its
+		// warnings; it does not settle a critical factual check, an unfinished run, or anything
+		// after this point.
+		if in.CompositionStatus != "review_required" && in.CompositionStatus != "reviewed" {
+			d.Blockers = d.Blockers.Add("not_reviewed",
+				"The composition status is "+in.CompositionStatus+"; it must finish before it can be sent.")
+		}
+		if in.DeterministicCritical {
+			d.Blockers = d.Blockers.Add("deterministic_critical",
+				"A critical deterministic check fails on this text. A manual approval cannot override it; edit the email.")
+		}
+		d.Notes = d.Notes.Add("manual_override",
+			"Approved by "+in.Approval.ApprovedBy+" despite AI review feedback. The findings are kept on record.")
+	} else {
+		if in.CompositionStatus != "reviewed" {
+			d.Blockers = d.Blockers.Add("not_reviewed",
+				"The composition status is "+in.CompositionStatus+"; only a reviewed draft can be approved or sent.")
+		}
+		if !in.DeterministicPassed {
+			d.Blockers = d.Blockers.Add("deterministic_validation_failed",
+				"Deterministic validation reported findings on the approved revision. Semantic review cannot override this.")
+		}
+		if !in.SemanticPassed {
+			d.Blockers = d.Blockers.Add("semantic_review_failed",
+				"The complete-email semantic review did not pass.")
+		}
 	}
 	if in.Identity.CompositionRevision != in.CurrentRevision {
 		d.Blockers = d.Blockers.Add("revision_superseded",

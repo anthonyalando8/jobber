@@ -151,7 +151,8 @@ func (s *Service) automationInput(ctx context.Context, draftID int64, cfg Automa
 		SendPathReady: s.readiness.Ready, SendPathReasons: s.readiness.Reasons,
 		PlanStatus: v.planRow.Status, PlanRevision: snapshot.PlanRevision,
 		ContentHash: v.hash, CompositionState: v.composed.Status,
-		CurrentRevision: v.composed.Revision, StaleReasons: v.composed.StaleReasons,
+		// Automation stays as strict as before: a changed prompt or model also counts as stale.
+		CurrentRevision: v.composed.Revision, StaleReasons: append(append([]string{}, v.composed.StaleReasons...), v.composed.ProviderChanges...),
 		Match: snapshot.Match, OpportunityPinnedRevision: snapshot.OpportunityRevision,
 		AddressSuppressed: v.pre.AddressSuppressed, DomainSuppressed: v.pre.DomainSuppressed,
 		ActiveThreadsForDomain: v.pre.ActiveThreadsForDomain,

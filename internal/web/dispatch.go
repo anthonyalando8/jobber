@@ -101,6 +101,44 @@ func (h *Handler) CompositionApprove(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/compositions/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
+// CompositionApproveManual records a person's approval of an email the AI review did not pass.
+// It needs an explicit acknowledgement that the AI feedback was read; it never sends anything.
+func (h *Handler) CompositionApproveManual(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		http.Error(w, "Invalid draft", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid approval", http.StatusBadRequest)
+		return
+	}
+	if r.FormValue("acknowledge") != "yes" {
+		http.Error(w, "Confirm that you have read the AI feedback before approving manually", http.StatusBadRequest)
+		return
+	}
+	revision, err := strconv.Atoi(r.FormValue("revision"))
+	if err != nil {
+		http.Error(w, "Missing content revision", http.StatusBadRequest)
+		return
+	}
+	approver := r.FormValue("approved_by")
+	if approver == "" {
+		approver = "operator"
+	}
+	note := r.FormValue("note")
+	if len(note) > 500 {
+		note = note[:500]
+	}
+	if _, err := h.db.ApproveManually(r.Context(), id, revision, r.FormValue("content_hash"), approver, note); err != nil {
+		http.Error(w, "Cannot approve: "+err.Error(), http.StatusConflict)
+		return
+	}
+	h.invalidateDashboard()
+	h.logActivity(r.Context(), "composition", "Draft "+strconv.FormatInt(id, 10)+" approved manually by "+approver+" despite AI feedback", true)
+	http.Redirect(w, r, "/compositions/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
 func (h *Handler) CompositionRevoke(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {

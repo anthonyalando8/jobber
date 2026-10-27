@@ -79,7 +79,9 @@ func (engine Engine) Run(ctx context.Context, s Snapshot, edit *Email) (Result, 
 				}
 				return result, nil
 			}
-			request := WriteRequest{Snapshot: cloneSnapshot(s), Previous: previous, Findings: append([]Finding{}, findings...)}
+			approvedTech, avoidTech := writerGuidance(s)
+			request := WriteRequest{Snapshot: cloneSnapshot(s), Previous: previous, Findings: append([]Finding{}, findings...),
+				ApprovedTechnologies: approvedTech, DoNotMention: avoidTech}
 			callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 			email, meta, err := engine.Composer.Compose(callCtx, request)
 			cancel()
@@ -98,8 +100,20 @@ func (engine Engine) Run(ctx context.Context, s Snapshot, edit *Email) (Result, 
 				a.Email.Body = strings.TrimSpace(a.Email.Body) + "\n\n" + signature
 			}
 		}
-		result.Email = a.Email
 		a.Validation = Validate(s, a.Email)
+		if edit == nil {
+			// A generated sentence that only volunteers a missing technology is removed before
+			// anyone sees it; the removal is listed, never silent. A person's edit is never changed.
+			if tidied, removed := DropGapSentences(a.Email, a.Validation); len(removed) > 0 {
+				a.Email = tidied
+				a.Validation = Validate(s, a.Email)
+				for _, sentence := range removed {
+					a.Validation = append(a.Validation, Finding{Severity: "info", Code: "removed_gap_sentence",
+						Explanation: "Removed a sentence that pointed out a technology you do not have.", Excerpt: sentence})
+				}
+			}
+		}
+		result.Email = a.Email
 		// Persist successful composition before review begins, so a crash or timeout
 		// cannot erase the text whose provider call was already consumed.
 		if edit == nil && engine.Record != nil {
@@ -108,6 +122,21 @@ func (engine Engine) Run(ctx context.Context, s Snapshot, edit *Email) (Result, 
 			if err := engine.Record(ctx, pending); err != nil {
 				return result, err
 			}
+		}
+		// A critical deterministic finding cannot be overridden by the reviewer, so asking it would
+		// spend a call for nothing. Repair straight away instead, or stop and show the findings.
+		if HasBlock(a.Validation) {
+			a.Failure = "validation_failed"
+			if err := record(a); err != nil {
+				return result, err
+			}
+			findings = append([]Finding{}, a.Validation...)
+			prior := a.Email
+			previous = &prior
+			if edit != nil {
+				return result, nil
+			}
+			continue
 		}
 		// Even unannotated prose must reach independent full-email review. Deterministic
 		// findings are never erased by the semantic pass or by a repair attempt.

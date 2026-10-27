@@ -48,7 +48,7 @@ func (db *DB) DashboardCounts(ctx context.Context) (*DashboardCounts, error) {
  (SELECT count(*) FROM matches WHERE classification='unrelated'),
  (SELECT count(*) FROM live o WHERE NOT EXISTS(SELECT 1 FROM matches m WHERE m.id=o.id)),
  (SELECT count(*) FROM live WHERE selection_status='review_required'),
- (SELECT count(*) FROM compositions WHERE status='review_required' AND draft_state NOT IN ('sent','discarded')),
+ (SELECT count(*) FROM compositions c WHERE status='review_required' AND draft_state NOT IN ('sent','discarded') AND NOT EXISTS(SELECT 1 FROM send_approval a WHERE a.draft_id=c.draft_id AND a.composition_revision=c.current_revision AND a.revoked_at IS NULL)),
  (SELECT count(*) FROM compositions c WHERE status='reviewed' AND draft_state NOT IN ('sent','discarded') AND NOT EXISTS(SELECT 1 FROM send_approval a WHERE a.draft_id=c.draft_id AND a.composition_revision=c.current_revision AND a.revoked_at IS NULL)),
  (SELECT count(*) FROM compositions WHERE status='queued'),
  (SELECT count(*) FROM compositions WHERE status='running' AND lease_until>=now()),

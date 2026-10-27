@@ -537,3 +537,7 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border-s
 .fix-head{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
 .fix-excerpt{margin:6px 0;padding:6px 10px;border-left:3px solid var(--warning-line);background:var(--surface-2);font-size:13px;color:var(--text-2)}
 .fix-how{margin:4px 0 0;font-size:13.5px}
+.manual-approval{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.manual-approval h4{margin:0 0 4px}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;line-height:1.4}
+.check input{margin-top:3px}
