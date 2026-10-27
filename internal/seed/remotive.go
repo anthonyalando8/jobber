@@ -3,6 +3,7 @@ package seed
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"github.com/anthonyalando8/prospector/internal/store"
 	"github.com/redis/go-redis/v9"
@@ -41,15 +42,15 @@ type remotiveResponse struct {
 
 // Seed stores bounded source listings independently of company discovery and Redis.
 func (r *RemotiveSeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Client) (int, error) {
-	raw, err := r.fetchSource(ctx, remotiveAPIURL)
-	if err != nil {
-		return 0, err
+	run := newBatch(r.Name())
+	raw, err := r.fetchListing(ctx, remotiveAPIURL)
+	if !run.feed(remotiveAPIURL, err) {
+		return run.result()
 	}
 	var parsed remotiveResponse
 	if err = json.Unmarshal(raw, &parsed); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("remotive: unexpected response: %w", err)
 	}
-	added := 0
 	for i, job := range parsed.Jobs {
 		if i >= maxFeedJobs {
 			break
@@ -58,13 +59,7 @@ func (r *RemotiveSeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Client
 			continue
 		}
 		d := opportunity.DiscoveredOpportunity{Source: "remotive", ExternalID: externalID(job.ID), CompanyName: job.CompanyName, Title: job.Title, URL: job.URL, Location: job.Location, EmploymentType: job.EmploymentType, Description: descriptionText(job.Description), PublishedAt: sourceTimestamp(job.PublicationDate), DescriptionStatus: "complete", RemoteStatus: "remote"}
-		result, err := IngestOpportunity(ctx, db, d)
-		if err != nil {
-			return added, err
-		}
-		if result.Created {
-			added++
-		}
+		run.ingest(ctx, db, d)
 	}
-	return added, nil
+	return run.result()
 }

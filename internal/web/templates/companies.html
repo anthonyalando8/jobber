@@ -8,9 +8,23 @@
 <header class="page-head">
   <div>
     <h1>Companies</h1>
-    <p class="page-sub">Employers discovered from job sources. Open one to review its fit, contacts and contact plan.</p>
+    <p class="page-sub">Employers and prospects, with the strongest evidence of paid work first: contract work posted, then hiring, then a researched technical need, then general prospects.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-primary" href="#add-prospect">Add prospect</a>
   </div>
 </header>
+
+{{if .added}}<div class="alert alert-success"><div><strong>Imported {{.added}} prospect(s).</strong> Domains already in the workspace were skipped.</div></div>{{end}}
+
+<nav class="quick-views" aria-label="Lead types">
+  <a href="/companies" {{if not (or .lead .business)}}class="active"{{end}}>All</a>
+  <a href="/companies?lead=contract_work" {{if eq .lead "contract_work"}}class="active"{{end}}>Contract work posted</a>
+  <a href="/companies?lead=hiring" {{if eq .lead "hiring"}}class="active"{{end}}>Hiring</a>
+  <a href="/companies?lead=technical_need" {{if eq .lead "technical_need"}}class="active"{{end}}>Technical need found</a>
+  <a href="/companies?lead=prospect" {{if eq .lead "prospect"}}class="active"{{end}}>General prospects</a>
+  <a href="/companies?business=agency" {{if eq .business "agency"}}class="active"{{end}}>Agencies &amp; consultancies</a>
+</nav>
 
 {{range .warnings}}<p class="filter-warning" role="status">{{.}}</p>{{end}}
 
@@ -38,6 +52,15 @@
       <option value="failed" {{if eq .domainStatus "failed"}}selected{{end}}>Failed</option>
     </select>
   </label>
+  <label>Lead type
+    <select name="lead">
+      <option value="">Any lead</option>
+      <option value="contract_work" {{if eq .lead "contract_work"}}selected{{end}}>Contract work posted</option>
+      <option value="hiring" {{if eq .lead "hiring"}}selected{{end}}>Hiring</option>
+      <option value="technical_need" {{if eq .lead "technical_need"}}selected{{end}}>Technical need found</option>
+      <option value="prospect" {{if eq .lead "prospect"}}selected{{end}}>General prospect</option>
+    </select>
+  </label>
   <label>Research
     <select name="research">
       <option value="">Any research state</option>
@@ -48,10 +71,27 @@
     </select>
   </label>
   <div class="filter-actions"><a href="/companies">Clear</a><button type="submit" class="btn-primary">Apply</button></div>
-  <details class="filter-more" {{if or .segment .market .created .source .hasOpportunities .hasStrong}}open{{end}}>
+  <details class="filter-more" {{if or .segment .market .created .source .hasOpportunities .hasStrong .business .sort}}open{{end}}>
     <summary>More filters</summary>
     <div class="filter-more-grid">
-      <label>Segment
+      <label>Business type
+        <select name="business">
+          <option value="">Any</option>
+          <option value="agency" {{if eq .business "agency"}}selected{{end}}>Agency or consultancy</option>
+          <option value="sme" {{if eq .business "sme"}}selected{{end}}>Small business</option>
+          <option value="incubator" {{if eq .business "incubator"}}selected{{end}}>Incubator</option>
+          <option value="enterprise" {{if eq .business "enterprise"}}selected{{end}}>Enterprise</option>
+          <option value="unknown" {{if eq .business "unknown"}}selected{{end}}>Not classified</option>
+        </select>
+      </label>
+      <label>Order
+        <select name="sort">
+          <option value="" {{if eq .sort ""}}selected{{end}}>Strongest lead first</option>
+          <option value="score" {{if eq .sort "score"}}selected{{end}}>Legacy score</option>
+          <option value="newest" {{if eq .sort "newest"}}selected{{end}}>Newest</option>
+        </select>
+      </label>
+      <label>Legacy segment
         <select name="segment">
           <option value="">All segments</option>
           <option value="agency" {{if eq .segment "agency"}}selected{{end}}>Agency</option>
@@ -108,12 +148,13 @@
 <div class="table-wrap">
 <table>
   <thead>
-    <tr><th>Company</th><th>Domain</th><th>Status</th><th>Score</th><th>Source</th><th></th></tr>
+    <tr><th>Company</th><th>Lead</th><th>Domain</th><th>Status</th><th>Source</th><th></th></tr>
   </thead>
   <tbody>
   {{range .companies}}
   <tr>
-    <td><a class="cell-strong" href="/companies/{{.ID}}?return={{urlquery $.currentURL}}">{{.Name}}</a>{{if .Segment}}<small>{{.Segment}}</small>{{end}}</td>
+    <td><a class="cell-strong" href="/companies/{{.ID}}?return={{urlquery $.currentURL}}">{{.Name}}</a><small>{{if eq .BusinessSegment "agency"}}Agency or consultancy{{else if and .BusinessSegment (ne .BusinessSegment "unknown")}}{{.BusinessSegment}}{{end}}{{if .Location}} {{.Location}}{{end}}</small></td>
+    <td>{{if eq .LeadCategory "contract_work"}}<span class="badge green">Contract work</span>{{else if eq .LeadCategory "hiring"}}<span class="badge blue">Hiring</span>{{else if eq .LeadCategory "technical_need"}}<span class="badge violet">Technical need</span>{{else}}<span class="badge neutral">Prospect</span>{{end}}{{if .HasEmail}}<small>Email on file</small>{{end}}</td>
     <td>
       {{if or (eq .DomainStatus "failed") (eq .DomainStatus "candidate")}}
       <form class="domain-fix" method="POST" action="/companies/{{.ID}}/domain/update">
@@ -128,7 +169,6 @@
       {{end}}
     </td>
     <td><span class="badge {{.Status}}">{{.Status}}</span></td>
-    <td class="num nowrap">{{.Score}}<span class="score-bar" aria-hidden="true"><span style="width:{{.Score}}%"></span></span></td>
     <td class="muted">{{.Source}}</td>
     <td class="actions"><a class="btn btn-sm" href="/companies/{{.ID}}?return={{urlquery $.currentURL}}">Open</a></td>
   </tr>
@@ -145,5 +185,35 @@
 {{else}}
 <div class="card empty-state"><strong>No companies match these filters</strong><a href="/companies">Clear filters</a></div>
 {{end}}
+
+<div class="grid-2 section-gap" id="add-prospect">
+<section class="card">
+  <div class="card-head"><div><h2>Add a prospect</h2><p>A business you found yourself, such as an agency or startup you could approach directly. Research and contact discovery pick it up automatically.</p></div></div>
+  <form class="stack-form" method="POST" action="/companies">
+    <div class="form-grid">
+      <label class="field">Company name<input type="text" name="name" required placeholder="Acme Digital"></label>
+      <label class="field">Website domain<input type="text" name="domain" required placeholder="acmedigital.com"></label>
+    </div>
+    <label class="field">Business type
+      <select name="business">
+        <option value="agency">Agency or consultancy</option>
+        <option value="sme">Small business</option>
+        <option value="incubator">Incubator</option>
+        <option value="enterprise">Enterprise</option>
+        <option value="unknown" selected>Not sure</option>
+      </select>
+    </label>
+    <label class="field">Why it is worth approaching <span class="field-hint">Optional, saved as a note</span><input type="text" name="note" placeholder="e.g. Shopify agency listing Laravel and Django work"></label>
+    <div class="btn-row"><button class="btn-primary">Add prospect</button></div>
+  </form>
+</section>
+<section class="card">
+  <div class="card-head"><div><h2>Import a list</h2><p>One prospect per line: <code>name,domain,segment,notes</code>. Segment (agency, incubator, hiring, sme) and notes are optional.</p></div></div>
+  <form class="stack-form" method="POST" action="/companies/import">
+    <label class="field"><span class="sr-only">Prospects CSV</span><textarea name="csv" rows="6" class="code" placeholder="Acme Digital,acmedigital.com,agency,Builds e-commerce sites&#10;Harbor Web,harborweb.io"></textarea></label>
+    <div class="btn-row"><button>Import</button></div>
+  </form>
+</section>
+</div>
 </body>
 </html>

@@ -7,6 +7,7 @@ import (
 	"github.com/anthonyalando8/prospector/internal/store"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -24,7 +25,13 @@ func (h *Handler) Opportunities(w http.ResponseWriter, r *http.Request) {
 	}
 	pages := max(1, (total+opportunitiesPageSize-1)/opportunitiesPageSize)
 	page = min(page, pages)
-	rows, err := h.db.ListOpportunityPage(r.Context(), f, opportunitiesPageSize, (page-1)*opportunitiesPageSize)
+	// With no explicit order and no search, the list leads with what can realistically be pursued.
+	// A search keeps its relevance order (title hits first).
+	listFilter := f
+	if listFilter.Sort == "" && listFilter.Query == "" {
+		listFilter.Sort = "pursue"
+	}
+	rows, err := h.db.ListOpportunityPage(r.Context(), listFilter, opportunitiesPageSize, (page-1)*opportunitiesPageSize)
 	if err != nil {
 		http.Error(w, "Cannot load opportunities", 500)
 		return
@@ -134,6 +141,31 @@ func (h *Handler) Opportunity(w http.ResponseWriter, r *http.Request) {
 	if suppression != nil && current.Revision > suppression.OpportunityRevision {
 		data["SuppressionOutdated"] = true
 	}
+	// How to pursue it: the stored access classification (computed on the spot for a listing the
+	// worker has not reached yet), any recorded progress, and the contacts already on file.
+	access, err := h.db.GetOpportunityAccess(r.Context(), id)
+	if err != nil {
+		http.Error(w, "Cannot load application route", 500)
+		return
+	}
+	if access == nil {
+		computed := opportunity.ClassifyAccess(facts)
+		access = &computed
+	}
+	data["Access"] = access
+	data["ApplyEmail"] = facts.Metadata[opportunity.MetaApplyEmail]
+	data["ApplyURL"] = facts.Metadata[opportunity.MetaApplyURL]
+	data["EmployerURL"] = facts.Metadata[opportunity.MetaEmployerURL]
+	tracking, err := h.db.GetOpportunityTracking(r.Context(), id)
+	if err != nil {
+		http.Error(w, "Cannot load tracking", 500)
+		return
+	}
+	data["Tracking"] = tracking
+	data["TrackingStates"] = trackingChoices
+	if contacts, err := h.db.GetContactsByCompany(r.Context(), current.CompanyID); err == nil {
+		data["Contacts"] = contacts
+	}
 	if stored != nil {
 		data["Match"] = stored.Result
 		data["Stale"] = stored.Stale
@@ -141,4 +173,42 @@ func (h *Handler) Opportunity(w http.ResponseWriter, r *http.Request) {
 		data["Assessed"] = stored.Assessed
 	}
 	renderTemplate(w, "opportunity.html", data)
+}
+
+// trackingChoices are the progress states in the order the tracking form offers them.
+var trackingChoices = []map[string]string{
+	{"Value": "saved", "Label": "Saved"},
+	{"Value": "applied", "Label": "Applied"},
+	{"Value": "interviewing", "Label": "Interviewing"},
+	{"Value": "offer", "Label": "Offer"},
+	{"Value": "rejected", "Label": "Rejected"},
+	{"Value": "not_interested", "Label": "Not interested"},
+}
+
+// OpportunityTrack records the operator's progress on a listing: saving it, applying, and what
+// came of it. "clear" forgets it.
+func (h *Handler) OpportunityTrack(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		http.Error(w, "Invalid opportunity ID", http.StatusBadRequest)
+		return
+	}
+	state := strings.TrimSpace(r.FormValue("state"))
+	var err error
+	if state == "clear" {
+		err = h.db.ClearOpportunityTracking(r.Context(), id)
+	} else if !store.ValidTrackingState(state) {
+		http.Error(w, "Choose a progress state", http.StatusBadRequest)
+		return
+	} else {
+		err = h.db.SetOpportunityTracking(r.Context(), id, state, r.FormValue("note"))
+	}
+	if err != nil {
+		http.Error(w, "Cannot record progress: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if state != "clear" {
+		h.logActivity(r.Context(), "track", "Marked opportunity "+strconv.FormatInt(id, 10)+" as "+strings.ReplaceAll(state, "_", " "), true)
+	}
+	h.redirectToOpportunity(w, r, id)
 }

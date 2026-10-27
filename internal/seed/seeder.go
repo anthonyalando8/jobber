@@ -74,6 +74,7 @@ func (r *Registry) Run(ctx context.Context, name string, db *store.DB, redis *re
 	log.Printf("Seeding from %s...", name)
 
 	added, err := seeder.Seed(ctx, db, redis)
+	recordStatus(ctx, redis, name, added, time.Since(start), err)
 	if err != nil {
 		log.Printf("Seeding from %s failed: %v", name, err)
 		return &SeedResult{
@@ -92,7 +93,7 @@ func (r *Registry) Run(ctx context.Context, name string, db *store.DB, redis *re
 		Timestamp: time.Now(),
 	}
 
-	log.Printf("Seeded %d companies from %s in %v", added, name, result.Duration)
+	log.Printf("Seeded %d new opportunities from %s in %v", added, name, result.Duration)
 	return result, nil
 }
 
@@ -100,15 +101,20 @@ func (r *Registry) Run(ctx context.Context, name string, db *store.DB, redis *re
 type BaseSeeder struct {
 	client    *http.Client
 	userAgent string
+	// retryDelay is the pause before the single retry of a listing fetch.
+	retryDelay time.Duration
 }
 
-// NewBaseSeeder creates a base seeder with rate limiting
+// NewBaseSeeder creates a base seeder. The timeout is per request; a whole source run is bounded
+// separately by the caller's context. Ten seconds was too tight for full RSS feeds and the larger
+// JSON APIs from a European VPS, and a timeout there aborted the whole source.
 func NewBaseSeeder(userAgent string) *BaseSeeder {
 	return &BaseSeeder{
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 25 * time.Second,
 		},
-		userAgent: userAgent,
+		userAgent:  userAgent,
+		retryDelay: 2 * time.Second,
 	}
 }
 

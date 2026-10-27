@@ -6,6 +6,7 @@ package assess
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/anthonyalando8/prospector/internal/evidence"
@@ -405,3 +406,52 @@ func firstReason(d plan.Decision) string {
 	}
 	return d.Outcome
 }
+
+// ProcessNew classifies how each new or changed listing can be pursued, then assesses fit for
+// listings with no current assessment, up to limit of each. Both steps are deterministic and local
+// (no network, no AI), so discovery runs them straight away: a listing should arrive ready to
+// filter and rank, not "unassessed" until someone presses a button.
+func (s *Service) ProcessNew(ctx context.Context, limit int) (classified, assessed int, err error) {
+	if classified, err = s.db.RefreshOpportunityAccess(ctx, limit); err != nil {
+		return 0, 0, err
+	}
+	if marked, err := s.db.ClassifyBusinessSegments(ctx); err != nil {
+		log.Printf("assess: classifying business segments: %v", err)
+	} else if marked > 0 {
+		log.Printf("assess: marked %d compan(ies) as agencies from their name or listings", marked)
+	}
+	ids, err := s.db.ListUnassessedOpportunityIDs(ctx, limit)
+	if err != nil {
+		return classified, 0, err
+	}
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return classified, assessed, ctx.Err()
+		}
+		if _, err := s.AssessOpportunity(ctx, id); err != nil {
+			log.Printf("assess: opportunity %d: %v", id, err)
+			continue
+		}
+		assessed++
+	}
+	// Relevance answers "is there a truthful reason to approach this company", which is what lifts
+	// a prospect from "general" to "technical need found". It is per company and only needs
+	// recomputing after research or a profile change, so a small batch per pass keeps it current.
+	companies, err := s.db.ListCompaniesNeedingRelevance(ctx, relevance.AssessorVersion, relevanceBatch)
+	if err != nil {
+		log.Printf("assess: companies needing relevance: %v", err)
+		return classified, assessed, nil
+	}
+	for _, id := range companies {
+		if ctx.Err() != nil {
+			break
+		}
+		if _, err := s.RefreshCompany(ctx, id); err != nil {
+			log.Printf("assess: relevance for company %d: %v", id, err)
+		}
+	}
+	return classified, assessed, nil
+}
+
+// relevanceBatch bounds how many companies one processing pass re-assesses.
+const relevanceBatch = 50

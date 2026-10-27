@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"strconv"
 	"time"
@@ -26,6 +27,10 @@ type Company struct {
 	ScoreBreakdown   []byte // raw JSON — the explainable line items behind Score (review.md §15)
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	// Lead fields are derived by ListCompanies (see leadCategorySQL), not stored. Empty elsewhere.
+	LeadCategory    string
+	BusinessSegment string
+	HasEmail        bool
 }
 
 // CreateCompany inserts a new company. domainStatus should be "manual" for a human-entered
@@ -82,7 +87,7 @@ func (db *DB) GetCompany(ctx context.Context, id int64) (*Company, error) {
 // usSourceNames are every seeder pulling US/international remote job postings — duplicated here
 // (rather than imported from internal/score, which would create an import cycle back into
 // store) since it's just a fixed list of source strings, not shared logic.
-var usSourceNames = []string{"remoteok", "weworkremotely", "remotive", "himalayas"}
+var usSourceNames = []string{"remoteok", "weworkremotely", "remotive", "himalayas", "jobicy", "workingnomads", "greenhouse", "lever", "ashby"}
 
 // CompanyFilter is every dimension /companies can filter by. Grouped into a struct rather than a
 // growing list of positional string args — six filter dimensions as positional strings is where
@@ -101,7 +106,33 @@ type CompanyFilter struct {
 	// Search matches name or domain, case-insensitive substring.
 	Search                                        string
 	Source, Research, HasOpportunities, HasStrong string
+	// Lead selects one lead category (see leadCategorySQL); Business one business_segment value.
+	Lead, Business string
+	// Sort is "lead" (the default: strongest evidence of paid work first), "score" or "newest".
+	Sort string
 }
+
+// leadCategorySQL sorts a company into the strongest evidence of paid work it has, in this order:
+//
+//   - contract_work: a live listing for contract, freelance or part-time work.
+//   - hiring: a live listing that is not classified as unrelated to the candidate.
+//   - technical_need: company relevance evidence (research, not a job ad) shows a reason to contact.
+//   - prospect: none of the above; a company worth approaching only on general grounds.
+//
+// It reads only stored facts, so a company is never described as needing anything it has not
+// published or been researched to show.
+const leadCategorySQL = `(CASE
+ WHEN EXISTS(SELECT 1 FROM opportunity lo JOIN opportunity_access la ON la.opportunity_id=lo.id WHERE lo.company_id=company.id AND la.contract
+   AND NOT EXISTS(SELECT 1 FROM opportunity_suppression ls WHERE ls.opportunity_id=lo.id AND ls.superseded_at IS NULL)) THEN 'contract_work'
+ WHEN EXISTS(SELECT 1 FROM opportunity lo WHERE lo.company_id=company.id
+   AND NOT EXISTS(SELECT 1 FROM opportunity_suppression ls WHERE ls.opportunity_id=lo.id AND ls.superseded_at IS NULL)
+   AND NOT EXISTS(SELECT 1 FROM opportunity_match lm WHERE lm.opportunity_id=lo.id AND lm.opportunity_revision=lo.current_revision AND lm.classification='unrelated')) THEN 'hiring'
+ WHEN EXISTS(SELECT 1 FROM company_relevance lr WHERE lr.company_id=company.id AND lr.relevant
+   AND lr.profile_revision_id=(SELECT active_revision_id FROM candidate_profile WHERE id=1)) THEN 'technical_need'
+ ELSE 'prospect' END)`
+
+// hasEmailSQL is whether an active email contact is on file.
+const hasEmailSQL = `EXISTS(SELECT 1 FROM contact ce WHERE ce.company_id=company.id AND ce.kind='email' AND ce.status='active')`
 
 // companyFilterClause builds the shared WHERE clause for ListCompanies/CountCompanies, so the
 // two never drift apart — a list and its "how many pages" count must agree on what "matches"
@@ -171,6 +202,16 @@ func companyFilterClause(f CompanyFilter, args []interface{}) (string, []interfa
 	if f.HasOpportunities == "no" {
 		clause += ` AND NOT EXISTS(SELECT 1 FROM opportunity o WHERE o.company_id=company.id)`
 	}
+	if f.Lead != "" {
+		clause += ` AND ` + leadCategorySQL + `=$` + strconv.Itoa(argNum)
+		args = append(args, f.Lead)
+		argNum++
+	}
+	if f.Business != "" {
+		clause += ` AND business_segment=$` + strconv.Itoa(argNum)
+		args = append(args, f.Business)
+		argNum++
+	}
 	if f.HasStrong != "" {
 		match := `EXISTS(SELECT 1 FROM opportunity o JOIN opportunity_match m ON m.opportunity_id=o.id AND m.opportunity_revision=o.current_revision JOIN candidate_profile p ON p.active_revision_id=m.profile_revision_id WHERE o.company_id=company.id AND m.classification='strong_match' AND m.matcher_version=$` + strconv.Itoa(argNum) + `)`
 		if f.HasStrong == "no" {
@@ -189,11 +230,19 @@ func companyFilterClause(f CompanyFilter, args []interface{}) (string, []interfa
 func (db *DB) ListCompanies(ctx context.Context, f CompanyFilter, limit, offset int) ([]*Company, error) {
 	where, args := companyFilterClause(f, nil)
 	query := `SELECT id, name, domain, source, source_url, segment, score, status, location, notes,
-		        last_researched_at, next_research_at, domain_status, domain_confidence, created_at, updated_at
+		        last_researched_at, next_research_at, domain_status, domain_confidence, created_at, updated_at,
+		        ` + leadCategorySQL + `, business_segment, ` + hasEmailSQL + `
 		     FROM company` + where
 
+	order := `CASE ` + leadCategorySQL + ` WHEN 'contract_work' THEN 0 WHEN 'hiring' THEN 1 WHEN 'technical_need' THEN 2 ELSE 3 END, ` + hasEmailSQL + ` DESC, score DESC, created_at DESC`
+	switch f.Sort {
+	case "score":
+		order = `score DESC, created_at DESC`
+	case "newest":
+		order = `created_at DESC`
+	}
 	argNum := len(args) + 1
-	query += ` ORDER BY score DESC, created_at DESC LIMIT $` + strconv.Itoa(argNum) + ` OFFSET $` + strconv.Itoa(argNum+1)
+	query += ` ORDER BY ` + order + ` LIMIT $` + strconv.Itoa(argNum) + ` OFFSET $` + strconv.Itoa(argNum+1)
 	args = append(args, limit, offset)
 
 	rows, err := db.Query(ctx, query, args...)
@@ -209,7 +258,7 @@ func (db *DB) ListCompanies(ctx context.Context, f CompanyFilter, limit, offset 
 			&company.ID, &company.Name, &company.Domain, &company.Source, &company.SourceURL,
 			&company.Segment, &company.Score, &company.Status, &company.Location, &company.Notes,
 			&company.LastResearchedAt, &company.NextResearchAt, &company.DomainStatus, &company.DomainConfidence,
-			&company.CreatedAt, &company.UpdatedAt)
+			&company.CreatedAt, &company.UpdatedAt, &company.LeadCategory, &company.BusinessSegment, &company.HasEmail)
 		if err != nil {
 			return nil, err
 		}
@@ -456,5 +505,45 @@ func (db *DB) AppendCompanyNote(ctx context.Context, id int64, note string) erro
 		     updated_at = now()
 		 WHERE id = $2`,
 		entry, id)
+	return err
+}
+
+// CompanyLead returns the derived lead category and business segment for one company.
+func (db *DB) CompanyLead(ctx context.Context, id int64) (lead, business string, err error) {
+	err = db.QueryRow(ctx, `SELECT `+leadCategorySQL+`, business_segment FROM company WHERE id=$1`, id).Scan(&lead, &business)
+	return lead, business, err
+}
+
+// agencyNamePattern matches company names that say what kind of business they are. Only words
+// that name a services business are used: "Digital" or "Labs" alone describe products as often as
+// agencies, so they are not enough on their own.
+const agencyNamePattern = `\m(agency|agencies|studio|studios|consultancy|consulting|consultants|software house|dev shop|devshop|web design|web development|development company|digital agency|creative agency|interactive)\M`
+
+// agencyDescriptionPattern matches a listing in which the employer describes itself as an
+// agency or consultancy, which is evidence about the business, not a guess from its name.
+const agencyDescriptionPattern = `\m(we are|we're|is) an? (digital|software|development|web|creative|product|technology|tech|design|marketing|full[- ]service|boutique|ecommerce|e-commerce)? ?(agency|studio|consultancy|software house)\M`
+
+// ClassifyBusinessSegments marks companies as agencies when their name or one of their own listings
+// says so. It only fills a segment that is still 'unknown', so an operator's own classification is
+// never overwritten, and it returns how many companies it marked.
+func (db *DB) ClassifyBusinessSegments(ctx context.Context) (int64, error) {
+	tag, err := db.Exec(ctx, `UPDATE company SET business_segment='agency', updated_at=now()
+ WHERE business_segment='unknown' AND (
+   name ~* $1 OR segment='agency'
+   OR EXISTS(SELECT 1 FROM opportunity o WHERE o.company_id=company.id AND o.description ~* $2))`, agencyNamePattern, agencyDescriptionPattern)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// SetBusinessSegment records what kind of business a company is, as an operator decision.
+func (db *DB) SetBusinessSegment(ctx context.Context, id int64, segment string) error {
+	switch segment {
+	case "agency", "enterprise", "incubator", "sme", "unknown":
+	default:
+		return fmt.Errorf("unknown business segment %q", segment)
+	}
+	_, err := db.Exec(ctx, `UPDATE company SET business_segment=$2, updated_at=now() WHERE id=$1`, id, segment)
 	return err
 }

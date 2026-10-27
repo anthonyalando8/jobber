@@ -60,7 +60,12 @@ func opportunityFilter(values url.Values) (store.OpportunityListFilter, []string
 	f.Availability = enumFilter(values, "availability", "open,closed,unknown", &warnings)
 	f.Description = enumFilter(values, "description", "complete,partial,unavailable", &warnings)
 	f.Selection = enumFilter(values, "selection", "new,selected,review_required,ignored", &warnings)
-	f.Sort = enumFilter(values, "sort", "updated,newest,best,company,title,priority", &warnings)
+	f.Sort = enumFilter(values, "sort", "pursue,updated,newest,best,company,title,priority", &warnings)
+	f.Access = enumFilter(values, "access", "accessible,open,likely,restricted,unknown", &warnings)
+	f.Route = enumFilter(values, "route", "direct_contact,employer_site,employer_ats,job_board,unknown", &warnings)
+	f.Cost = enumFilter(values, "cost", "not_paid,free,registration,paid,unknown", &warnings)
+	f.Tracking = enumFilter(values, "tracking", "active,none,saved,applied,interviewing,offer,rejected,not_interested", &warnings)
+	f.Contract = enumFilter(values, "contract", "1", &warnings) == "1"
 	f.Recipient = enumFilter(values, "recipient", "acceptable,missing,generic", &warnings)
 	f.ContactSearch = enumFilter(values, "contact_search", "pending,claimed,searching,completed,partial,no_result,review_required,identity_blocked,failed", &warnings)
 	f.Priority = enumFilter(values, "view", "priority", &warnings) == "priority"
@@ -79,7 +84,8 @@ func opportunityFilter(values url.Values) (store.OpportunityListFilter, []string
 }
 func opportunityValues(f store.OpportunityListFilter) url.Values {
 	v := url.Values{}
-	for key, value := range map[string]string{"q": f.Query, "title": f.Title, "fit": f.Fit, "assessment": f.Assessment, "source": f.Source, "availability": f.Availability, "description": f.Description, "selection": f.Selection, "sort": f.Sort, "recipient": f.Recipient, "contact_search": f.ContactSearch} {
+	for key, value := range map[string]string{"q": f.Query, "title": f.Title, "fit": f.Fit, "assessment": f.Assessment, "source": f.Source, "availability": f.Availability, "description": f.Description, "selection": f.Selection, "sort": f.Sort, "recipient": f.Recipient, "contact_search": f.ContactSearch,
+		"access": f.Access, "route": f.Route, "cost": f.Cost, "tracking": f.Tracking} {
 		if value != "" {
 			v.Set(key, value)
 		}
@@ -89,6 +95,9 @@ func opportunityValues(f store.OpportunityListFilter) url.Values {
 	}
 	if f.Priority {
 		v.Set("view", "priority")
+	}
+	if f.Contract {
+		v.Set("contract", "1")
 	}
 	// "hidden" is the default, so it stays out of the URL; the other two are a deliberate choice
 	// and must survive pagination and filter changes.
@@ -112,7 +121,7 @@ func listURL(path string, values url.Values, page int) string {
 }
 func activeFilters(values url.Values) []string {
 	labels := []string{}
-	keys := []string{"q", "fit", "assessment", "source", "company_id", "availability", "description", "selection", "recipient", "contact_search", "view", "research", "has_opportunities", "has_strong", "domain_status", "status", "attention", "event", "state", "sort", "suppressed"}
+	keys := []string{"q", "fit", "access", "route", "cost", "tracking", "contract", "lead", "business", "assessment", "source", "company_id", "availability", "description", "selection", "recipient", "contact_search", "view", "research", "has_opportunities", "has_strong", "domain_status", "status", "attention", "event", "state", "sort", "suppressed"}
 	for _, k := range keys {
 		if v := values.Get(k); v != "" {
 			labels = append(labels, k+": "+strings.ReplaceAll(v, "_", " "))

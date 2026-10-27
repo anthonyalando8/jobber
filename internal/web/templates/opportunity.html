@@ -102,9 +102,46 @@
 <aside>
 
 <section class="card">
-  <div class="card-head"><h2>Next steps</h2></div>
+  <div class="card-head"><h2>How to apply</h2></div>
+  {{with .Access}}
+  <dl class="kv">
+    <dt>From Kenya</dt><dd>{{if eq .KenyaAccess "open"}}<span class="badge green">Open</span>{{else if eq .KenyaAccess "likely"}}<span class="badge blue">Likely open</span>{{else if eq .KenyaAccess "restricted"}}<span class="badge red">Restricted</span>{{else}}<span class="badge neutral">Not stated</span>{{end}}
+      {{if .EligibilityEvidence}}<small class="muted" style="display:block">“{{.EligibilityEvidence}}”</small>{{else if eq .KenyaAccess "unknown"}}<small class="muted" style="display:block">The listing does not say who may apply. Check before investing time.</small>{{end}}</dd>
+    <dt>Scope</dt><dd>{{if eq .Eligibility "worldwide"}}Worldwide{{else if eq .Eligibility "region_restricted"}}Region restricted{{else if eq .Eligibility "country_specific"}}Country specific{{else}}Unclear{{end}}</dd>
+    <dt>Route</dt><dd>{{if eq .Route "direct_contact"}}Published application email{{else if eq .Route "employer_ats"}}Employer's careers system{{else if eq .Route "employer_site"}}Employer's website{{else if eq .Route "job_board"}}Through the job board{{else}}Unknown{{end}}</dd>
+    <dt>Cost</dt><dd>{{if eq .Cost "free"}}<span class="badge green">Free</span>{{else if eq .Cost "registration"}}<span class="badge amber">Account required</span>{{else if eq .Cost "paid"}}<span class="badge red">Paid</span>{{else}}<span class="badge neutral">Not stated</span>{{end}}{{if .CostEvidence}}<small class="muted" style="display:block">“{{.CostEvidence}}”</small>{{end}}</dd>
+    <dt>Work type</dt><dd>{{if .Contract}}Contract, freelance or part-time{{else}}{{if $.Facts.EmploymentType}}{{$.Facts.EmploymentType}}{{else}}Not stated{{end}}{{end}}</dd>
+  </dl>
+  {{end}}
+  <div class="stack card-section">
+    {{if .ApplyEmail}}<a class="btn btn-primary" style="width:100%" href="mailto:{{.ApplyEmail}}?subject={{urlquery .Facts.Title}}">Email {{.ApplyEmail}}</a>{{end}}
+    {{if .ApplyURL}}<a class="btn {{if not .ApplyEmail}}btn-primary{{end}}" style="width:100%" href="{{.ApplyURL}}" target="_blank" rel="noopener noreferrer">Apply on the employer's page</a>{{end}}
+    {{if .Facts.URL}}<a class="btn" style="width:100%" href="{{.Facts.URL}}" target="_blank" rel="noopener noreferrer">Open the original listing</a>{{end}}
+    {{if .EmployerURL}}<a class="btn" style="width:100%" href="{{.EmployerURL}}" target="_blank" rel="noopener noreferrer">Employer website</a>{{end}}
+  </div>
+  {{if .ApplyEmail}}<p class="help">The email link opens your own mail client; nothing is sent from here. For a tailored email, use the contact plan below.</p>{{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Your progress</h2>{{if .Tracking}}<span class="badge {{if eq .Tracking.State "rejected"}}red{{else if eq .Tracking.State "not_interested"}}neutral{{else if eq .Tracking.State "saved"}}blue{{else}}green{{end}}">{{.Tracking.State}}</span>{{end}}</div>
+  {{if .Tracking}}<p class="help">Updated {{.Tracking.UpdatedAt.Format "2 Jan 2006, 15:04"}}{{if .Tracking.AppliedAt}} · applied {{.Tracking.AppliedAt.Format "2 Jan 2006"}}{{end}}</p>{{if .Tracking.Note}}<pre class="prose notes">{{.Tracking.Note}}</pre>{{end}}{{end}}
+  {{if not .Tracking}}<form method="post" action="/opportunities/{{.ID}}/track" style="margin-bottom:10px"><input type="hidden" name="return" value="{{.BackURL}}"><input type="hidden" name="state" value="saved"><button class="btn-primary" style="width:100%">Save this opportunity</button></form>{{end}}
+  <form class="stack-form" method="post" action="/opportunities/{{.ID}}/track">
+    <input type="hidden" name="return" value="{{.BackURL}}">
+    <label class="field">Status<select name="state">{{range .TrackingStates}}<option value="{{.Value}}" {{if $.Tracking}}{{if eq .Value $.Tracking.State}}selected{{end}}{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <label class="field">Note <span class="field-hint">Optional: who you spoke to, what you sent</span><textarea name="note" rows="2"></textarea></label>
+    <div class="btn-row"><button>Update progress</button></div>
+  </form>
+  {{if .Tracking}}<form method="post" action="/opportunities/{{.ID}}/track" class="card-section"><input type="hidden" name="return" value="{{.BackURL}}"><input type="hidden" name="state" value="clear"><button class="btn-ghost btn-sm">Stop tracking</button></form>{{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Outreach</h2></div>
+  {{if .Contacts}}
+  <ul class="reason-list small" style="margin-bottom:12px">{{range .Contacts}}<li><span class="cell-strong">{{.Value}}</span> <span class="badge neutral">{{.Kind}}</span>{{if .PersonName}}<div class="muted">{{.PersonName}}{{if .Role}} · {{.Role}}{{end}}</div>{{end}}{{if eq .Status "bad"}} <span class="badge red">bad</span>{{end}}</li>{{end}}</ul>
+  {{else}}<p class="help">No contacts on file for this employer yet.</p>{{end}}
   <div class="stack">
-    <a class="btn btn-primary" style="width:100%" href="/companies/{{.CompanyID}}/plan?opportunity={{.ID}}">Choose an intent and recipient</a>
+    <a class="btn btn-primary" style="width:100%" href="/companies/{{.CompanyID}}/plan?opportunity={{.ID}}">Plan outreach and draft an email</a>
     <a class="btn" style="width:100%" href="/companies/{{.CompanyID}}/contact-search?return=/opportunities/{{.ID}}">Contact discovery</a>
     <form method="post" action="/companies/{{.CompanyID}}/contact-search">
       <input type="hidden" name="return" value="/opportunities/{{.ID}}">

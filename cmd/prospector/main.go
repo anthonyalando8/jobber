@@ -157,6 +157,9 @@ func main() {
 		// queues without being deleted, and can be put back.
 		r.Post("/opportunities/{id}/suppress", handler.OpportunitySuppress)
 		r.Post("/opportunities/{id}/reinstate", handler.OpportunityReinstate)
+		r.Post("/opportunities/{id}/track", handler.OpportunityTrack)
+		r.Get("/sources", handler.Sources)
+		r.Post("/sources/{name}/run", handler.SourceRun)
 		r.Get("/companies/{id}/plan", handler.CompanyPlan)
 		r.Get("/companies/{id}/contact-search", handler.ContactDiscovery)
 		r.Post("/companies/{id}/assess", handler.CompanyAssess)
@@ -167,6 +170,8 @@ func main() {
 		r.Post("/sent/{sendLogID}/resend", handler.SentResend)
 		r.Get("/companies", handler.ListCompanies)
 		r.Post("/companies", handler.CreateCompany)
+		r.Post("/companies/import", handler.CompanyImport)
+		r.Post("/companies/{id}/business", handler.CompanyBusiness)
 		r.Get("/companies/{id}", handler.ViewCompany)
 		r.Post("/companies/{id}/send", handler.SendDraft)
 		r.Post("/companies/{id}/status", handler.CompanyStatus)
@@ -263,6 +268,11 @@ func main() {
 	if v := os.Getenv("CONTACT_DISCOVERY_INTERVAL_MINUTES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			workerCfg.ContactDiscoveryInterval = time.Duration(n) * time.Minute
+		}
+	}
+	if v := os.Getenv("SOURCE_INTERVAL_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workerCfg.SourceInterval = time.Duration(n) * time.Minute
 		}
 	}
 	if v := os.Getenv("SUPPRESSION_INTERVAL_MINUTES"); v != "" {

@@ -3,6 +3,7 @@ package seed
 import (
 	"context"
 	"encoding/csv"
+	"fmt"
 	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"io"
 	"log"
@@ -50,7 +51,7 @@ func (j *JobBoardSeeder) Name() string {
 
 // Seed scrapes job board listings
 func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Client) (int, error) {
-	added := 0
+	run := newBatch(j.Name())
 
 	// searchTerms covers the roles/stacks likely to signal exactly the backend/API/payments
 	// work this tool is prospecting for. brightermonday.co.ke and myjobmag.co.ke serve plain
@@ -83,15 +84,25 @@ func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Cl
 	}
 
 	for _, q := range queries {
-		raw, err := j.fetchSource(ctx, q.url)
-		if err != nil {
-			log.Printf("Failed to fetch %s (%s): %v", q.site, q.term, err)
+		raw, err := j.fetchListing(ctx, q.url)
+		if !run.feed(q.url, err) {
 			continue
 		}
 
 		doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(raw)))
 		if err != nil {
+			run.feedsFailed++
 			log.Printf("Parse error for %s: %v", q.site, err)
+			continue
+		}
+		// A page that loads but matches no job card means the site's markup changed (or it served a
+		// challenge page). Saying so is the difference between "no jobs today" and "this source is
+		// broken", which the source status page needs to show.
+		if doc.Find(q.card).Length() == 0 {
+			run.feedsFailed++
+			if run.firstErr == nil {
+				run.firstErr = fmt.Errorf("%s: no job cards matched the page markup", q.site)
+			}
 			continue
 		}
 		base, _ := url.Parse(q.url)
@@ -120,19 +131,11 @@ func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Cl
 			d := opportunity.DiscoveredOpportunity{Source: q.site, CompanyName: companyName, Title: strings.TrimSpace(jobLinkSel.Text()), URL: jobURL, Description: descriptionText(html), DescriptionStatus: "partial", Metadata: map[string]string{"listing_url": q.url}}
 			// Detail fetch failures retain the listing and its explicit partial status.
 			d = j.completeJobDescription(ctx, d, base.Hostname())
-			result, err := IngestOpportunity(ctx, db, d)
-			if err != nil {
-				log.Printf("Job ingestion failed: %v", err)
-				return
-			}
-			if result.Created {
-				added++
-			}
-
+			run.ingest(ctx, db, d)
 		})
 	}
 
-	return added, nil
+	return run.result()
 }
 
 // confidentialEmployerPhrases catches the placeholder client name some job boards show when a

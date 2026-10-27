@@ -36,45 +36,76 @@ func (w *WeWorkRemotelySeeder) Name() string { return "weworkremotely" }
 
 type wwrRSS struct {
 	Channel struct {
-		Items []struct {
-			PubDate     string `xml:"pubDate"`
-			Title       string `xml:"title"`
-			Link        string `xml:"link"`
-			Description string `xml:"description"`
-		} `xml:"item"`
+		Items []wwrItem `xml:"item"`
 	} `xml:"channel"`
 }
 
-// Seed retains listings within the existing category feed scope, without fit filtering.
+// wwrItem reads the WWR-specific fields as well as the standard RSS ones. Region and country are
+// what say who may apply ("Anywhere in the World" versus "USA Only"); they were previously parsed
+// past, which left every WWR listing with an empty location and an unknown eligibility.
+type wwrItem struct {
+	PubDate     string `xml:"pubDate"`
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	GUID        string `xml:"guid"`
+	Description string `xml:"description"`
+	Region      string `xml:"region"`
+	Country     string `xml:"country"`
+	State       string `xml:"state"`
+	Type        string `xml:"type"`
+	Category    string `xml:"category"`
+	ExpiresAt   string `xml:"expires_at"`
+}
+
+// Seed retains listings within the existing category feed scope, without fit filtering. Each
+// feed is independent: one that fails or does not parse is logged and the others still run.
 func (w *WeWorkRemotelySeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Client) (int, error) {
-	added := 0
+	run := newBatch(w.Name())
 	for _, url := range weWorkRemotelyFeeds {
-		raw, err := w.fetchSource(ctx, url)
-		if err != nil {
-			return added, err
+		raw, err := w.fetchListing(ctx, url)
+		if !run.feed(url, err) {
+			continue
 		}
 		var feed wwrRSS
 		if err = xml.Unmarshal(raw, &feed); err != nil {
-			return added, err
+			run.feedsFailed++
+			if run.firstErr == nil {
+				run.firstErr = err
+			}
+			continue
 		}
 		for i, item := range feed.Channel.Items {
 			if i >= maxFeedJobs {
 				break
 			}
-			company, title, found := strings.Cut(item.Title, ": ")
-			if !found {
-				company = ""
-				title = item.Title
-			}
-			d := opportunity.DiscoveredOpportunity{Source: "weworkremotely", CompanyName: strings.TrimSpace(company), Title: strings.TrimSpace(title), URL: item.Link, Description: descriptionText(item.Description), PublishedAt: sourceTimestamp(item.PubDate), DescriptionStatus: "complete", RemoteStatus: "remote"}
-			result, err := IngestOpportunity(ctx, db, d)
-			if err != nil {
-				return added, err
-			}
-			if result.Created {
-				added++
-			}
+			run.ingest(ctx, db, wwrOpportunity(item))
 		}
 	}
-	return added, nil
+	return run.result()
+}
+
+func wwrOpportunity(item wwrItem) opportunity.DiscoveredOpportunity {
+	company, title, found := strings.Cut(item.Title, ": ")
+	if !found {
+		company = ""
+		title = item.Title
+	}
+	location := strings.TrimSpace(item.Region)
+	if country := strings.TrimSpace(item.Country); country != "" && !strings.EqualFold(country, location) {
+		location = strings.Trim(location+", "+country, ", ")
+	}
+	d := opportunity.DiscoveredOpportunity{
+		Source: "weworkremotely", CompanyName: strings.TrimSpace(company), Title: strings.TrimSpace(title),
+		URL: strings.TrimSpace(item.Link), Description: descriptionText(item.Description),
+		PublishedAt: sourceTimestamp(item.PubDate), ExpiresAt: sourceTimestamp(strings.TrimSpace(item.ExpiresAt)),
+		DescriptionStatus: "complete", RemoteStatus: "remote", Location: location,
+		EmploymentType: strings.TrimSpace(item.Type), Metadata: map[string]string{},
+	}
+	if d.URL == "" && strings.HasPrefix(item.GUID, "http") {
+		d.URL = strings.TrimSpace(item.GUID)
+	}
+	if item.Category != "" {
+		d.Metadata["source_category"] = strings.TrimSpace(item.Category)
+	}
+	return d
 }

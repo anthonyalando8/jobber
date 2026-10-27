@@ -3,6 +3,7 @@ package seed
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"github.com/anthonyalando8/prospector/internal/store"
 	"github.com/redis/go-redis/v9"
@@ -41,15 +42,15 @@ type himalayasResponse struct {
 
 // Seed stores bounded source listings independently of company discovery and Redis.
 func (h *HimalayasSeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Client) (int, error) {
-	raw, err := h.fetchSource(ctx, himalayasAPIURL)
-	if err != nil {
-		return 0, err
+	run := newBatch(h.Name())
+	raw, err := h.fetchListing(ctx, himalayasAPIURL)
+	if !run.feed(himalayasAPIURL, err) {
+		return run.result()
 	}
 	var parsed himalayasResponse
 	if err = json.Unmarshal(raw, &parsed); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("himalayas: unexpected response: %w", err)
 	}
-	added := 0
 	for i, job := range parsed.Jobs {
 		if i >= maxFeedJobs {
 			break
@@ -66,13 +67,7 @@ func (h *HimalayasSeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Clien
 			description, status = job.Description, "complete"
 		}
 		d := opportunity.DiscoveredOpportunity{Source: "himalayas", ExternalID: externalID(job.ID), CompanyName: job.CompanyName, Title: job.Title, URL: jobURL, Description: descriptionText(description), EmploymentType: job.EmploymentType, Location: strings.Join(job.LocationRestrictions, ", "), DescriptionStatus: status, RemoteStatus: "remote"}
-		result, err := IngestOpportunity(ctx, db, d)
-		if err != nil {
-			return added, err
-		}
-		if result.Created {
-			added++
-		}
+		run.ingest(ctx, db, d)
 	}
-	return added, nil
+	return run.result()
 }

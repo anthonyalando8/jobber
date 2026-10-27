@@ -16,6 +16,7 @@ import (
 
 	"github.com/anthonyalando8/prospector/internal/activity"
 	"github.com/anthonyalando8/prospector/internal/aibudget"
+	"github.com/anthonyalando8/prospector/internal/assess"
 	"github.com/anthonyalando8/prospector/internal/contactsearch"
 	"github.com/anthonyalando8/prospector/internal/domainsearch"
 	"github.com/anthonyalando8/prospector/internal/draft"
@@ -65,6 +66,10 @@ type Config struct {
 	// disappeared from their source. Slow on purpose: the signals it reads are a published
 	// closing date and a two-week absence, neither of which changes between ticks.
 	SuppressionInterval time.Duration // default 6h
+	// SourceInterval is the minimum time between two runs of the same discovery source. The
+	// discovery loop wakes every DiscoveryInterval and runs whichever sources are due, so each job
+	// board is read a few times a day rather than every twenty minutes.
+	SourceInterval time.Duration // default 3h
 }
 
 // DefaultConfig returns review.md's suggested defaults.
@@ -78,6 +83,7 @@ func DefaultConfig() Config {
 		DomainResolveInterval:    30 * time.Minute,
 		ContactDiscoveryInterval: 45 * time.Minute,
 		SuppressionInterval:      6 * time.Hour,
+		SourceInterval:           3 * time.Hour,
 	}
 }
 
@@ -194,24 +200,77 @@ func (s *Scheduler) loop(ctx context.Context, wg *sync.WaitGroup, name string, i
 	}
 }
 
-// discoveryTick seeds from the job board and, right after, runs a small verification pass
-// over any domain that's still unknown/candidate — review.md's DISCOVER -> VERIFY sequence,
-// folded into one loop since both are cheap and infrequent.
+// discoveryTick runs every discovery source that is due, then classifies and assesses whatever
+// arrived, then runs a small verification pass over unverified domains.
+//
+// Until this change the loop only ever ran the Kenyan job-board seeder. We Work Remotely, Remote
+// OK, Remotive and Himalayas were registered but ran only when someone called their admin route by
+// hand, which is why international listings never appeared on their own. Each source now runs on
+// its own lease and timeout, and one source failing cannot stop the others.
 func (s *Scheduler) discoveryTick(ctx context.Context) {
 	if !s.discoveryBusy.CompareAndSwap(false, true) {
 		return // previous discovery tick still running
 	}
 	defer s.discoveryBusy.Store(false)
 
-	result, err := s.seedRegistry.Run(ctx, "jobboard", s.db, s.redis)
+	interval := s.cfg.SourceInterval
+	if interval <= 0 {
+		interval = 3 * time.Hour
+	}
+	for _, name := range s.seedRegistry.Scheduled() {
+		if ctx.Err() != nil {
+			return
+		}
+		if !seed.Due(ctx, s.redis, name, interval) {
+			continue
+		}
+		s.RunSource(ctx, name)
+	}
+	s.ProcessNewListings(ctx)
+	s.verifyTick(ctx)
+}
+
+// sourceRunTimeout bounds one source run, so a hung site cannot hold the discovery loop.
+const sourceRunTimeout = 5 * time.Minute
+
+// RunSource runs one discovery source now and records the outcome in the activity feed.
+func (s *Scheduler) RunSource(ctx context.Context, name string) (*seed.SeedResult, error) {
+	runCtx, cancel := context.WithTimeout(ctx, sourceRunTimeout)
+	defer cancel()
+	result, err := s.seedRegistry.Run(runCtx, name, s.db, s.redis)
+	label := name
+	if info, ok := seed.InfoFor(name); ok {
+		label = info.Label
+	}
 	if err != nil {
 		s.recordFailure("discovery")
-		activity.Log(ctx, s.redis, "worker:discover", "Discovery cycle failed; inspect server logs", false)
-	} else {
-		activity.Log(ctx, s.redis, "worker:discover", fmt.Sprintf("discovered %d compan%s from jobboard", result.Added, pluralY(result.Added)), true)
+		activity.Log(ctx, s.redis, "worker:discover", label+": source failed; see the Sources page", false)
+		return result, err
 	}
+	activity.Log(ctx, s.redis, "worker:discover", fmt.Sprintf("%s: %d new opportunit%s", label, result.Added, pluralY(result.Added)), true)
+	return result, nil
+}
 
-	s.verifyTick(ctx)
+// newListingBatch bounds how much classification and assessment one tick does.
+const newListingBatch = 300
+
+// ProcessNewListings classifies and assesses whatever discovery just stored; see
+// assess.Service.ProcessNew.
+func (s *Scheduler) ProcessNewListings(ctx context.Context) {
+	classified, assessed, err := assess.New(s.db).ProcessNew(ctx, newListingBatch)
+	if err != nil {
+		log.Printf("worker: process new listings: %v", err)
+	}
+	if classified > 0 || assessed > 0 {
+		activity.Log(ctx, s.redis, "worker:assess", fmt.Sprintf("classified %d and assessed %d listing%s", classified, assessed, plural(assessed)), true)
+	}
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // verifyTick checks any company whose domain hasn't been confirmed yet — the gate that stops

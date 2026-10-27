@@ -3,6 +3,7 @@ package seed
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"github.com/anthonyalando8/prospector/internal/store"
 	"github.com/redis/go-redis/v9"
@@ -50,15 +51,15 @@ type remoteOKJob struct {
 
 // Seed stores bounded source listings independently of company discovery and Redis.
 func (r *RemoteOKSeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Client) (int, error) {
-	raw, err := r.fetchSource(ctx, remoteOKAPIURL)
-	if err != nil {
-		return 0, err
+	run := newBatch(r.Name())
+	raw, err := r.fetchListing(ctx, remoteOKAPIURL)
+	if !run.feed(remoteOKAPIURL, err) {
+		return run.result()
 	}
 	var parsed []remoteOKJob
 	if err = json.Unmarshal(raw, &parsed); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("remoteok: unexpected response: %w", err)
 	}
-	added := 0
 	for i, job := range parsed {
 		if i >= maxFeedJobs {
 			break
@@ -68,13 +69,7 @@ func (r *RemoteOKSeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Client
 		}
 		d := opportunity.DiscoveredOpportunity{Source: "remoteok", ExternalID: externalID(job.ID), CompanyName: job.Company, Title: job.Position, URL: job.URL, Location: job.Location, Description: descriptionText(job.Description), PublishedAt: sourceTimestamp(job.Date), DescriptionStatus: "complete", RemoteStatus: "remote", Metadata: map[string]string{}}
 		opportunity.RecordPublishedRoute(d.Metadata, "remoteok:feed", job.CompanyURL, job.ApplyURL, "", "")
-		result, err := IngestOpportunity(ctx, db, d)
-		if err != nil {
-			return added, err
-		}
-		if result.Created {
-			added++
-		}
+		run.ingest(ctx, db, d)
 	}
-	return added, nil
+	return run.result()
 }

@@ -84,6 +84,7 @@ func isLikelyEnterprise(name string) bool {
 // put a US-sourced company on a different segment without changing which market it's in.
 var UsJobSources = map[string]bool{
 	"remoteok": true, "weworkremotely": true, "remotive": true, "himalayas": true,
+	"jobicy": true, "workingnomads": true, "greenhouse": true, "lever": true, "ashby": true,
 }
 
 // classifySegment determines the company segment

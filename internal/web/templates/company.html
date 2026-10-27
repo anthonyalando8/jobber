@@ -11,6 +11,8 @@
     <h1>{{.company.Name}}</h1>
     <div class="page-meta">
       {{if .company.Domain}}<span>{{.company.Domain}} <span class="badge {{.company.DomainStatus}}">{{if eq .company.DomainStatus "verified"}}Verified{{else if eq .company.DomainStatus "candidate"}}Unverified domain{{else}}{{.company.DomainStatus}}{{end}}</span></span>{{end}}
+      {{if eq .lead "contract_work"}}<span class="badge green">Contract work posted</span>{{else if eq .lead "hiring"}}<span class="badge blue">Hiring</span>{{else if eq .lead "technical_need"}}<span class="badge violet">Technical need found</span>{{else if .lead}}<span class="badge neutral">General prospect</span>{{end}}
+      {{if eq .business "agency"}}<span class="badge neutral">Agency or consultancy</span>{{end}}
       <span>Status <span class="badge {{.company.Status}}">{{.company.Status}}</span></span>
       {{if .company.Location}}<span>{{.company.Location}}</span>{{end}}
       <span>Source: {{.company.Source}}</span>
@@ -235,6 +237,13 @@
     {{if .company.Segment}}<dt>Segment</dt><dd>{{.company.Segment}}</dd>{{end}}
     <dt>Score</dt><dd>{{.company.Score}} / 100 <button type="button" class="btn-ghost btn-sm" onclick="toggleEdit('score')">Edit</button></dd>
     <dt>Added</dt><dd>{{.company.CreatedAt.Format "2 Jan 2006"}}</dd>
+    <dt>Business type</dt><dd><form class="inline-select" method="POST" action="/companies/{{.company.ID}}/business"><label class="sr-only" for="business-type">Business type</label><select id="business-type" name="business" onchange="this.form.submit()">
+      <option value="unknown" {{if eq .business "unknown"}}selected{{end}}>Not classified</option>
+      <option value="agency" {{if eq .business "agency"}}selected{{end}}>Agency or consultancy</option>
+      <option value="sme" {{if eq .business "sme"}}selected{{end}}>Small business</option>
+      <option value="incubator" {{if eq .business "incubator"}}selected{{end}}>Incubator</option>
+      <option value="enterprise" {{if eq .business "enterprise"}}selected{{end}}>Enterprise</option>
+    </select><noscript><button class="btn-sm">Save</button></noscript></form></dd>
     <dt>Opportunities</dt><dd><a href="/opportunities?company_id={{.company.ID}}">{{.opportunityCount}} stored</a></dd>
     <dt>Compositions</dt><dd><a href="/compositions?company_id={{.company.ID}}">View all</a></dd>
   </dl>

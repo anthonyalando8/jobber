@@ -530,3 +530,4 @@ pre.notes { background: var(--warning-soft); border-color: var(--warning-line); 
 .review-main > * + * { margin-top: 0; }
 kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface-2); }
 @media (max-width: 900px) { .review-layout { grid-template-columns: 1fr; } .review-queue { max-height: none; } }
+.inline-select select { height: 30px; min-height: 30px; padding-top: 2px; padding-bottom: 2px; font-size: 13px; }

@@ -3,8 +3,10 @@ package seed
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,6 +19,64 @@ import (
 
 const maxSourceBytes = 2 * 1024 * 1024
 const maxFeedJobs = 200
+
+// batch ingests one source run's listings so that a single bad row or feed is logged and skipped
+// instead of aborting everything after it. Before this, the first failing item ended the run: one
+// malformed RSS entry from We Work Remotely dropped the rest of that feed and every later feed.
+type batch struct {
+	source                      string
+	added, seen, review, failed int
+	feedsTried, feedsFailed     int
+	firstErr                    error
+}
+
+func newBatch(source string) *batch { return &batch{source: source} }
+
+// feed records the outcome of fetching or parsing one feed or listing page.
+func (b *batch) feed(url string, err error) bool {
+	b.feedsTried++
+	if err != nil {
+		b.feedsFailed++
+		if b.firstErr == nil {
+			b.firstErr = err
+		}
+		log.Printf("seed %s: %s: %v", b.source, url, err)
+		return false
+	}
+	return true
+}
+
+func (b *batch) ingest(ctx context.Context, db *store.DB, d opportunity.DiscoveredOpportunity) {
+	b.seen++
+	result, err := IngestOpportunity(ctx, db, d)
+	switch {
+	case err != nil:
+		b.failed++
+		if b.firstErr == nil {
+			b.firstErr = err
+		}
+		log.Printf("seed %s: ingest %q: %v", b.source, d.Title, err)
+	case result.ReviewReason != "":
+		b.review++
+	case result.Created:
+		b.added++
+	}
+}
+
+// result reports the run. It is an error only when nothing usable happened: every feed failed, or
+// listings were seen and every one of them failed to store.
+func (b *batch) result() (int, error) {
+	if b.review > 0 || b.failed > 0 {
+		log.Printf("seed %s: %d seen, %d new, %d held for review, %d failed", b.source, b.seen, b.added, b.review, b.failed)
+	}
+	if b.feedsTried > 0 && b.feedsFailed == b.feedsTried {
+		return b.added, fmt.Errorf("all %d feed(s) failed: %w", b.feedsTried, b.firstErr)
+	}
+	if b.seen > 0 && b.failed == b.seen {
+		return b.added, fmt.Errorf("every listing failed to store: %w", b.firstErr)
+	}
+	return b.added, nil
+}
 
 // The shared boundary deliberately has no Redis dependency or title-fit filter.
 func IngestOpportunity(ctx context.Context, db *store.DB, d opportunity.DiscoveredOpportunity) (store.IngestionResult, error) {
@@ -37,8 +97,48 @@ func IngestOpportunity(ctx context.Context, db *store.DB, d opportunity.Discover
 	if d.DomainCandidate == "" {
 		d.DomainCandidate = domainForSource(d)
 	}
-	return db.IngestOpportunity(ctx, d)
+	result, err := db.IngestOpportunity(ctx, d)
+	if err != nil || result.ID == 0 {
+		return result, err
+	}
+	// Classify how the listing can be pursued as it arrives, so it is filterable at once. A failure
+	// here is not an ingestion failure: the discovery worker's backfill classifies anything missed.
+	if err := db.SaveOpportunityAccess(ctx, result.ID, result.Revision, opportunity.ClassifyAccess(d)); err != nil {
+		log.Printf("seed %s: classifying opportunity %d: %v", d.Source, result.ID, err)
+	}
+	return result, nil
 }
+
+// fetchListing fetches a feed or listing page, retrying once after a short pause when the failure
+// is plausibly transient (network error, timeout, 429 or 5xx). A 403 or 404 is not retried: it is
+// an answer, and asking again only adds load on a site that has already said no.
+func (b *BaseSeeder) fetchListing(ctx context.Context, url string) ([]byte, error) {
+	raw, err := b.fetchSource(ctx, url)
+	if err == nil || !transient(err) {
+		return raw, err
+	}
+	select {
+	case <-ctx.Done():
+		return nil, err
+	case <-time.After(b.retryDelay):
+	}
+	return b.fetchSource(ctx, url)
+}
+
+// statusError keeps the HTTP status so retry and reporting can tell a refusal from an outage.
+type statusError struct{ code int }
+
+func (e statusError) Error() string { return fmt.Sprintf("source HTTP %d", e.code) }
+
+func transient(err error) bool {
+	var status statusError
+	if errors.As(err, &status) {
+		return status.code == http.StatusTooManyRequests || status.code >= 500
+	}
+	return !errors.Is(err, errOversized)
+}
+
+var errOversized = fmt.Errorf("source response exceeds %d bytes", maxSourceBytes)
 
 func (b *BaseSeeder) fetchSource(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -53,14 +153,14 @@ func (b *BaseSeeder) fetchSource(ctx context.Context, url string) ([]byte, error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("source HTTP %d", resp.StatusCode)
+		return nil, statusError{resp.StatusCode}
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxSourceBytes+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(raw) > maxSourceBytes {
-		return nil, fmt.Errorf("source response exceeds %d bytes", maxSourceBytes)
+		return nil, errOversized
 	}
 	return raw, nil
 }
@@ -97,7 +197,8 @@ func externalID(raw json.RawMessage) string {
 }
 
 func sourceTimestamp(raw string) *time.Time {
-	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02", time.RFC1123Z, time.RFC1123} {
+	raw = strings.TrimSpace(raw)
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02 15:04:05 MST", "2006-01-02 15:04:05", "2006-01-02", time.RFC1123Z, time.RFC1123} {
 		if parsed, err := time.Parse(layout, raw); err == nil {
 			return &parsed
 		}

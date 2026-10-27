@@ -7,7 +7,7 @@ import (
 )
 
 func applicationShell(name, html string) (string, error) {
-	routes := map[string]string{"dashboard.html": "/", "search.html": "/search", "messages.html": "/messages", "profile.html": "/profile", "opportunities.html": "/opportunities", "opportunity.html": "/opportunities", "companies.html": "/companies", "company.html": "/companies", "plan.html": "/companies", "contact_discovery.html": "/companies", "compositions.html": "/compositions", "composition.html": "/compositions", "threads.html": "/threads", "thread.html": "/threads", "legacy_drafts.html": "/legacy/drafts", "legacy_threads.html": "/legacy/threads", "templates_admin.html": "/templates", "drafts.html": "/legacy/drafts", "review.html": "/legacy/drafts", "sent.html": "/legacy/threads", "followups.html": "/legacy/threads"}
+	routes := map[string]string{"dashboard.html": "/", "search.html": "/search", "messages.html": "/messages", "profile.html": "/profile", "opportunities.html": "/opportunities", "opportunity.html": "/opportunities", "companies.html": "/companies", "company.html": "/companies", "plan.html": "/companies", "contact_discovery.html": "/companies", "compositions.html": "/compositions", "composition.html": "/compositions", "threads.html": "/threads", "thread.html": "/threads", "legacy_drafts.html": "/legacy/drafts", "legacy_threads.html": "/legacy/threads", "templates_admin.html": "/templates", "drafts.html": "/legacy/drafts", "review.html": "/legacy/drafts", "sent.html": "/legacy/threads", "followups.html": "/legacy/threads", "sources.html": "/sources"}
 
 	active, ok := routes[name]
 	if !ok {

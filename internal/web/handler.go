@@ -107,6 +107,9 @@ func NewHandler(db *store.DB, redisConn *redis.Client) *Handler {
 	seedRegistry.Register(seed.NewWeWorkRemotelySeeder(crawlUserAgent))
 	seedRegistry.Register(seed.NewRemotiveSeeder(crawlUserAgent))
 	seedRegistry.Register(seed.NewHimalayasSeeder(crawlUserAgent))
+	seedRegistry.Register(seed.NewJobicySeeder(crawlUserAgent))
+	seedRegistry.Register(seed.NewWorkingNomadsSeeder(crawlUserAgent))
+	seedRegistry.Register(seed.NewATSSeeder(crawlUserAgent))
 	seedRegistry.Register(seed.NewManualSeeder("", crawlUserAgent))
 
 	// Initialize enricher
@@ -394,7 +397,9 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 		Segment:      enumFilter(values, "segment", "agency,incubator,hiring,hiring_us,enterprise,sme,application,unknown", &warnings),
 		DomainStatus: enumFilter(values, "domain_status", "unknown,candidate,verified,failed,manual", &warnings),
 		Market:       enumFilter(values, "market", "kenya,us", &warnings), CreatedSince: enumFilter(values, "created", "5m,1h,today,7d", &warnings),
-		Research: enumFilter(values, "research", "queue,researched,unresearched,recent", &warnings), HasOpportunities: enumFilter(values, "has_opportunities", "yes,no", &warnings), HasStrong: enumFilter(values, "has_strong", "yes,no", &warnings)}
+		Research: enumFilter(values, "research", "queue,researched,unresearched,recent", &warnings), HasOpportunities: enumFilter(values, "has_opportunities", "yes,no", &warnings), HasStrong: enumFilter(values, "has_strong", "yes,no", &warnings),
+		Lead: enumFilter(values, "lead", "contract_work,hiring,technical_need,prospect", &warnings), Business: enumFilter(values, "business", "agency,enterprise,incubator,sme,unknown", &warnings),
+		Sort: enumFilter(values, "sort", "lead,score,newest", &warnings)}
 	total, err := h.db.CountCompanies(r.Context(), f)
 	if err != nil {
 		http.Error(w, "Cannot count companies", 500)
@@ -411,7 +416,7 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 	currentURL := urlFor(currentPage)
 	parsed, _ := url.Parse(currentURL)
 	renderTemplate(w, "companies.html", map[string]any{"companies": companies, "status": f.Status, "segment": f.Segment, "domainStatus": f.DomainStatus, "market": f.Market, "created": f.CreatedSince, "query": f.Search,
-		"source": f.Source, "research": f.Research, "hasOpportunities": f.HasOpportunities, "hasStrong": f.HasStrong, "warnings": warnings, "activeFilters": activeFilters(parsed.Query()),
+		"source": f.Source, "research": f.Research, "hasOpportunities": f.HasOpportunities, "hasStrong": f.HasStrong, "lead": f.Lead, "business": f.Business, "sort": f.Sort, "added": values.Get("added"), "warnings": warnings, "activeFilters": activeFilters(parsed.Query()),
 		"page": currentPage, "totalPages": totalPages, "total": total, "hasPrev": currentPage > 1, "hasNext": currentPage < totalPages,
 		"prevURL": urlFor(currentPage - 1), "nextURL": urlFor(currentPage + 1), "currentURL": currentURL, "pageLinks": paginationWindow(currentPage, totalPages, urlFor)})
 }
@@ -493,7 +498,7 @@ func companiesURL(f store.CompanyFilter, page int) string {
 	if f.Search != "" {
 		v.Set("q", f.Search)
 	}
-	for key, value := range map[string]string{"source": f.Source, "research": f.Research, "has_opportunities": f.HasOpportunities, "has_strong": f.HasStrong} {
+	for key, value := range map[string]string{"source": f.Source, "research": f.Research, "has_opportunities": f.HasOpportunities, "has_strong": f.HasStrong, "lead": f.Lead, "business": f.Business, "sort": f.Sort} {
 		if value != "" {
 			v.Set(key, value)
 		}
@@ -511,24 +516,74 @@ func companiesURL(f store.CompanyFilter, page int) string {
 func (h *Handler) CreateCompany(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	name := r.FormValue("name")
-	domain := r.FormValue("domain")
-	source := r.FormValue("source")
+	name := strings.TrimSpace(r.FormValue("name"))
+	domain := strings.ToLower(strings.TrimSpace(r.FormValue("domain")))
+	domain = strings.TrimPrefix(strings.TrimPrefix(domain, "https://"), "http://")
+	domain = strings.TrimPrefix(strings.TrimSuffix(domain, "/"), "www.")
+	source := strings.TrimSpace(r.FormValue("source"))
+	if source == "" {
+		source = "manual"
+	}
 	sourceURL := r.FormValue("source_url")
 
-	if name == "" || domain == "" {
-		http.Error(w, "name and domain required", http.StatusBadRequest)
+	if name == "" || domain == "" || strings.ContainsAny(domain, " /@") || !strings.Contains(domain, ".") {
+		http.Error(w, "A company name and a website domain such as example.com are required", http.StatusBadRequest)
 		return
 	}
 
 	// A human typed this domain directly into the form — trust it like a manual CSV row.
-	_, err := h.db.CreateCompany(ctx, name, domain, source, sourceURL, "manual")
+	company, err := h.db.CreateCompany(ctx, name, domain, source, sourceURL, "manual")
 	if err != nil {
-		http.Error(w, "Failed to create company", http.StatusInternalServerError)
+		http.Error(w, "Could not add the company. Is that domain already in the workspace?", http.StatusConflict)
 		return
 	}
+	if business := r.FormValue("business"); business != "" && business != "unknown" {
+		if err := h.db.SetBusinessSegment(ctx, company.ID, business); err != nil {
+			log.Printf("CreateCompany: business segment: %v", err)
+		}
+	}
+	if note := strings.TrimSpace(r.FormValue("note")); note != "" {
+		if err := h.db.AppendCompanyNote(ctx, company.ID, note); err != nil {
+			log.Printf("CreateCompany: note: %v", err)
+		}
+	}
+	h.logActivity(ctx, "prospect:add", "Added prospect "+name, true)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(company.ID, 10), http.StatusSeeOther)
+}
 
-	http.Redirect(w, r, "/companies", http.StatusSeeOther)
+// CompanyImport adds prospects from pasted CSV (name,domain,segment,notes) through the existing
+// manual seeder, then returns to the companies list. It is the form-friendly face of the manual
+// import, which otherwise answered with JSON.
+func (h *Handler) CompanyImport(w http.ResponseWriter, r *http.Request) {
+	csv := r.FormValue("csv")
+	if strings.TrimSpace(csv) == "" {
+		http.Error(w, "Paste at least one line: name,domain", http.StatusBadRequest)
+		return
+	}
+	added, err := seed.NewManualSeeder(csv, "Prospector/1.0").Seed(r.Context(), h.db, h.redis)
+	if err != nil {
+		http.Error(w, "Import failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := h.db.ClassifyBusinessSegments(r.Context()); err != nil {
+		log.Printf("CompanyImport: business segments: %v", err)
+	}
+	h.logActivity(r.Context(), "seed:manual", fmt.Sprintf("Imported %d prospect%s", added, plural(added, "", "s")), true)
+	http.Redirect(w, r, "/companies?sort=newest&added="+strconv.Itoa(added), http.StatusSeeOther)
+}
+
+// CompanyBusiness records what kind of business a company is (agency, SME, ...).
+func (h *Handler) CompanyBusiness(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		http.Error(w, "Invalid company ID", http.StatusBadRequest)
+		return
+	}
+	if err := h.db.SetBusinessSegment(r.Context(), id, r.FormValue("business")); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
 // ViewCompany shows a single company with contacts and signals
@@ -544,6 +599,10 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 
 	contacts, _ := h.db.GetContactsByCompany(ctx, id)
 	signals, _ := h.db.GetSignalsByCompany(ctx, id)
+	lead, business, err := h.db.CompanyLead(ctx, id)
+	if err != nil {
+		log.Printf("ViewCompany: lead category: %v", err)
+	}
 
 	// html/template's eq/ne require a "basic kind" and can't compare a *string directly, so this
 	// is precomputed here rather than in the template — same reasoning as companyDraftView below.
@@ -611,6 +670,8 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 		"phase3":              phase3,
 		"company":             company,
 		"contacts":            contacts,
+		"lead":                lead,
+		"business":            business,
 		"signals":             signals,
 		"currentDraft":        currentDraft,
 		"isApplicationMode":   isApplicationMode,
@@ -913,7 +974,7 @@ func (h *Handler) AdminSeed(w http.ResponseWriter, r *http.Request) {
 // usJobSourceNames are every seeder AdminSeedUSJobs runs together — one click instead of four,
 // matching "apply to as many sources as possible" rather than making the operator trigger each
 // US/international remote job board separately.
-var usJobSourceNames = []string{"remoteok", "weworkremotely", "remotive", "himalayas"}
+var usJobSourceNames = []string{"remoteok", "weworkremotely", "remotive", "himalayas", "jobicy", "workingnomads", "ats"}
 
 // AdminSeedUSJobs runs every US/international remote job board seeder in one go and reports a
 // combined total — the individual sources are still reachable one at a time via

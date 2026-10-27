@@ -1,0 +1,63 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sources · Prospector</title></head><body>
+<header class="page-head">
+  <div>
+    <h1>Sources</h1>
+    <p class="page-sub">Where opportunities come from. Each source runs automatically every few hours; one failing never stops the others. Only public APIs, feeds and listing pages are read.</p>
+  </div>
+  <div class="page-actions">
+    <form method="post" action="/sources/all/run"><button class="btn-primary" onclick="this.disabled=true;this.textContent='Fetching… this can take a few minutes';this.form.submit()">Fetch all now</button></form>
+  </div>
+</header>
+
+{{if .Ran}}
+{{if .Failed}}<div class="alert alert-warning"><div><strong>Fetched {{.Added}} new opportunities.</strong> Failed: {{.Failed}}. The error for each source is shown below.</div></div>
+{{else}}<div class="alert alert-success"><div><strong>Fetched {{.Added}} new opportunities.</strong> New listings have been classified and assessed. <a href="/opportunities?sort=newest">See the newest</a></div></div>{{end}}
+{{end}}
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Source</th><th>Market</th><th>Last run</th><th>Result</th><th></th></tr></thead>
+  <tbody>
+  {{range .Sources}}
+  <tr>
+    <td><span class="cell-strong">{{.Label}}</span><small>{{.Access}}</small><small>{{.Description}}</small></td>
+    <td><span class="badge {{if eq .Market "kenya"}}green{{else}}blue{{end}}">{{if eq .Market "kenya"}}Kenya{{else}}International{{end}}</span></td>
+    <td class="nowrap">{{if .LastRun.IsZero}}<span class="muted">Not yet run</span>{{else}}{{.LastRun.Format "2 Jan, 15:04"}} UTC<small>took {{.Duration}}</small>{{end}}</td>
+    <td>
+      {{if .LastRun.IsZero}}<span class="badge neutral">Waiting</span>
+      {{else if .OK}}<span class="badge green">Working</span><small>{{.Added}} new on last run</small>
+      {{else}}<span class="badge red">Failing</span><small class="text-danger">{{.Error}}</small>{{if not .LastSuccess.IsZero}}<small>Last worked {{.LastSuccess.Format "2 Jan, 15:04"}}</small>{{end}}{{end}}
+    </td>
+    <td class="actions">{{if .Scheduled}}<form method="post" action="/sources/{{.Name}}/run"><button class="btn-sm" onclick="this.disabled=true;this.textContent='Fetching…';this.form.submit()">Fetch now</button></form>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<div class="grid-2 section-gap">
+<section class="card">
+  <div class="card-head"><div><h2>Listings by source</h2><p>Live listings stored from each source, excluding expired or suppressed ones.</p></div></div>
+  {{if .Counts}}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Source</th><th>Listings</th><th>New this week</th><th>Open to Kenya</th></tr></thead>
+    <tbody>{{range .Counts}}<tr><td><a href="/opportunities?source={{.Source}}">{{.Source}}</a></td><td class="num">{{.Total}}</td><td class="num">{{.LastWeek}}</td><td class="num"><a href="/opportunities?source={{.Source}}&amp;access=accessible">{{.Accessible}}</a></td></tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<p class="empty">Nothing stored yet. Use <strong>Fetch all now</strong> to run every source.</p>{{end}}
+</section>
+<section class="card">
+  <div class="card-head"><div><h2>Listings held back</h2><p>Listings a source published that could not be stored as-is, usually because no employer was named. They are kept for inspection, not discarded silently.</p></div></div>
+  {{if .Held}}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Source</th><th>Reason</th><th>Listings</th></tr></thead>
+    <tbody>{{range .Held}}<tr><td>{{.Source}}</td><td>{{.Reason}}</td><td class="num">{{.Count}}</td></tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<p class="empty">No listings held back.</p>{{end}}
+</section>
+</div>
+
+<section class="card section-gap">
+  <div class="card-head"><div><h2>Adding employer career boards</h2><p>Greenhouse, Lever and Ashby boards are read from each employer's public job-board API.</p></div></div>
+  <p class="small">Any board a discovered listing links to is picked up automatically. To follow an employer yourself, add it to <code>ATS_BOARDS</code> in the server environment, for example <code>greenhouse:gitlab,lever:acme,ashby:example</code>, and restart the app.</p>
+</section>
+</body></html>

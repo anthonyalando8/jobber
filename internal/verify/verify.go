@@ -180,6 +180,11 @@ var internationalSources = map[string]bool{
 	"weworkremotely": true,
 	"remotive":       true,
 	"himalayas":      true,
+	"jobicy":         true,
+	"workingnomads":  true,
+	"greenhouse":     true,
+	"lever":          true,
+	"ashby":          true,
 }
 
 // MarketForSource reports which market a discovery source belongs to.
@@ -252,6 +257,7 @@ var jobBoardHosts = map[string]bool{
 	"ashbyhq.com": true, "breezy.hr": true, "bamboohr.com": true, "recruitee.com": true,
 	"smartrecruiters.com": true, "jobvite.com": true, "workday.com": true,
 	"myworkdayjobs.com": true, "indeed.com": true, "glassdoor.com": true,
+	"jobicy.com": true, "workingnomads.com": true, "workingnomads.co": true, "wellfound.com": true,
 }
 
 // nameMatchConfidence is the fraction of the company's significant name tokens that appear
