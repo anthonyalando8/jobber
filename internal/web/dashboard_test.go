@@ -157,3 +157,29 @@ func TestLiveSnapshotFailureDoesNotFabricateZeroCounts(t *testing.T) {
 		t.Fatal("database failure must not return a healthy zero snapshot")
 	}
 }
+
+// An alert with somewhere to go renders as a link to it; one without stays plain text. Metric
+// cards carry no decorative strip, and colour marks only a count waiting on a person.
+func TestDashboardAlertsLinkToTheirFixAndCardsStayNeutral(t *testing.T) {
+	v := dashboardTestView()
+	v.addProblem("1 company cannot be searched for contacts until the website domain is corrected", "/companies/42#company-domain", "Correct the domain")
+	v.addProblem("Recent research worker failures; see recent activity", "", "")
+	v.Metrics = dashboardMetrics(&store.DashboardCounts{Companies: 3, CompositionReview: 2})
+	page := renderDashboardTest(t, v)
+	if !strings.Contains(page, `<a href="/companies/42#company-domain">Correct the domain`) {
+		t.Fatal("the domain alert does not link to the company's domain field")
+	}
+	if !strings.Contains(page, "<li><span>Recent research worker failures; see recent activity</span></li>") {
+		t.Fatal("an alert with no destination should render without a link")
+	}
+	if strings.Contains(page, "metric-tone") {
+		t.Fatal("metric cards still render the coloured edge strip")
+	}
+	if strings.Count(page, "metric-attention") != 1 {
+		t.Fatalf("only the drafts card should be marked for attention, got %d", strings.Count(page, "metric-attention"))
+	}
+	none := renderDashboardTest(t, &dashboardView{Counts: &store.DashboardCounts{}, Metrics: dashboardMetrics(&store.DashboardCounts{})})
+	if strings.Contains(none, "metric-attention") {
+		t.Fatal("an empty drafts count must not be highlighted")
+	}
+}

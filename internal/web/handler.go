@@ -399,7 +399,8 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 		Market:       enumFilter(values, "market", "kenya,us", &warnings), CreatedSince: enumFilter(values, "created", "5m,1h,today,7d", &warnings),
 		Research: enumFilter(values, "research", "queue,researched,unresearched,recent", &warnings), HasOpportunities: enumFilter(values, "has_opportunities", "yes,no", &warnings), HasStrong: enumFilter(values, "has_strong", "yes,no", &warnings),
 		Lead: enumFilter(values, "lead", "contract_work,hiring,technical_need,prospect", &warnings), Business: enumFilter(values, "business", "agency,enterprise,incubator,sme,unknown", &warnings),
-		Sort: enumFilter(values, "sort", "lead,score,newest", &warnings)}
+		ContactSearch: enumFilter(values, "contact_search", "pending,claimed,searching,completed,partial,no_result,review_required,identity_blocked,failed", &warnings),
+		Sort:          enumFilter(values, "sort", "lead,score,newest", &warnings)}
 	total, err := h.db.CountCompanies(r.Context(), f)
 	if err != nil {
 		http.Error(w, "Cannot count companies", 500)
@@ -416,7 +417,7 @@ func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
 	currentURL := urlFor(currentPage)
 	parsed, _ := url.Parse(currentURL)
 	renderTemplate(w, "companies.html", map[string]any{"companies": companies, "status": f.Status, "segment": f.Segment, "domainStatus": f.DomainStatus, "market": f.Market, "created": f.CreatedSince, "query": f.Search,
-		"source": f.Source, "research": f.Research, "hasOpportunities": f.HasOpportunities, "hasStrong": f.HasStrong, "lead": f.Lead, "business": f.Business, "sort": f.Sort, "added": values.Get("added"), "warnings": warnings, "activeFilters": activeFilters(parsed.Query()),
+		"source": f.Source, "research": f.Research, "hasOpportunities": f.HasOpportunities, "hasStrong": f.HasStrong, "lead": f.Lead, "business": f.Business, "contactSearch": f.ContactSearch, "sort": f.Sort, "added": values.Get("added"), "warnings": warnings, "activeFilters": activeFilters(parsed.Query()),
 		"page": currentPage, "totalPages": totalPages, "total": total, "hasPrev": currentPage > 1, "hasNext": currentPage < totalPages,
 		"prevURL": urlFor(currentPage - 1), "nextURL": urlFor(currentPage + 1), "currentURL": currentURL, "pageLinks": paginationWindow(currentPage, totalPages, urlFor)})
 }
@@ -498,7 +499,7 @@ func companiesURL(f store.CompanyFilter, page int) string {
 	if f.Search != "" {
 		v.Set("q", f.Search)
 	}
-	for key, value := range map[string]string{"source": f.Source, "research": f.Research, "has_opportunities": f.HasOpportunities, "has_strong": f.HasStrong, "lead": f.Lead, "business": f.Business, "sort": f.Sort} {
+	for key, value := range map[string]string{"source": f.Source, "research": f.Research, "has_opportunities": f.HasOpportunities, "has_strong": f.HasStrong, "lead": f.Lead, "business": f.Business, "contact_search": f.ContactSearch, "sort": f.Sort} {
 		if value != "" {
 			v.Set(key, value)
 		}
@@ -664,9 +665,20 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Cannot load company compositions", 500)
 		return
 	}
+	// A contact search refused for identity names the field to fix: the domain.
+	identityBlock := ""
+	if task, err := h.db.GetContactDiscoveryTask(ctx, id); err != nil {
+		log.Printf("ViewCompany: contact search state for %d: %v", id, err)
+	} else if task != nil && task.State == store.DiscoveryIdentityBlocked {
+		identityBlock, _ = task.Summary()["skipped"].(string)
+		if identityBlock == "" {
+			identityBlock = "The stored domain does not establish who this employer is."
+		}
+	}
 	w.Header().Set("Content-Type", "text/html")
 	renderTemplate(w, "company.html", map[string]interface{}{
-		"backURL": safeReturn(r.URL.Query().Get("return"), "/companies"), "backLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/companies")), "currentURL": r.URL.RequestURI(), "opportunityCount": opportunityCount, "compositions": compositions,
+		"identityBlock": identityBlock,
+		"backURL":       safeReturn(r.URL.Query().Get("return"), "/companies"), "backLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/companies")), "currentURL": r.URL.RequestURI(), "opportunityCount": opportunityCount, "compositions": compositions,
 		"phase3":              phase3,
 		"company":             company,
 		"contacts":            contacts,

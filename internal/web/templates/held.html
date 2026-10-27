@@ -1,0 +1,72 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Held-back listings · Prospector</title></head><body>
+<header class="page-head">
+  <div>
+    <nav class="crumbs back" aria-label="Breadcrumb"><a href="/sources">Back to sources</a></nav>
+    <h1>Held-back listings</h1>
+    <p class="page-sub">Listings a source published that could not be stored as-is. Nothing here is discarded: each one is kept with the reason, so it can be fixed in the adapter or resolved by hand.</p>
+  </div>
+</header>
+
+{{if .Attached}}<div class="alert alert-success"><div>Listing attached and stored.</div></div>{{end}}
+
+<form class="browse-filters" method="get" action="/sources/held">
+  <label>Source<input name="source" value="{{.Filter.Source}}" placeholder="Any source"></label>
+  <label>Reason<select name="reason"><option value="">Any reason</option>{{range $key, $r := .Reasons}}<option value="{{$key}}" {{if eq $key $.Filter.Reason}}selected{{end}}>{{$r.Label}}</option>{{end}}</select></label>
+  <label class="check-field"><span>Age</span><span class="check"><input type="checkbox" name="all" value="1" {{if .ShowAll}}checked{{end}}> Include listings not seen this week</span></label>
+  <div class="filter-actions"><a href="/sources/held">Clear</a><button class="btn-primary">Apply</button></div>
+</form>
+
+{{if .HasExplain}}
+<section class="card">
+  <div class="card-head"><div><h2>{{.Explain.Label}}</h2><p>{{.Explain.Meaning}}</p></div></div>
+  <p class="small"><strong>What to do:</strong> {{.Explain.Action}}</p>
+</section>
+{{end}}
+
+<div class="list-toolbar"><div class="result-summary"><strong>{{.Total}} held listing{{if ne .Total 1}}s{{end}}</strong><span>{{if .ShowAll}}All time{{else}}Seen in the last 7 days{{end}} · page {{.Page}} of {{.Pages}}</span></div></div>
+
+{{range .Items}}
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>{{if .Discovery.Title}}{{.Discovery.Title}}{{else}}Untitled listing{{end}}</h2>
+      <p>{{if .Discovery.CompanyName}}{{.Discovery.CompanyName}}{{else}}<em>No employer named</em>{{end}} · {{.Source}} · seen {{.Observations}}× · last {{.LastSeenAt.Format "2 Jan, 15:04"}}</p>
+    </div>
+    <div class="btn-row">
+      {{$r := index $.Reasons .Reason}}<span class="badge amber">{{if $r.Label}}{{$r.Label}}{{else}}{{.Reason}}{{end}}</span>
+      {{if .ResolvedAt}}<span class="badge green">Resolved</span>{{end}}
+    </div>
+  </div>
+  <dl class="kv">
+    {{if .Discovery.URL}}<dt>Listing</dt><dd><a href="{{.Discovery.URL}}" target="_blank" rel="noopener noreferrer">{{.Discovery.URL}}</a></dd>{{end}}
+    {{if .Discovery.Location}}<dt>Location</dt><dd>{{.Discovery.Location}}</dd>{{end}}
+    {{if .Discovery.DomainCandidate}}<dt>Domain tried</dt><dd>{{.Discovery.DomainCandidate}}</dd>{{end}}
+    {{with .Discovery.Metadata}}{{if index . "source_fields"}}<dt>Fields the source sent</dt><dd class="mono">{{index . "source_fields"}}</dd>{{end}}{{if index . "listing_url"}}<dt>Found on</dt><dd><a href="{{index . "listing_url"}}" target="_blank" rel="noopener noreferrer">{{index . "listing_url"}}</a></dd>{{end}}{{end}}
+  </dl>
+  {{if .Candidates}}
+  <div class="card-section">
+    <h3>Which company is this?</h3>
+    <p class="help">These existing companies matched the employer name or the domain tried. Attaching records that “{{.Discovery.CompanyName}}” is this company for future runs too. Companies are never merged.</p>
+    <div class="btn-row">
+      {{$held := .}}{{range .Candidates}}
+      <form method="post" action="/sources/held/{{$held.ID}}/attach">
+        <input type="hidden" name="company_id" value="{{.ID}}">
+        <input type="hidden" name="return" value="{{$.CurrentURL}}">
+        <button class="btn-sm">Attach to {{.Name}} <span class="muted">({{.Domain}})</span></button>
+      </form>
+      <a class="btn btn-sm btn-ghost" href="/companies/{{.ID}}">View {{.Name}}</a>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+  {{with .Discovery.Metadata}}{{if index . "listing_card_html"}}
+  <details class="disclosure"><summary>Card markup as received</summary><div class="disclosure-body"><pre>{{index . "listing_card_html"}}</pre></div></details>
+  {{end}}{{end}}
+  {{if .Discovery.Description}}<details class="disclosure"><summary>Listing text</summary><div class="disclosure-body"><pre class="prose">{{.Discovery.Description}}</pre></div></details>{{end}}
+</section>
+{{else}}
+<div class="card empty-state"><strong>Nothing held back</strong>{{if not .ShowAll}}No listings in this view were held back in the last 7 days.{{end}}</div>
+{{end}}
+
+<nav class="pagination" aria-label="Pages">{{if .HasPrev}}<a href="{{.PrevURL}}">Previous</a>{{end}}{{if .HasNext}}<a href="{{.NextURL}}">Next</a>{{end}}</nav>
+</body></html>

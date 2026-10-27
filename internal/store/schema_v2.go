@@ -63,6 +63,9 @@ func checkV2Schema(ctx context.Context, conn *pgx.Conn, version int, report *Sch
 		specs["opportunity_access"] = "opportunity_id:bigint opportunity_revision:integer classifier_version:integer eligibility:text kenya_access:text eligibility_evidence:text route:text route_url:text cost:text cost_evidence:text contract:boolean classified_at:timestamp_with_time_zone"
 		specs["opportunity_tracking"] = "opportunity_id:bigint state:text note:text applied_at:timestamp_with_time_zone updated_at:timestamp_with_time_zone"
 	}
+	if version >= 29 {
+		specs["company_alias"] = "normalized_name:text company_id:bigint decided_by:text created_at:timestamp_with_time_zone"
+	}
 	for name, spec := range specs {
 		table, ok := report.Tables[name]
 		if !ok {

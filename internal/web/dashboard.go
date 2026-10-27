@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,7 +41,7 @@ type dashboardAI struct {
 }
 type dashboardView struct {
 	Greeting, Health, HealthTone, WorkerSummary, Updated string
-	Problems                                             []string
+	Problems                                             []dashboardProblem
 	Metrics                                              []dashboardMetric
 	AI                                                   dashboardAI
 	Counts                                               *store.DashboardCounts
@@ -51,6 +52,8 @@ type dashboardView struct {
 	Next                                                 []dashboardAction
 	SnapshotAt                                           time.Time
 	LastResearch                                         string
+	// HeldBack counts listings held at ingestion in the last 7 days; they are not opportunities.
+	HeldBack int
 }
 
 func (h *Handler) SetWorkerStatus(source func() []worker.LoopStatus) { h.workerStatus = source }
@@ -149,36 +152,32 @@ func (h *Handler) dashboardSnapshot(ctx context.Context) (*dashboardView, error)
 		h.schemaChecked = now
 	}
 	if !c.ProfileActive {
-		v.Problems = append(v.Problems, "Activate a candidate profile before planning outreach")
+		v.addProblem("Activate a candidate profile before planning outreach", "/profile", "Open profile")
 	}
 	if !h.schemaOK {
-		v.Problems = append(v.Problems, "Database schema requires attention")
+		v.addProblem("Database schema requires attention", "", "")
 	}
 	if h.redis == nil || h.redis.Ping(ctx).Err() != nil {
-		v.Problems = append(v.Problems, "Activity service unavailable")
+		v.addProblem("Activity service unavailable", "", "")
 	}
 	if !v.AI.Usable {
-		v.Problems = append(v.Problems, v.AI.State)
+		v.addProblem(v.AI.State, "", "")
 	}
 	if c.ProviderFailures > 0 {
-		v.Problems = append(v.Problems, fmt.Sprintf("%d provider request failures in the past 24 hours", c.ProviderFailures))
+		v.addProblem(fmt.Sprintf("%d provider request failures in the past 24 hours", c.ProviderFailures), "", "")
 	}
 	if c.Failed > 0 {
-		v.Problems = append(v.Problems, fmt.Sprintf("%d failed or expired compositions; inspect the composition queue", c.Failed))
+		v.addProblem(fmt.Sprintf("%d failed or expired compositions", c.Failed), "/compositions?status=failed", "Open compositions")
 	}
 	if v.Rollout.Mode == send.ModeManualSend && !v.Rollout.ManualSendPermitted {
 		for _, reason := range v.Rollout.ReadinessReasons {
-			v.Problems = append(v.Problems, "Manual sending unavailable: "+reason)
+			v.addProblem("Manual sending unavailable: "+reason, "", "")
 		}
 	}
 	if c.Reconciliation > 0 {
-		v.Problems = append(v.Problems, fmt.Sprintf("%d unresolved send attempts; inspect compositions before retrying", c.Reconciliation))
+		v.addProblem(fmt.Sprintf("%d unresolved send attempts; reconcile before retrying", c.Reconciliation), "/messages?state=uncertain", "Review send records")
 	}
 	populateWorkerView(v, h.workerStatus, now)
-	if len(v.Problems) > 0 {
-		v.Health = "System needs attention"
-		v.HealthTone = "amber"
-	}
 	if c.LastResearch != nil {
 		v.LastResearch = dashboardAgo(*c.LastResearch, now)
 	} else {
@@ -213,8 +212,39 @@ func (h *Handler) dashboardSnapshot(ctx context.Context) (*dashboardView, error)
 		v.Next = append(v.Next, dashboardAction{fmt.Sprintf("Research %d companies", c.ResearchQueue), "Research continues independently of automatic sending", "/companies?research=queue"})
 	}
 	if c.ContactSearchIdentityBlocked > 0 {
-		v.Problems = append(v.Problems, fmt.Sprintf("%d compan%s cannot be searched for contacts until their domain is corrected",
-			c.ContactSearchIdentityBlocked, plural(c.ContactSearchIdentityBlocked, "y", "ies")))
+		// Point at the company itself when there is one, so the domain can be corrected in place;
+		// otherwise at the filtered list of every affected company.
+		text := fmt.Sprintf("%d compan%s cannot be searched for contacts until the website domain is corrected",
+			c.ContactSearchIdentityBlocked, plural(c.ContactSearchIdentityBlocked, "y", "ies"))
+		href, action := "/companies?contact_search=identity_blocked", "Review companies"
+		if ids, err := h.db.IdentityBlockedCompanies(ctx, 2); err == nil && len(ids) == 1 {
+			href, action = "/companies/"+strconv.FormatInt(ids[0], 10)+"#company-domain", "Correct the domain"
+		}
+		v.addProblem(text, href, action)
+	}
+	if h.seedRegistry != nil {
+		failing := 0
+		for _, s := range h.seedRegistry.Statuses(ctx, h.redis) {
+			if s.Scheduled && !s.LastRun.IsZero() && !s.OK {
+				failing++
+			}
+		}
+		if failing > 0 {
+			v.addProblem(fmt.Sprintf("%d discovery source%s failed on the last run", failing, plural(failing, "", "s")), "/sources", "Open sources")
+		}
+	}
+	if held, err := h.db.CountHeldListings(ctx, store.HeldListingFilter{Recent: true}); err == nil {
+		v.HeldBack = held
+	}
+	if ambiguous, err := h.db.CountHeldListings(ctx, store.HeldListingFilter{Reason: "ambiguous_company_identity", Recent: true}); err == nil && ambiguous > 0 {
+		v.addProblem(fmt.Sprintf("%d listing%s held back because the employer matches more than one company", ambiguous, plural(ambiguous, "", "s")),
+			"/sources/held?reason=ambiguous_company_identity", "Review listings")
+	}
+	// Health is decided after every alert is in. Deciding it earlier is how the dashboard came to
+	// say "System running normally" above an alert added later.
+	if len(v.Problems) > 0 {
+		v.Health = "System needs attention"
+		v.HealthTone = "amber"
 	}
 	if len(v.Next) > 4 {
 		v.Next = v.Next[:4]
@@ -239,18 +269,33 @@ func (h *Handler) dashboardSnapshot(ctx context.Context) (*dashboardView, error)
 	h.dashboardCache = v
 	return v, nil
 }
+
+// invalidateDashboard drops the cached snapshot, so an alert the operator has just resolved is
+// gone on their next look rather than up to ten seconds later.
+func (h *Handler) invalidateDashboard() {
+	h.dashboardMu.Lock()
+	h.dashboardCache = nil
+	h.dashboardMu.Unlock()
+}
+
 func dashboardMetrics(c *store.DashboardCounts) []dashboardMetric {
+	// Tone is empty for an ordinary count and "attention" only for work waiting on a person.
+	drafts := c.CompositionReview + c.ApprovalPending
+	draftTone := ""
+	if drafts > 0 {
+		draftTone = "attention"
+	}
 	return []dashboardMetric{
-		{"Companies", c.Companies, "In your workspace", "/companies", "blue", "\u25a5", ""},
-		{"Opportunities", c.Opportunities, fmt.Sprintf("%d not yet assessed", c.Unassessed), "/opportunities", "violet", "\u25a4", "/opportunities?assessment=unassessed"},
-		{"Strong matches", c.Strong, "Current assessment", "/opportunities?fit=strong_match", "amber", "\u2605", ""},
-		{"Possible matches", c.Possible, "Current assessment", "/opportunities?fit=possible_match", "blue", "\u25ce", ""},
-		{"Unrelated", c.Unrelated, "Current assessment", "/opportunities?fit=unrelated", "red", "\u2298", ""},
-		{"Drafts needing attention", c.CompositionReview + c.ApprovalPending, fmt.Sprintf("%d review \u00b7 %d approval", c.CompositionReview, c.ApprovalPending), "/compositions?attention=required", "amber", "\u2709", ""},
-		{"Sent", c.Sent, "Accepted v2 send attempts", "/messages?state=accepted", "blue", "\u2197", ""},
-		{"Replies", c.Replies, fmt.Sprintf("%d conversations with bounces", c.Bounces), "/threads?event=replied", "blue", "\u21a9", ""},
-		{"Research queue", c.ResearchQueue, "Verified domains ready", "/companies?research=queue", "blue", "\u2315", ""},
-		{"Legacy drafts", c.LegacyDrafts, "Historical drafts", "/legacy/drafts", "neutral", "\u25a3", ""},
+		{"Companies", c.Companies, "In your workspace", "/companies", "", "", ""},
+		{"Opportunities", c.Opportunities, fmt.Sprintf("%d not yet assessed", c.Unassessed), "/opportunities", "", "", "/opportunities?assessment=unassessed"},
+		{"Strong matches", c.Strong, "Current assessment", "/opportunities?fit=strong_match", "", "", ""},
+		{"Possible matches", c.Possible, "Current assessment", "/opportunities?fit=possible_match", "", "", ""},
+		{"Unrelated", c.Unrelated, "Current assessment", "/opportunities?fit=unrelated", "", "", ""},
+		{"Drafts needing attention", drafts, fmt.Sprintf("%d review \u00b7 %d approval", c.CompositionReview, c.ApprovalPending), "/compositions?attention=required", draftTone, "", ""},
+		{"Sent", c.Sent, "Accepted v2 send attempts", "/messages?state=accepted", "", "", ""},
+		{"Replies", c.Replies, fmt.Sprintf("%d conversations with bounces", c.Bounces), "/threads?event=replied", "", "", ""},
+		{"Research queue", c.ResearchQueue, "Verified domains ready", "/companies?research=queue", "", "", ""},
+		{"Legacy drafts", c.LegacyDrafts, "Historical drafts", "/legacy/drafts", "", "", ""},
 	}
 }
 func populateWorkerView(v *dashboardView, source func() []worker.LoopStatus, now time.Time) {
@@ -262,7 +307,7 @@ func populateWorkerView(v *dashboardView, source func() []worker.LoopStatus, now
 		busy := false
 		for _, s := range states {
 			if !s.LastFailureAt.IsZero() && now.Sub(s.LastFailureAt) < time.Hour {
-				v.Problems = append(v.Problems, "Recent "+s.Name+" worker failures; inspect activity")
+				v.addProblem("Recent "+s.Name+" worker failures; see recent activity", "", "")
 			}
 			live := !s.AliveAt.IsZero() && now.Sub(s.AliveAt) < 35*time.Second
 			alive = alive && live
@@ -282,10 +327,10 @@ func populateWorkerView(v *dashboardView, source func() []worker.LoopStatus, now
 				v.WorkerSummary += " \u00b7 cycle in progress"
 			}
 		} else {
-			v.Problems = append(v.Problems, "Research worker heartbeat unavailable or overdue")
+			v.addProblem("Research worker heartbeat unavailable or overdue", "", "")
 		}
 	} else {
-		v.Problems = append(v.Problems, "Research worker runtime unavailable")
+		v.addProblem("Research worker runtime unavailable", "", "")
 	}
 }
 func activityLabel(action string) string {
@@ -348,4 +393,14 @@ func (h *Handler) DashboardSnapshot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write([]byte(openExternalLinksInNewTab(rendered.String())))
+}
+
+// dashboardProblem is one operational alert. Href and Action are set only when there is a page
+// where the problem can be inspected or corrected; purely informational alerts carry neither.
+type dashboardProblem struct {
+	Text, Href, Action string
+}
+
+func (v *dashboardView) addProblem(text, href, action string) {
+	v.Problems = append(v.Problems, dashboardProblem{Text: text, Href: href, Action: action})
 }

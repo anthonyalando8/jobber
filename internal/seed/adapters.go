@@ -70,7 +70,9 @@ func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Cl
 				url:     "https://www.brightermonday.co.ke/jobs?q=" + term,
 				card:    `div[data-cy="listing-cards-components"]`,
 				jobLink: `a[data-cy="listing-title-link"]`,
-				company: `a[href^="/company/"]`,
+				// Matches the employer profile link whether it is written relative ("/company/x")
+				// or absolute ("https://www.brightermonday.co.ke/company/x").
+				company: `a[href^="/company/"], a[href*="brightermonday.co.ke/company/"]`,
 			},
 			jobBoardQuery{
 				site: "myjobmag.co.ke", term: term,
@@ -129,6 +131,12 @@ func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Cl
 			}
 			html, _ := s.Html()
 			d := opportunity.DiscoveredOpportunity{Source: q.site, CompanyName: companyName, Title: strings.TrimSpace(jobLinkSel.Text()), URL: jobURL, Description: descriptionText(html), DescriptionStatus: "partial", Metadata: map[string]string{"listing_url": q.url}}
+			if companyName == "" || jobURL == "" {
+				// This listing will be held back (no employer or no link). Keep the card's own markup
+				// with it so the held-back view shows what the page actually contained; that is the
+				// evidence needed to tell a markup change from a confidential employer.
+				d.Metadata["listing_card_html"] = boundedCardHTML(html)
+			}
 			// Detail fetch failures retain the listing and its explicit partial status.
 			d = j.completeJobDescription(ctx, d, base.Hostname())
 			run.ingest(ctx, db, d)
@@ -306,4 +314,15 @@ func (m *ManualSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Clie
 	}
 
 	return added, nil
+}
+
+// maxCardHTML bounds the diagnostic card markup kept on a held-back listing.
+const maxCardHTML = 4096
+
+func boundedCardHTML(html string) string {
+	html = strings.Join(strings.Fields(html), " ")
+	if len(html) > maxCardHTML {
+		html = strings.ToValidUTF8(html[:maxCardHTML], "") + "…"
+	}
+	return html
 }

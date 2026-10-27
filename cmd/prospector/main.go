@@ -160,6 +160,8 @@ func main() {
 		r.Post("/opportunities/{id}/track", handler.OpportunityTrack)
 		r.Get("/sources", handler.Sources)
 		r.Post("/sources/{name}/run", handler.SourceRun)
+		r.Get("/sources/held", handler.HeldListings)
+		r.Post("/sources/held/{id}/attach", handler.HeldListingAttach)
 		r.Get("/companies/{id}/plan", handler.CompanyPlan)
 		r.Get("/companies/{id}/contact-search", handler.ContactDiscovery)
 		r.Post("/companies/{id}/assess", handler.CompanyAssess)

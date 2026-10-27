@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -57,7 +58,22 @@ func ingestionReview(ctx context.Context, tx pgx.Tx, d opportunity.DiscoveredOpp
 	if err != nil {
 		return IngestionResult{}, err
 	}
-	sum := sha256.Sum256(append([]byte(reason), raw...))
+	// The diagnostic key ignores which search query found the listing, as the content hash does:
+	// otherwise one held card found by ten searches was recorded, and counted, ten times.
+	keyed := d
+	if _, ok := d.Metadata["listing_url"]; ok {
+		keyed.Metadata = map[string]string{}
+		for k, v := range d.Metadata {
+			if k != "listing_url" {
+				keyed.Metadata[k] = v
+			}
+		}
+	}
+	keyRaw, err := json.Marshal(keyed)
+	if err != nil {
+		return IngestionResult{}, err
+	}
+	sum := sha256.Sum256(append([]byte(reason), keyRaw...))
 	_, err = tx.Exec(ctx, `INSERT INTO ingestion_review(diagnostic_key,source,reason,discovery) VALUES($1,$2,$3,$4) ON CONFLICT(diagnostic_key) DO UPDATE SET last_seen_at=now(),observations=ingestion_review.observations+1`, hex.EncodeToString(sum[:]), d.Source, reason, raw)
 	return IngestionResult{ReviewReason: reason}, err
 }
@@ -96,8 +112,17 @@ func ingestOpportunity(ctx context.Context, tx pgx.Tx, d opportunity.DiscoveredO
 		if err = tx.QueryRow(ctx, `SELECT name FROM company WHERE id=$1`, companyID).Scan(&name); err != nil {
 			return IngestionResult{}, err
 		}
-		if (d.CompanyID != 0 && d.CompanyID != companyID) || normalizeCompany(name) != normalizeCompany(d.CompanyName) {
+		if d.CompanyID != 0 && d.CompanyID != companyID {
 			return ingestionReview(ctx, tx, d, "source_employer_changed")
+		}
+		if normalizeCompany(name) != normalizeCompany(d.CompanyName) {
+			aliased, err := aliasCompany(ctx, tx, d.CompanyName)
+			if err != nil {
+				return IngestionResult{}, err
+			}
+			if aliased != companyID {
+				return ingestionReview(ctx, tx, d, "source_employer_changed")
+			}
 		}
 	} else {
 		var reason string
@@ -157,6 +182,10 @@ func resolveOpportunityCompany(ctx context.Context, tx pgx.Tx, d opportunity.Dis
 	}
 	if d.CompanyName == "" {
 		return 0, "missing_employer", nil
+	}
+	// An operator already decided which company this employer name belongs to.
+	if aliased, err := aliasCompany(ctx, tx, d.CompanyName); err != nil || aliased != 0 {
+		return aliased, "", err
 	}
 	rows, err := tx.Query(ctx, `SELECT id,name,domain FROM company WHERE lower(regexp_replace(trim(name),'\s+',' ','g'))=$1 OR ($2<>'' AND lower(domain)=lower($2))`, normalizeCompany(d.CompanyName), d.DomainCandidate)
 	if err != nil {
@@ -297,4 +326,20 @@ func (db *DB) AllOpportunityIDs(ctx context.Context) ([]int64, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// aliasCompany returns the company an operator has attached this employer name to, or 0.
+func aliasCompany(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, companyName string) (int64, error) {
+	key := normalizeCompany(companyName)
+	if key == "" {
+		return 0, nil
+	}
+	var id int64
+	err := q.QueryRow(ctx, `SELECT company_id FROM company_alias WHERE normalized_name=$1`, key).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return id, err
 }

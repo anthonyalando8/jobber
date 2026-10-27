@@ -26,6 +26,8 @@
   <a href="/companies?business=agency" {{if eq .business "agency"}}class="active"{{end}}>Agencies &amp; consultancies</a>
 </nav>
 
+{{if eq .contactSearch "identity_blocked"}}<div class="alert alert-warning"><div><strong>Domain needs correcting.</strong> Contact search is paused for these companies because their stored domain does not establish who the employer is: it is missing, unverified, a job board, or disagrees with the employer site the listing published. Open a company, correct or confirm its domain, and the search runs again. <a href="/companies">Show all companies</a></div></div>{{end}}
+
 {{range .warnings}}<p class="filter-warning" role="status">{{.}}</p>{{end}}
 
 <form class="browse-filters" method="GET" action="/companies">
@@ -71,7 +73,7 @@
     </select>
   </label>
   <div class="filter-actions"><a href="/companies">Clear</a><button type="submit" class="btn-primary">Apply</button></div>
-  <details class="filter-more" {{if or .segment .market .created .source .hasOpportunities .hasStrong .business .sort}}open{{end}}>
+  <details class="filter-more" {{if or .segment .market .created .source .hasOpportunities .hasStrong .business .contactSearch .sort}}open{{end}}>
     <summary>More filters</summary>
     <div class="filter-more-grid">
       <label>Business type
@@ -82,6 +84,16 @@
           <option value="incubator" {{if eq .business "incubator"}}selected{{end}}>Incubator</option>
           <option value="enterprise" {{if eq .business "enterprise"}}selected{{end}}>Enterprise</option>
           <option value="unknown" {{if eq .business "unknown"}}selected{{end}}>Not classified</option>
+        </select>
+      </label>
+      <label>Contact search
+        <select name="contact_search">
+          <option value="">Any</option>
+          <option value="identity_blocked" {{if eq .contactSearch "identity_blocked"}}selected{{end}}>Waiting on a domain correction</option>
+          <option value="pending" {{if eq .contactSearch "pending"}}selected{{end}}>Queued</option>
+          <option value="completed" {{if eq .contactSearch "completed"}}selected{{end}}>Completed</option>
+          <option value="no_result" {{if eq .contactSearch "no_result"}}selected{{end}}>No result</option>
+          <option value="failed" {{if eq .contactSearch "failed"}}selected{{end}}>Failed</option>
         </select>
       </label>
       <label>Order

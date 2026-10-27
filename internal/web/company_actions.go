@@ -212,6 +212,11 @@ func (h *Handler) CompanyVerifyDomain(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to update domain status", http.StatusInternalServerError)
 		return
 	}
+	// A confirmed domain answers an identity block, so the contact search may run again.
+	if err := h.db.RequeueBlockedContactDiscovery(ctx, id); err != nil {
+		log.Printf("requeue contact search for company %d: %v", id, err)
+	}
+	h.invalidateDashboard()
 
 	h.logActivity(ctx, "verify", company.Name+"'s domain manually confirmed", true)
 	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
@@ -249,6 +254,10 @@ func (h *Handler) CompanyUpdateDomain(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to update domain status", http.StatusInternalServerError)
 		return
 	}
+	if err := h.db.RequeueBlockedContactDiscovery(ctx, id); err != nil {
+		log.Printf("requeue contact search for company %d: %v", id, err)
+	}
+	h.invalidateDashboard()
 
 	h.logActivity(ctx, "verify", fmt.Sprintf("Corrected %s's domain to %s", company.Name, domain), true)
 

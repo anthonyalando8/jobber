@@ -230,6 +230,21 @@
 
 <aside>
 
+<section class="card{{if .identityBlock}} card-tone-warning{{end}}" id="company-domain" style="scroll-margin-top:16px">
+  <div class="card-head"><div><h2>Domain</h2><p>The employer's own website. Contact search only runs once it is confirmed.</p></div></div>
+  {{if .identityBlock}}<div class="alert alert-warning"><div><strong>Correct this domain to resume contact search.</strong> {{.identityBlock}}</div></div>{{end}}
+  <dl class="kv">
+    <dt>Stored domain</dt><dd>{{if .company.Domain}}{{.company.Domain}}{{else}}<span class="muted">None</span>{{end}}</dd>
+    <dt>Status</dt><dd>{{if eq .company.DomainStatus "verified"}}Verified{{else if eq .company.DomainStatus "manual"}}Confirmed by you{{else if eq .company.DomainStatus "candidate"}}Unverified guess{{else if eq .company.DomainStatus "failed"}}Could not be verified{{else}}Unknown{{end}}</dd>
+  </dl>
+  <form class="stack-form card-section" method="POST" action="/companies/{{.company.ID}}/domain/update">
+    <label class="field">Correct domain<input type="text" name="domain" value="{{.company.Domain}}" placeholder="example.com" required {{if .identityBlock}}aria-invalid="true" autofocus{{end}}></label>
+    <input type="hidden" name="return_to" value="/companies/{{.company.ID}}#company-domain">
+    <div class="btn-row"><button type="submit" class="btn-primary btn-sm">Save domain</button></div>
+    <p class="help">Saving marks the domain as confirmed by you and queues the contact search again.</p>
+  </form>
+</section>
+
 <section class="card">
   <div class="card-head"><h2>Details</h2></div>
   <dl class="kv">

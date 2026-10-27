@@ -14,6 +14,9 @@ type DashboardCounts struct {
 	CompositionReview, ApprovalPending, Queued, Running, Failed                          int
 	Sent, Replies, Bounces, Reconciliation, ResearchQueue, Unresearched, LegacyDrafts    int
 	HourUsed, DayUsed, Reserved, ProviderFailures                                        int
+	// Suppressed counts postings under a live suppression; Opportunities and the match counts
+	// exclude them.
+	Suppressed int
 	// Contact discovery. StrongMissingDestination is the number that names the bottleneck
 	// directly: strong matches with nowhere acceptable to send an application.
 	StrongMissingDestination, ContactSearchPending, ContactSearchToday            int
@@ -26,19 +29,25 @@ type DashboardCounts struct {
 // Match counts use only assessments of current opportunity revisions.
 func (db *DB) DashboardCounts(ctx context.Context) (*DashboardCounts, error) {
 	c := &DashboardCounts{}
-	err := db.QueryRow(ctx, `WITH matches AS (
- SELECT o.id,m.classification FROM opportunity o JOIN opportunity_match m ON m.opportunity_id=o.id AND m.opportunity_revision=o.current_revision
+	// Opportunity counts leave out postings under a live suppression (expired, filled, taken
+	// down), exactly as the Opportunities list does by default, so each card's number is the
+	// number of rows the list it links to shows. Suppressed postings are counted on their own.
+	err := db.QueryRow(ctx, `WITH live AS (
+ SELECT o.* FROM opportunity o WHERE NOT `+liveSuppression+`
+ ), matches AS (
+ SELECT o.id,m.classification FROM live o JOIN opportunity_match m ON m.opportunity_id=o.id AND m.opportunity_revision=o.current_revision
  JOIN candidate_profile p ON p.active_revision_id=m.profile_revision_id WHERE m.matcher_version=$1
  ), compositions AS (
  SELECT c.*,d.state AS draft_state FROM draft_composition c JOIN draft d ON d.id=c.draft_id
  ) SELECT
  (SELECT count(*) FROM company),
- (SELECT count(*) FROM opportunity),
+ (SELECT count(*) FROM live),
+ (SELECT count(*) FROM opportunity o WHERE `+liveSuppression+`),
  (SELECT count(*) FROM matches WHERE classification='strong_match'),
  (SELECT count(*) FROM matches WHERE classification='possible_match'),
  (SELECT count(*) FROM matches WHERE classification='unrelated'),
- (SELECT count(*) FROM opportunity o WHERE NOT EXISTS(SELECT 1 FROM matches m WHERE m.id=o.id)),
- (SELECT count(*) FROM opportunity WHERE selection_status='review_required'),
+ (SELECT count(*) FROM live o WHERE NOT EXISTS(SELECT 1 FROM matches m WHERE m.id=o.id)),
+ (SELECT count(*) FROM live WHERE selection_status='review_required'),
  (SELECT count(*) FROM compositions WHERE status='review_required' AND draft_state NOT IN ('sent','discarded')),
  (SELECT count(*) FROM compositions c WHERE status='reviewed' AND draft_state NOT IN ('sent','discarded') AND NOT EXISTS(SELECT 1 FROM send_approval a WHERE a.draft_id=c.draft_id AND a.composition_revision=c.current_revision AND a.revoked_at IS NULL)),
  (SELECT count(*) FROM compositions WHERE status='queued'),
@@ -55,7 +64,7 @@ func (db *DB) DashboardCounts(ctx context.Context) (*DashboardCounts, error) {
  (SELECT count(*) FROM composition_call WHERE started_at>now()-interval '24 hours'),
  (SELECT COALESCE(sum(remaining),0) FROM composition_reservation WHERE expires_at>now()),
  (SELECT count(*) FROM draft_composition_revision WHERE created_at>now()-interval '24 hours' AND (COALESCE(attempt->'compose_metadata'->>'error_category','')<>'' OR COALESCE(attempt->'review_metadata'->>'error_category','')<>'')),
- (SELECT count(DISTINCT o.company_id) FROM opportunity o JOIN matches m ON m.id=o.id
+ (SELECT count(DISTINCT o.company_id) FROM live o JOIN matches m ON m.id=o.id
    WHERE m.classification='strong_match' AND o.availability_status<>'closed' AND o.selection_status<>'ignored'
      AND NOT `+acceptableDestination+`),
  (SELECT count(*) FROM contact_discovery_task WHERE state='pending'),
@@ -69,7 +78,7 @@ func (db *DB) DashboardCounts(ctx context.Context) (*DashboardCounts, error) {
  (SELECT count(*) FROM contact_candidate WHERE kind='person' AND email='' AND status NOT IN ('rejected','superseded')),
  (SELECT max(last_researched_at) FROM company),
  (SELECT EXISTS(SELECT 1 FROM candidate_profile WHERE active_revision_id IS NOT NULL))
- `, opportunity.MatcherVersion).Scan(&c.Companies, &c.Opportunities, &c.Strong, &c.Possible, &c.Unrelated, &c.Unassessed, &c.OpportunityReview,
+ `, opportunity.MatcherVersion).Scan(&c.Companies, &c.Opportunities, &c.Suppressed, &c.Strong, &c.Possible, &c.Unrelated, &c.Unassessed, &c.OpportunityReview,
 		&c.CompositionReview, &c.ApprovalPending, &c.Queued, &c.Running, &c.Failed, &c.Sent, &c.Replies, &c.Bounces, &c.Reconciliation,
 		&c.ResearchQueue, &c.Unresearched, &c.LegacyDrafts, &c.HourUsed, &c.DayUsed, &c.Reserved, &c.ProviderFailures,
 		&c.StrongMissingDestination, &c.ContactSearchPending, &c.ContactSearchToday, &c.ContactSearchNoResult,
@@ -89,6 +98,7 @@ func (db *DB) DashboardOpportunities(ctx context.Context) ([]DashboardOpportunit
  LEFT JOIN opportunity_match m ON m.opportunity_id=o.id AND m.opportunity_revision=o.current_revision
  AND m.profile_revision_id=(SELECT active_revision_id FROM candidate_profile LIMIT 1) AND m.matcher_version=$1
  WHERE o.availability_status<>'closed' AND o.selection_status<>'ignored' AND (o.selection_status='review_required' OR m.classification IN ('strong_match','possible_match'))
+ AND NOT `+liveSuppression+`
  ORDER BY CASE WHEN o.selection_status='review_required' THEN 0 WHEN m.classification='strong_match' THEN 1 ELSE 2 END,o.updated_at DESC,o.id DESC LIMIT 5`, opportunity.MatcherVersion)
 	if err != nil {
 		return nil, err

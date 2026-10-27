@@ -224,7 +224,11 @@ type IngestionReviewCount struct {
 
 // IngestionReviewCounts summarises held-back listings per source and reason.
 func (db *DB) IngestionReviewCounts(ctx context.Context) ([]IngestionReviewCount, error) {
-	rows, err := db.Query(ctx, `SELECT source,reason,count(*) FROM ingestion_review GROUP BY source,reason ORDER BY count(*) DESC LIMIT 50`)
+	// Only listings the source published again in the last week and nobody has resolved: a listing
+	// held back before a fix, and never seen since, no longer describes a live problem.
+	rows, err := db.Query(ctx, `SELECT source,reason,count(*) FROM ingestion_review
+ WHERE resolved_at IS NULL AND last_seen_at > now()-interval '7 days'
+ GROUP BY source,reason ORDER BY count(*) DESC LIMIT 50`)
 	if err != nil {
 		return nil, err
 	}

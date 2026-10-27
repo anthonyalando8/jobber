@@ -108,6 +108,9 @@ type CompanyFilter struct {
 	Source, Research, HasOpportunities, HasStrong string
 	// Lead selects one lead category (see leadCategorySQL); Business one business_segment value.
 	Lead, Business string
+	// ContactSearch selects companies whose contact search is in this state, such as
+	// "identity_blocked" for those waiting on a domain correction.
+	ContactSearch string
 	// Sort is "lead" (the default: strongest evidence of paid work first), "score" or "newest".
 	Sort string
 }
@@ -210,6 +213,11 @@ func companyFilterClause(f CompanyFilter, args []interface{}) (string, []interfa
 	if f.Business != "" {
 		clause += ` AND business_segment=$` + strconv.Itoa(argNum)
 		args = append(args, f.Business)
+		argNum++
+	}
+	if f.ContactSearch != "" {
+		clause += ` AND EXISTS(SELECT 1 FROM contact_discovery_task t WHERE t.company_id=company.id AND t.state=$` + strconv.Itoa(argNum) + `)`
+		args = append(args, f.ContactSearch)
 		argNum++
 	}
 	if f.HasStrong != "" {

@@ -46,11 +46,11 @@
   {{else}}<p class="empty">Nothing stored yet. Use <strong>Fetch all now</strong> to run every source.</p>{{end}}
 </section>
 <section class="card">
-  <div class="card-head"><div><h2>Listings held back</h2><p>Listings a source published that could not be stored as-is, usually because no employer was named. They are kept for inspection, not discarded silently.</p></div></div>
+  <div class="card-head"><div><h2>Listings held back</h2><p>Listings sources published in the last 7 days that could not be stored as-is. Open a count to see each listing, why it was held and what can be done.</p></div><a class="btn btn-sm" href="/sources/held">View all</a></div>
   {{if .Held}}
   <div class="table-wrap"><table>
     <thead><tr><th>Source</th><th>Reason</th><th>Listings</th></tr></thead>
-    <tbody>{{range .Held}}<tr><td>{{.Source}}</td><td>{{.Reason}}</td><td class="num">{{.Count}}</td></tr>{{end}}</tbody>
+    <tbody>{{range .Held}}<tr><td>{{.Source}}</td><td>{{$r := index $.Reasons .Reason}}{{if $r.Label}}{{$r.Label}}{{else}}{{.Reason}}{{end}}</td><td class="num"><a href="/sources/held?source={{.Source}}&amp;reason={{.Reason}}">{{.Count}} · Review</a></td></tr>{{end}}</tbody>
   </table></div>
   {{else}}<p class="empty">No listings held back.</p>{{end}}
 </section>

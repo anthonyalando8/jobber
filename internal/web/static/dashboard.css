@@ -24,25 +24,26 @@ progress::-webkit-progress-value { background: var(--accent); border-radius: 6px
 progress::-moz-progress-bar { background: var(--accent); }
 
 .problems { border: 1px solid var(--warning-line); background: var(--warning-soft); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: var(--warning); }
-.problems summary { font-weight: 600; }
-.problems ul { margin: 6px 0 0; }
+.problems summary { font-weight: 600; cursor: pointer; }
+.problems ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.problems li { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 6px 0; border-top: 1px solid var(--warning-line); }
+.problems li:first-child { border-top: 0; }
+.problems li a { flex: none; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--warning); text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.problems li a:hover { color: var(--text); }
+.problems .link-arrow { width: 14px; height: 14px; }
 
-/* Metrics */
+/* Metrics: neutral cards, the number carries the weight. Colour appears only where it means
+   something: a count that is waiting on you. */
 .metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-.metric { position: relative; display: block; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 14px 16px 14px 18px; color: var(--text); min-width: 0; overflow: hidden; transition: border-color .12s; }
-.prospector-dashboard a.metric:hover, .metric-split:hover { border-color: var(--border-strong); text-decoration: none; }
+.metric { display: flex; flex-direction: column; min-height: 108px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; color: var(--text); min-width: 0; transition: border-color .12s; }
+.prospector-dashboard a.metric:hover, .prospector-dashboard .metric:hover { border-color: var(--border-strong); text-decoration: none; }
 .metric-main { display: block; color: var(--text); }
 .prospector-dashboard .metric-main:hover { text-decoration: none; color: var(--text); }
-.metric-tone { position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--border-strong); }
-.metric-tone.blue { background: var(--accent); }
-.metric-tone.violet { background: var(--violet); }
-.metric-tone.green { background: var(--success); }
-.metric-tone.amber { background: #dc6803; }
-.metric-tone.red { background: var(--danger); }
-.metric strong { display: block; font-size: 22px; line-height: 1.2; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
-.metric h2 { font-size: 13px; font-weight: 500; color: var(--text-2); margin: 2px 0 2px; }
-.metric p { font-size: 12px; color: var(--muted); margin: 0; }
-.metric-secondary { display: block; font-size: 12px; margin-top: 2px; }
+.metric h2 { font-size: 12.5px; font-weight: 500; color: var(--text-2); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metric strong { display: block; margin-top: 6px; font-size: 26px; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: var(--text); }
+.metric-detail { margin: auto 0 0; padding-top: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+a.metric-secondary { color: var(--accent); }
+.metric-attention strong { color: var(--warning); }
 
 /* Cards grid */
 .operations-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
@@ -110,6 +111,7 @@ progress::-moz-progress-bar { background: var(--accent); }
 @media (max-width: 900px) {
   .dashboard-main { margin-left: 0; padding: 20px 16px 40px; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric h2, .metric-detail { white-space: normal; }
   .operations-grid { grid-template-columns: 1fr; }
   .system-item { min-width: 140px; }
 }

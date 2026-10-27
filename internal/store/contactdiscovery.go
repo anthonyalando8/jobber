@@ -712,3 +712,34 @@ func nullableID(id int64) *int64 {
 	}
 	return &id
 }
+
+// IdentityBlockedCompanies returns up to limit companies whose contact search is refused until
+// their employer identity (in practice, their domain) is corrected, most recently blocked first.
+func (db *DB) IdentityBlockedCompanies(ctx context.Context, limit int) ([]int64, error) {
+	rows, err := db.Query(ctx, `SELECT company_id FROM contact_discovery_task
+		 WHERE state='identity_blocked' ORDER BY updated_at DESC, company_id LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []int64{}
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// RequeueBlockedContactDiscovery puts a company whose search was refused for identity back in the
+// queue, for when a person has just corrected or confirmed its domain. The block was a judgement
+// about the old domain, so it no longer stands; the next search re-checks identity against the new
+// one and blocks again if it still does not hold. Other states are left alone.
+func (db *DB) RequeueBlockedContactDiscovery(ctx context.Context, companyID int64) error {
+	_, err := db.Exec(ctx, `UPDATE contact_discovery_task
+		   SET state='pending', next_eligible_at=now(), failure_reason='', updated_at=now()
+		 WHERE company_id=$1 AND state='identity_blocked'`, companyID)
+	return err
+}

@@ -142,7 +142,7 @@ func safeReturn(raw, fallback string) string {
 	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Opaque != "" {
 		return fallback
 	}
-	allowed := map[string]bool{"/": true, "/opportunities": true, "/companies": true, "/compositions": true, "/threads": true, "/messages": true, "/search": true, "/legacy/drafts": true, "/legacy/threads": true}
+	allowed := map[string]bool{"/sources/held": true, "/sources": true, "/": true, "/opportunities": true, "/companies": true, "/compositions": true, "/threads": true, "/messages": true, "/search": true, "/legacy/drafts": true, "/legacy/threads": true}
 	if !allowed[u.Path] && !entityReturnPath.MatchString(u.Path) && !planReturnPath.MatchString(u.Path) &&
 		!contactSearchReturnPath.MatchString(u.Path) {
 		return fallback
