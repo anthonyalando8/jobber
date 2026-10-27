@@ -27,3 +27,4 @@ Thumbs.db
 
 # Local database backups and inspection reports (may contain personal data)
 .local/
+dump.rdb
