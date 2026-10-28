@@ -308,6 +308,10 @@ type CreatePlanRequest struct {
 	Intent        plan.Intent
 	ContactID     int64
 	Origin        string
+	// OverrideReason, when set, records the operator's decision to proceed despite blockers
+	// that are judgements (see plan.Decision.Overridable), and why.
+	OverrideReason string
+	OverriddenBy   string
 }
 
 // CreatePlan records an explicit contact plan. It refuses without an active approved profile,
@@ -323,6 +327,11 @@ func (s *Service) CreatePlan(ctx context.Context, req CreatePlanRequest) (*store
 	}
 	if !p.View.Profile.Active {
 		return nil, fmt.Errorf("no candidate profile revision is active: %s", p.View.Profile.Reason)
+	}
+	if !p.Decision.Ready() && strings.TrimSpace(req.OverrideReason) != "" {
+		if p.Decision, err = p.Decision.Override(req.OverrideReason, req.OverriddenBy); err != nil {
+			return nil, err
+		}
 	}
 	if !p.Decision.Ready() {
 		return nil, fmt.Errorf("cannot record this plan: %s", firstReason(p.Decision))

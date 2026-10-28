@@ -48,6 +48,13 @@ technology names the email may contain. do_not_mention lists technologies the jo
 asks for that are NOT approved: never write any of them, in any form, for any reason.
 The email is checked against exactly these lists after you write it.
 
+The sender's own reason: when review_reasons contains code operator_override, its
+text is the sender's own reason for writing to this company, decided after their own
+look at it. Use it as the purpose of the email. Write it as the sender's own
+observation or offer ("I had a look at your online store and ..."), never as
+something the company said, and never as a defect the facts do not show: offer to
+help, do not diagnose a problem. It adds no candidate facts.
+
 Resources must reflect their exact state. available_on_request means offer to
 share, NEVER 'attached'. This phase has no attachments: never write "attached",
 "attachment" or "enclosed". Mention a CV only when the snapshot's resources include

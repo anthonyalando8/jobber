@@ -370,3 +370,68 @@ func TestStaleAssessmentIsNotUsedAsCurrentFit(t *testing.T) {
 		t.Fatal("a plan must not be recorded against a stale assessment")
 	}
 }
+
+// The Design Gallery case: research found only a checkout, so offering services is blocked. The
+// operator, having looked at the site, can overrule that with a stated reason; the reason and the
+// overruled rule are kept on the plan and reach the email writer.
+func TestOperatorCanOverrideRelevanceBlockerWithAReason(t *testing.T) {
+	db := scratchDB(t)
+	ctx := context.Background()
+	service := New(db)
+	activateProfile(t, db)
+	jobID := ingest(t, db, "Gallery Shop", "g-1", "Marketing Associate", "Requirements:\n- Social media marketing\n")
+	row, err := db.GetOpportunity(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateContact(ctx, row.CompanyID, "email", "customerservice@gallery-shop.example", nil, nil, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.UpsertEvidence(ctx, row.CompanyID, store.EvidenceInput{
+		Kind: "checkout_present", Detail: "Checkout or payment functionality is present on the site",
+		SourceURL: "https://gallery-shop.example", ExtractionMethod: "site_text_v1", Confidence: "medium",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RefreshCompany(ctx, row.CompanyID); err != nil {
+		t.Fatal(err)
+	}
+
+	proposal, err := service.Propose(ctx, row.CompanyID, 0, plan.ServiceOutreach)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.Decision.Ready() || !proposal.Decision.Overridable() {
+		t.Fatalf("a checkout alone should block, overridably: %+v", proposal.Decision)
+	}
+	if _, err := service.CreatePlan(ctx, CreatePlanRequest{CompanyID: row.CompanyID, Intent: plan.ServiceOutreach, Origin: "manual"}); err == nil {
+		t.Fatal("without an override the blocker must still hold")
+	}
+	reason := "Their site is an online store; I want to offer to improve its speed and checkout."
+	created, err := service.CreatePlan(ctx, CreatePlanRequest{CompanyID: row.CompanyID, Intent: plan.ServiceOutreach, Origin: "manual",
+		OverrideReason: reason, OverriddenBy: "anthony"})
+	if err != nil {
+		t.Fatalf("override refused: %v", err)
+	}
+	if !created.RequiresReview || !created.Reasons.Has(plan.OperatorOverrideCode) || !created.Reasons.Has("overridden_no_company_relevance") {
+		t.Fatalf("override not recorded on the plan: %v", created.Reasons.Codes())
+	}
+	snapshot, err := db.BuildCompositionSnapshot(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range snapshot.ReviewReasons {
+		found = found || (r.Code == plan.OperatorOverrideCode && r.Text == reason)
+	}
+	if !found {
+		t.Fatal("the operator's reason does not reach the email writer")
+	}
+
+	// Applying for the unrelated vacancy is still refused, with or without a reason; the
+	// blocker names the speculative and service routes instead.
+	if _, err := service.CreatePlan(ctx, CreatePlanRequest{CompanyID: row.CompanyID, OpportunityID: jobID, Intent: plan.SpecificJobApplication,
+		Origin: "manual", OverrideReason: reason}); err == nil {
+		t.Fatal("an unrelated vacancy became a specific application")
+	}
+}

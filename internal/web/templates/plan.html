@@ -45,7 +45,15 @@
     {{if .Proposal.Decision.TargetFamilies}}<div><span class="muted small">Target families</span><strong>{{range .Proposal.Decision.TargetFamilies}}{{.Name}} {{end}}</strong></div>{{end}}
     {{if .Proposal.Decision.RequiresReview}}<div><span class="badge amber">Requires review</span></div>{{end}}
   </div>
-  {{if .Proposal.Decision.Blockers}}<div class="alert alert-danger"><div><strong>Blockers</strong><ul>{{range .Proposal.Decision.Blockers}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul></div></div>{{end}}
+  {{if .Proposal.Decision.Blockers}}<div class="alert alert-danger"><div><strong>Blockers</strong><ul class="blocker-list">{{range .Proposal.Decision.Blockers}}<li>{{.Text}} <code>{{.Code}}</code>
+    <div class="blocker-fix"><strong>How to resolve:</strong>
+    {{if eq .Code "no_company_relevance"}} if you know a reason to contact them that research did not find, <a href="#record-plan">override it in step 5</a> and say what it is: it becomes the purpose of the email. Or <a href="/companies/{{$.View.Company.ID}}">research the company again</a> to look for evidence on their site.
+    {{else if eq .Code "service_work_not_permitted"}} your profile says you do not take service work. <a href="#record-plan">Override it in step 5</a> for this company, or change your engagement preferences on the <a href="/profile">candidate profile</a>.
+    {{else if eq .Code "unrelated_application_role"}} you cannot apply for a role outside your profile as if it fitted. To contact them about developer work anyway, <a href="/companies/{{$.View.Company.ID}}/plan?intent=speculative_job_enquiry{{if $.Selected}}&amp;opportunity={{$.Selected}}{{end}}">ask speculatively</a> or <a href="/companies/{{$.View.Company.ID}}/plan?intent=service_outreach">offer services</a> instead; both can be overridden if they are blocked.
+    {{else if eq .Code "profile_required"}} <a href="/profile">activate a candidate profile</a>, then reopen this plan.
+    {{else if eq .Code "no_opportunity_selected"}} select the vacancy in step 1, or choose another intent.
+    {{else}} choose one of the intents above.{{end}}
+    </div></li>{{end}}</ul></div></div>{{end}}
   {{if .Proposal.Decision.Reasons}}<details class="disclosure"><summary>Reasons <span class="summary-meta">{{len .Proposal.Decision.Reasons}}</span></summary><div class="disclosure-body"><ul class="reason-list">{{range .Proposal.Decision.Reasons}}<li>{{.Text}} <code>{{.Code}}</code></li>{{end}}</ul></div></details>{{end}}
 </section>
 
@@ -101,6 +109,7 @@
         <div class="small">{{if .OpportunityID}}Applying for <a href="/opportunities/{{.OpportunityID}}">{{.OpportunityTitle}}</a> at source revision {{.OpportunityRevision}}
           {{else if .ProvenanceOpportunityID}}<span class="muted">Provenance only:</span> <a href="/opportunities/{{.ProvenanceOpportunityID}}">{{.ProvenanceTitle}}</a>
           {{else}}<span class="muted">No vacancy</span>{{end}}{{if .TargetFamilies}} · target {{range .TargetFamilies}}{{.Name}} {{end}}{{end}}</div>
+        {{range .Reasons}}{{if eq .Code "operator_override"}}<div class="small"><span class="badge amber">Blockers overridden</span> {{.Text}}</div>{{end}}{{end}}
       </div>
       {{if eq .Status "selected"}}<form method="post" action="/plans/{{.ID}}/compose"><button class="btn-primary">Compose and review email</button></form>{{end}}
     </div>
@@ -123,7 +132,7 @@
 </div>
 <aside>
 
-<section class="card sticky">
+<section class="card sticky" id="record-plan">
   <div class="card-head"><div><h2><span class="step">5</span>Record this plan</h2></div></div>
   {{if .Proposal.Decision.Ready}}
   <form class="stack-form" method="post" action="/companies/{{.View.Company.ID}}/plans">
@@ -139,8 +148,25 @@
     <button class="btn-primary" style="width:100%">Record contact plan</button>
   </form>
   <p class="help">Recording fixes the intent, target families, pinned vacancy revision, recipient and allowed proof. It does not authorize sending.</p>
+  {{else if .Proposal.Decision.Overridable}}
+  <div class="alert alert-warning"><div>The rules would not contact this company as <strong>{{.Proposal.Decision.Intent}}</strong>. You can overrule them: say why you are contacting them. Your reason is recorded on the plan, shown to the email writer as the purpose of the message, and the plan always needs review.</div></div>
+  <form class="stack-form" method="post" action="/companies/{{.View.Company.ID}}/plans">
+    <input type="hidden" name="opportunity_id" value="{{.Selected}}">
+    <input type="hidden" name="intent" value="{{.Proposal.Decision.Intent}}">
+    <label class="field">Your reason for contacting them
+      <textarea name="override_reason" rows="4" minlength="15" maxlength="600" required placeholder="e.g. Their site is an online store; I want to offer to improve its speed and checkout, or ask whether they need a developer."></textarea></label>
+    <label class="field">Recipient
+      <select name="contact_id" required>
+        {{range .Proposal.Recipients}}{{if ne .Relevance "unusable"}}<option value="{{.Assessment.Contact.ID}}">{{.Assessment.Contact.Value}} ({{.Relevance}})</option>{{end}}{{end}}
+      </select></label>
+    <label class="field">Decided by<input type="text" name="overridden_by" value="operator" maxlength="80" required></label>
+    <button class="btn-primary" style="width:100%">Override and record plan</button>
+  </form>
+  <p class="help">The blockers stay on the plan as overridden, so the decision is visible later. Overriding does not approve or send anything.</p>
+  {{else if not .Proposal.Decision.Intent}}
+  <div class="alert alert-danger"><div>The rules found nothing to propose here. Choose <a href="/companies/{{.View.Company.ID}}/plan?intent=speculative_job_enquiry">Speculative job enquiry</a> or <a href="/companies/{{.View.Company.ID}}/plan?intent=service_outreach">Offer services</a> in step 2; if it is blocked you can then override it here.</div></div>
   {{else}}
-  <div class="alert alert-danger"><div>No plan can be recorded from the current decision ({{.Proposal.Decision.Outcome}}). Resolve the blockers first.</div></div>
+  <div class="alert alert-danger"><div>No plan can be recorded yet ({{.Proposal.Decision.Outcome}}). Each blocker in step 2 says how to resolve it.</div></div>
   {{end}}
 </section>
 

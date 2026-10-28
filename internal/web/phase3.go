@@ -99,12 +99,17 @@ func (h *Handler) CompanyPlanCreate(w http.ResponseWriter, r *http.Request) {
 	created, err := h.assessor.CreatePlan(r.Context(), assess.CreatePlanRequest{
 		CompanyID: id, OpportunityID: opportunityID, ContactID: contactID,
 		Intent: plan.Intent(r.FormValue("intent")), Origin: "manual",
+		OverrideReason: r.FormValue("override_reason"), OverriddenBy: r.FormValue("overridden_by"),
 	})
 	if err != nil {
 		http.Error(w, "Cannot record this contact plan: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	h.logActivity(r.Context(), "plan", "Recorded "+created.Intent+" plan "+strconv.FormatInt(created.ID, 10), true)
+	message := "Recorded " + created.Intent + " plan " + strconv.FormatInt(created.ID, 10)
+	if r.FormValue("override_reason") != "" {
+		message += " (blockers overridden by the operator)"
+	}
+	h.logActivity(r.Context(), "plan", message, true)
 	http.Redirect(w, r, "/companies/"+strconv.FormatInt(id, 10)+"/plan", http.StatusSeeOther)
 }
 

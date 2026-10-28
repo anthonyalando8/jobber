@@ -25,6 +25,11 @@ a tone or quality remark: a service_outreach or speculative_job_enquiry email th
 offers to apply, or asks for a position, contradicts its intent even when every
 sentence in it is true, and an application that pitches services does the same.
 
+When review_reasons contains code operator_override, the sender decided to contact
+this company for that reason after their own investigation. An email whose purpose
+follows that reason is not an unsupported reason to contact. Still treat as critical
+any company problem asserted as fact, and any candidate claim the facts do not support.
+
 Use three levels, and choose the lowest one that is honest.
 
 CRITICAL (severity block): the email would mislead the recipient. Wrong intent,

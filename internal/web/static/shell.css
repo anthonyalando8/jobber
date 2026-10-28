@@ -541,3 +541,5 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border-s
 .manual-approval h4{margin:0 0 4px}
 .check{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;line-height:1.4}
 .check input{margin-top:3px}
+.blocker-list li{margin-bottom:8px}
+.blocker-fix{margin-top:4px;font-size:13px}
