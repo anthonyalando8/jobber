@@ -30,6 +30,11 @@ this company for that reason after their own investigation. An email whose purpo
 follows that reason is not an unsupported reason to contact. Still treat as critical
 any company problem asserted as fact, and any candidate claim the facts do not support.
 
+When review_reasons contains code operator_note, it holds the sender's own findings
+and wishes. A statement written as the sender's own observation drawn from those notes
+is supported; one presented as the company's own words or as a confirmed defect is not.
+The notes never support a candidate claim beyond the approved facts.
+
 Use three levels, and choose the lowest one that is honest.
 
 CRITICAL (severity block): the email would mislead the recipient. Wrong intent,

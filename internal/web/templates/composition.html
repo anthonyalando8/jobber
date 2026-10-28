@@ -147,6 +147,7 @@
     <dt>Intent</dt><dd>{{.Draft.Snapshot.Intent}}</dd>
     <dt>Applied-for role</dt><dd>{{if .Draft.Snapshot.AdvertisedTitle}}{{.Draft.Snapshot.AdvertisedTitle}}{{else}}—{{end}}</dd>
     <dt>Recipient</dt><dd>{{.Draft.Snapshot.Recipient.Name}} {{.Draft.Snapshot.Recipient.Address}}<small class="muted" style="display:block">{{.Draft.Snapshot.Recipient.Function}}</small></dd>
+    {{range .Draft.Snapshot.ReviewReasons}}{{if eq .Code "operator_note"}}<dt>Your notes</dt><dd class="note-text">{{.Text}}</dd>{{else if eq .Code "operator_override"}}<dt>Your reason</dt><dd class="note-text">{{.Text}}</dd>{{end}}{{end}}
     <dt>Profile / plan</dt><dd>revision {{.Draft.Snapshot.ProfileRevisionID}} / {{.Draft.Snapshot.PlanRevision}}</dd>
     <dt>Snapshot hash</dt><dd class="mono">{{.Draft.Snapshot.InputHash}}</dd>
   </dl>

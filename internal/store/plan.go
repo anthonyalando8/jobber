@@ -153,6 +153,65 @@ func (db *DB) UpdatePlanRecipient(ctx context.Context, planID, contactID int64, 
 	return updated, tx.Commit(ctx)
 }
 
+// UpdatePlanNotes replaces the operator's notes for the email writer. Like any change to what the
+// email may say, it is a new plan revision: drafts composed from the previous revision become
+// stale rather than silently carrying old notes. An empty note removes it.
+func (db *DB) UpdatePlanNotes(ctx context.Context, planID int64, note string) (*ContactPlan, error) {
+	note, err := plan.CleanOperatorNote(note)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	current, err := readPlan(ctx, tx, planID)
+	if err != nil {
+		return nil, err
+	}
+	reasons := explain.Reasons{}
+	existing := ""
+	for _, r := range current.Reasons {
+		if r.Code == plan.OperatorNoteCode {
+			existing = r.Text
+			continue
+		}
+		reasons = append(reasons, r)
+	}
+	if existing == note {
+		return current, nil
+	}
+	if note != "" {
+		reasons = reasons.Add(plan.OperatorNoteCode, note)
+	}
+	raw, err := json.Marshal(reasons)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE contact_plan SET reasons=$2, revision=revision+1, updated_at=now() WHERE id=$1`, planID, raw); err != nil {
+		return nil, err
+	}
+	updated, err := readPlan(ctx, tx, planID)
+	if err != nil {
+		return nil, err
+	}
+	if err = insertPlanRevision(ctx, tx, *updated); err != nil {
+		return nil, err
+	}
+	return updated, tx.Commit(ctx)
+}
+
+// OperatorNote returns the plan's note for the email writer, if any.
+func (p *ContactPlan) OperatorNote() string {
+	for _, r := range p.Reasons {
+		if r.Code == plan.OperatorNoteCode {
+			return r.Text
+		}
+	}
+	return ""
+}
+
 // SetContactPlanStatus pauses, closes or reselects a plan. Plans are closed, never deleted.
 func (db *DB) SetContactPlanStatus(ctx context.Context, planID int64, status string) error {
 	switch status {

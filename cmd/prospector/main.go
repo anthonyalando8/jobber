@@ -170,6 +170,7 @@ func main() {
 		r.Post("/companies/{id}/assess", handler.CompanyAssess)
 		r.Post("/companies/{id}/plans", handler.CompanyPlanCreate)
 		r.Post("/plans/{id}/recipient", handler.PlanRecipient)
+		r.Post("/plans/{id}/notes", handler.PlanNotes)
 		r.Post("/plans/{id}/status", handler.PlanStatus)
 		r.Get("/sent", handler.Sent)
 		r.Post("/sent/{sendLogID}/resend", handler.SentResend)

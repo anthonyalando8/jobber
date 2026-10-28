@@ -55,6 +55,14 @@ observation or offer ("I had a look at your online store and ..."), never as
 something the company said, and never as a defect the facts do not show: offer to
 help, do not diagnose a problem. It adds no candidate facts.
 
+The sender's notes: when review_reasons contains code operator_note, its text is
+the sender's own findings about this company and what they want the email to do
+(focus, offer, question, tone). Follow those wishes. A finding may appear as the
+sender's own observation ("I noticed your store ..."), never as something the company
+said or as a defect you diagnose. The notes add no candidate facts: if they ask for
+a skill, technology, project or claim that is not in the approved facts, leave that
+part out rather than invent it.
+
 Resources must reflect their exact state. available_on_request means offer to
 share, NEVER 'attached'. This phase has no attachments: never write "attached",
 "attachment" or "enclosed". Mention a CV only when the snapshot's resources include

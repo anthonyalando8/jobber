@@ -110,6 +110,13 @@
           {{else if .ProvenanceOpportunityID}}<span class="muted">Provenance only:</span> <a href="/opportunities/{{.ProvenanceOpportunityID}}">{{.ProvenanceTitle}}</a>
           {{else}}<span class="muted">No vacancy</span>{{end}}{{if .TargetFamilies}} · target {{range .TargetFamilies}}{{.Name}} {{end}}{{end}}</div>
         {{range .Reasons}}{{if eq .Code "operator_override"}}<div class="small"><span class="badge amber">Blockers overridden</span> {{.Text}}</div>{{end}}{{end}}
+        <details class="inline-details writer-notes"{{if .OperatorNote}} open{{end}}><summary>{{if .OperatorNote}}Your notes for the email writer{{else}}Add notes for the email writer{{end}}</summary>
+          <form class="stack-form" method="post" action="/plans/{{.ID}}/notes">
+            <textarea name="writer_note" rows="4" maxlength="1500" placeholder="What you found and what you want the email to do.">{{.OperatorNote}}</textarea>
+            <button class="btn-sm">Save notes</button>
+            <p class="help">Saving makes a new plan revision. A draft written before it becomes stale; use Discard and compose again on it to write one with these notes.</p>
+          </form>
+        </details>
       </div>
       {{if eq .Status "selected"}}<form method="post" action="/plans/{{.ID}}/compose"><button class="btn-primary">Compose and review email</button></form>{{end}}
     </div>
@@ -145,6 +152,8 @@
       <select name="contact_id" required>
         {{range .Proposal.Recipients}}{{if ne .Relevance "unusable"}}<option value="{{.Assessment.Contact.ID}}">{{.Assessment.Contact.Value}} ({{.Relevance}})</option>{{end}}{{end}}
       </select></label>
+    <label class="field">Notes for the email writer <span class="field-hint">Optional</span>
+      <textarea name="writer_note" rows="4" maxlength="1500" placeholder="What you found and what you want the email to do. e.g. Their site is an online store with slow product pages; offer to speed it up and improve checkout. Keep it short and friendly."></textarea></label>
     <button class="btn-primary" style="width:100%">Record contact plan</button>
   </form>
   <p class="help">Recording fixes the intent, target families, pinned vacancy revision, recipient and allowed proof. It does not authorize sending.</p>
@@ -159,6 +168,8 @@
       <select name="contact_id" required>
         {{range .Proposal.Recipients}}{{if ne .Relevance "unusable"}}<option value="{{.Assessment.Contact.ID}}">{{.Assessment.Contact.Value}} ({{.Relevance}})</option>{{end}}{{end}}
       </select></label>
+    <label class="field">Notes for the email writer <span class="field-hint">Optional</span>
+      <textarea name="writer_note" rows="4" maxlength="1500" placeholder="What you found and what you want the email to do. e.g. Their site is an online store with slow product pages; offer to speed it up and improve checkout. Keep it short and friendly."></textarea></label>
     <label class="field">Decided by<input type="text" name="overridden_by" value="operator" maxlength="80" required></label>
     <button class="btn-primary" style="width:100%">Override and record plan</button>
   </form>

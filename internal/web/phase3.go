@@ -100,6 +100,7 @@ func (h *Handler) CompanyPlanCreate(w http.ResponseWriter, r *http.Request) {
 		CompanyID: id, OpportunityID: opportunityID, ContactID: contactID,
 		Intent: plan.Intent(r.FormValue("intent")), Origin: "manual",
 		OverrideReason: r.FormValue("override_reason"), OverriddenBy: r.FormValue("overridden_by"),
+		Note: r.FormValue("writer_note"),
 	})
 	if err != nil {
 		http.Error(w, "Cannot record this contact plan: "+err.Error(), http.StatusBadRequest)
@@ -156,6 +157,24 @@ func (h *Handler) PlanRecipient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Error(w, "That contact does not belong to this company", http.StatusBadRequest)
+}
+
+// PlanNotes replaces a plan's notes for the email writer: what the operator found and what they
+// want the email to do. It is a new plan revision, so existing drafts become stale and the next
+// draft is written with the new notes.
+func (h *Handler) PlanNotes(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		http.Error(w, "Invalid plan ID", http.StatusBadRequest)
+		return
+	}
+	updated, err := h.db.UpdatePlanNotes(r.Context(), id, r.FormValue("writer_note"))
+	if err != nil {
+		http.Error(w, "Cannot save the notes: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	h.logActivity(r.Context(), "plan", "Notes for the email writer updated on plan "+strconv.FormatInt(id, 10)+"; now revision "+strconv.Itoa(updated.Revision), true)
+	http.Redirect(w, r, "/companies/"+strconv.FormatInt(updated.CompanyID, 10)+"/plan#plan-"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
 // PlanStatus pauses, reselects or closes a plan. Plans are closed, never deleted.

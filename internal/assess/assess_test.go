@@ -435,3 +435,75 @@ func TestOperatorCanOverrideRelevanceBlockerWithAReason(t *testing.T) {
 		t.Fatal("an unrelated vacancy became a specific application")
 	}
 }
+
+// Notes for the email writer are part of the plan: recorded with it, carried into the
+// composition snapshot, revised as a new plan revision (so an older draft is stale), removable,
+// and bounded.
+func TestOperatorNotesTravelWithThePlan(t *testing.T) {
+	db := scratchDB(t)
+	ctx := context.Background()
+	service := New(db)
+	activateProfile(t, db)
+	jobID := ingest(t, db, "Notes Shop", "n-1", "Backend Engineer", backendJobText)
+	row, err := db.GetOpportunity(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateContact(ctx, row.CompanyID, "email", "jobs@notes-shop.example", nil, nil, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RefreshCompany(ctx, row.CompanyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreatePlan(ctx, CreatePlanRequest{CompanyID: row.CompanyID, OpportunityID: jobID, Intent: plan.SpecificJobApplication,
+		Origin: "manual", Note: strings.Repeat("x", plan.MaxOperatorNote+1)}); err == nil {
+		t.Fatal("an over-long note was accepted")
+	}
+	note := "Their careers page stresses API reliability; lead with the Bingwa API work."
+	created, err := service.CreatePlan(ctx, CreatePlanRequest{CompanyID: row.CompanyID, OpportunityID: jobID, Intent: plan.SpecificJobApplication,
+		Origin: "manual", Note: note})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.OperatorNote() != note {
+		t.Fatalf("note not recorded: %q", created.OperatorNote())
+	}
+	snapshot, err := db.BuildCompositionSnapshot(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carried := false
+	for _, r := range snapshot.ReviewReasons {
+		carried = carried || (r.Code == plan.OperatorNoteCode && r.Text == note)
+	}
+	if !carried {
+		t.Fatal("the note does not reach the email writer")
+	}
+
+	revised, err := db.UpdatePlanNotes(ctx, created.ID, "  Ask for a short call about their API platform.  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revised.Revision != created.Revision+1 || revised.OperatorNote() != "Ask for a short call about their API platform." {
+		t.Fatalf("revision %d note %q", revised.Revision, revised.OperatorNote())
+	}
+	count := 0
+	for _, r := range revised.Reasons {
+		if r.Code == plan.OperatorNoteCode {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("notes were appended, not replaced: %d", count)
+	}
+	if stale, err := db.CompositionStaleReasons(ctx, snapshot); err != nil || len(stale) == 0 {
+		t.Fatalf("a draft written before the new notes should be stale: %v %v", stale, err)
+	}
+	if same, err := db.UpdatePlanNotes(ctx, created.ID, "Ask for a short call about their API platform."); err != nil || same.Revision != revised.Revision {
+		t.Fatal("saving unchanged notes should not make a new revision")
+	}
+	cleared, err := db.UpdatePlanNotes(ctx, created.ID, "")
+	if err != nil || cleared.OperatorNote() != "" {
+		t.Fatalf("notes not removed: %v", err)
+	}
+}

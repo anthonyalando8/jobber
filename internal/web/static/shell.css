@@ -543,3 +543,6 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border-s
 .check input{margin-top:3px}
 .blocker-list li{margin-bottom:8px}
 .blocker-fix{margin-top:4px;font-size:13px}
+.note-text{white-space:pre-wrap}
+.writer-notes{margin-top:6px}
+.writer-notes .stack-form{margin-top:6px}

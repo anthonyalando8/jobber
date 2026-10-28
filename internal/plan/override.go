@@ -19,6 +19,23 @@ var overridable = map[string]bool{
 // with the plan into composition, where the writer may use it as the purpose of the message.
 const OperatorOverrideCode = "operator_override"
 
+// OperatorNoteCode marks the operator's own findings and wishes for the email ("their site is an
+// online store; offer to speed up checkout"). Like an override reason it travels with the plan
+// into composition, where both the writer and the reviewer read it.
+const OperatorNoteCode = "operator_note"
+
+// MaxOperatorNote bounds a note so it stays guidance rather than a second email.
+const MaxOperatorNote = 1500
+
+// CleanOperatorNote trims a note and refuses one that is too long.
+func CleanOperatorNote(note string) (string, error) {
+	note = strings.TrimSpace(strings.ReplaceAll(note, "\r\n", "\n"))
+	if len(note) > MaxOperatorNote {
+		return "", fmt.Errorf("keep notes for the email writer under %d characters", MaxOperatorNote)
+	}
+	return note, nil
+}
+
 // MinOverrideReason is the shortest reason accepted; a reason is the record of the decision.
 const MinOverrideReason = 15
 

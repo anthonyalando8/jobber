@@ -312,6 +312,8 @@ type CreatePlanRequest struct {
 	// that are judgements (see plan.Decision.Overridable), and why.
 	OverrideReason string
 	OverriddenBy   string
+	// Note is the operator's own findings and wishes for the email writer (optional).
+	Note string
 }
 
 // CreatePlan records an explicit contact plan. It refuses without an active approved profile,
@@ -356,6 +358,13 @@ func (s *Service) CreatePlan(ctx context.Context, req CreatePlanRequest) (*store
 		RequiresReview:      p.Decision.RequiresReview || recipient.Relevance == plan.RecipientReview,
 		Reasons:             append(append(p.Decision.Reasons, p.Decision.Blockers...), p.Selection.Notes...),
 		Selection:           p.Selection,
+	}
+	note, err := plan.CleanOperatorNote(req.Note)
+	if err != nil {
+		return nil, err
+	}
+	if note != "" {
+		record.Reasons = record.Reasons.Add(plan.OperatorNoteCode, note)
 	}
 	if record.SelectionOrigin != "manual" && record.SelectionOrigin != "suggested" {
 		record.SelectionOrigin = "manual"
