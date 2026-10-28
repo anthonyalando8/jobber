@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -154,7 +155,47 @@ func (h *Handler) CompositionView(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "composition.html", map[string]any{
 		"Draft": d, "BackURL": safeReturn(r.URL.Query().Get("return"), "/compositions"), "BackLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/compositions")), "Email": email, "Send": h.buildSendView(r.Context(), id, email),
 		"Fixes": currentFixes(d), "Existing": r.URL.Query().Get("existing") == "1",
+		"Running": d.Status == "running" || d.Status == "queued", "Stage": compositionStage(d), "AttemptCount": len(d.Attempts),
 		"ManualBlockers": store.ManualApprovalBlockers(d.Snapshot, email)})
+}
+
+// compositionStage says, in words, where a run is: queued, writing (or rewriting after a failed
+// check), or reviewing the text it has saved.
+func compositionStage(d *store.ComposedDraft) string {
+	switch d.Status {
+	case "queued":
+		return "Waiting to start"
+	case "running":
+		if len(d.Attempts) > 0 && d.Attempts[len(d.Attempts)-1].Failure == "review_pending" {
+			return "Reviewing the email"
+		}
+		if len(d.Attempts) > 0 {
+			return "Rewriting the email after a failed check"
+		}
+		return "Writing the email"
+	}
+	return ""
+}
+
+// CompositionStatus is the small status the draft page polls while a run is in progress, so it
+// can update itself instead of asking the operator to refresh.
+func (h *Handler) CompositionStatus(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		http.Error(w, "Invalid draft", 400)
+		return
+	}
+	d, err := h.db.GetComposition(r.Context(), id)
+	if err != nil {
+		http.Error(w, "Cannot load composition", 404)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": d.Status, "revision": d.Revision, "attempts": len(d.Attempts), "stage": compositionStage(d),
+		"active": d.Status == "running" || d.Status == "queued",
+	})
 }
 
 func (h *Handler) CompositionEdit(w http.ResponseWriter, r *http.Request) {

@@ -546,3 +546,8 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border-s
 .note-text{white-space:pre-wrap}
 .writer-notes{margin-top:6px}
 .writer-notes .stack-form{margin-top:6px}
+.run-status{display:flex;gap:10px;align-items:flex-start}
+.spinner{flex:none;width:14px;height:14px;margin-top:3px;border:2px solid var(--border-strong);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.spinner{animation:none}}
+.run-placeholder{display:flex;gap:10px;align-items:center;padding:28px 4px;color:var(--muted)}

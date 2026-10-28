@@ -135,6 +135,7 @@ func main() {
 		r.Post("/compositions/{id}/recompose", handler.CompositionRecompose)
 		r.Post("/compositions/{id}/discard", handler.CompositionDiscard)
 		r.Get("/compositions/{id}", handler.CompositionView)
+		r.Get("/compositions/{id}/status", handler.CompositionStatus)
 		r.Get("/compositions", handler.Compositions)
 		r.Post("/compositions/{id}/edit", handler.CompositionEdit)
 		// Phase 5: approval and sending. CompositionSend is the only send route in the

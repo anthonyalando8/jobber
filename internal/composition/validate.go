@@ -79,6 +79,17 @@ func UnapprovedTechnologies(s Snapshot, text string) []string {
 	return out
 }
 
+// operatorAskedForPayments reports whether the sender's own override reason or notes raise a
+// payment or checkout topic.
+func operatorAskedForPayments(s Snapshot) bool {
+	for _, r := range s.ReviewReasons {
+		if (r.Code == plan.OperatorNoteCode || r.Code == plan.OperatorOverrideCode) && paymentPattern.MatchString(r.Text) {
+			return true
+		}
+	}
+	return false
+}
+
 func phrase(text, term string) bool {
 	if strings.TrimSpace(term) == "" {
 		return false
@@ -241,12 +252,19 @@ func Validate(s Snapshot, e Email) []Finding {
 		}
 	}
 	if paymentForbidden {
+		// When the sender's own override reason or notes ask for a payment or checkout topic, an
+		// offer about it is the sender's decision, not an inference from a payments project: it
+		// becomes a warning to confirm. Without that instruction it stays a critical finding.
+		severity, why := "block", ""
+		if operatorAskedForPayments(s) {
+			severity, why = "review", " You asked for this topic in your notes; confirm the email offers help and does not claim their payments are broken."
+		}
 		if paymentPattern.MatchString(e.Subject) {
-			add("block", "payment_subject_leakage", "No payment need authorizes this subject.", e.Subject)
+			add(severity, "payment_subject_leakage", "No payment need authorizes this subject."+why, e.Subject)
 		}
 		for _, paragraph := range strings.Split(e.Body, "\n\n") {
 			if paymentPattern.MatchString(paragraph) && paymentOfferPattern.MatchString(paragraph) {
-				add("block", "recipient_payment_problem", "Payments proof cannot diagnose or offer to repair the recipient's payments.", paragraph)
+				add(severity, "recipient_payment_problem", "Payments proof cannot diagnose or offer to repair the recipient's payments."+why, paragraph)
 			}
 		}
 	}

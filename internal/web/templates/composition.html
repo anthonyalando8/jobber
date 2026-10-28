@@ -17,7 +17,36 @@
 
 <div class="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><div>Sending happens only from this page, after you explicitly approve this exact content. Any edit voids an approval.</div></div>
 {{if .Existing}}<div class="alert alert-warning"><div><strong>This plan already has an email.</strong> It was opened instead of writing a duplicate. To start again, use <strong>Discard and compose again</strong> at the bottom of this page.</div></div>{{end}}
-{{if eq .Draft.Status "running"}}<div class="alert alert-warning"><div>A compose and review run is in progress. <a href="/compositions/{{.Draft.ID}}">Refresh status</a></div></div>{{end}}
+{{if .Running}}<div class="alert run-status" id="run-status" data-draft="{{.Draft.ID}}" data-status="{{.Draft.Status}}" data-revision="{{.Draft.Revision}}" data-attempts="{{.AttemptCount}}" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><div><strong id="run-stage">{{.Stage}}…</strong> This page updates by itself as soon as there is something new; writing and review usually take under a minute. <span class="muted" id="run-note"></span></div></div>
+<script>
+(() => {
+  const box = document.getElementById('run-status');
+  const stage = document.getElementById('run-stage');
+  const note = document.getElementById('run-note');
+  const seen = {status: box.dataset.status, revision: box.dataset.revision, attempts: box.dataset.attempts};
+  const started = Date.now();
+  let failures = 0;
+  async function poll() {
+    if (Date.now() - started > 10 * 60 * 1000) { note.textContent = 'Still running after 10 minutes. Reload the page to check again.'; return; }
+    try {
+      const r = await fetch('/compositions/' + box.dataset.draft + '/status', {cache: 'no-store'});
+      if (r.status === 401) { location.assign('/login'); return; }
+      if (!r.ok) throw new Error('status ' + r.status);
+      const s = await r.json();
+      failures = 0;
+      note.textContent = '';
+      if (s.status !== seen.status || String(s.revision) !== seen.revision || String(s.attempts) !== seen.attempts) { location.reload(); return; }
+      if (s.stage) stage.textContent = s.stage + '…';
+    } catch (e) {
+      failures++;
+      if (failures >= 3) note.textContent = 'Lost contact with the server; still trying.';
+    }
+    setTimeout(poll, document.hidden ? 8000 : 3000);
+  }
+  setTimeout(poll, 3000);
+})();
+</script>
+{{end}}
 {{if .Draft.StaleReasons}}<div class="alert alert-warning"><div><strong>Stale inputs</strong><ul>{{range .Draft.StaleReasons}}<li>{{.}}</li>{{end}}</ul><p>This draft is kept as history. Select a current plan and regenerate deliberately.</p></div></div>{{end}}
 
 <div class="grid-main">
@@ -40,12 +69,16 @@
 
 <section class="card">
   <div class="card-head"><div><h2>Email</h2><p>Saving creates a new content revision and sends it back through full review. It never approves sending.</p></div></div>
+  {{if and .Running (not .Email.Subject)}}
+  <div class="run-placeholder"><span class="spinner" aria-hidden="true"></span> The email appears here when the writer finishes.</div>
+  {{else}}
   <form class="stack-form" method="post" action="/compositions/{{.Draft.ID}}/edit">
     <input type="hidden" name="revision" value="{{.Draft.Revision}}">
     <label class="field">Subject<input type="text" name="subject" value="{{.Email.Subject}}" required maxlength="160"></label>
     <label class="field">Body<textarea name="body" rows="16" required>{{.Email.Body}}</textarea></label>
     <div class="btn-row"><button class="btn-primary">Save edit and review</button></div>
   </form>
+  {{end}}
 </section>
 
 <section class="card">
@@ -121,7 +154,9 @@
 
   <div class="card-section">
   <h3>Send eligibility</h3>
-  {{if .Send.Decision.Allowed}}
+  {{if .Running}}
+    <p class="small muted">Approval and sending become available once writing and review finish.</p>
+  {{else if .Send.Decision.Allowed}}
     <p class="small">Preflight passes. Sending transmits once; a duplicate request attaches to the same attempt instead of sending again.</p>
     <form method="post" action="/compositions/{{.Draft.ID}}/send" onsubmit="return confirm('Send this email to {{.Draft.Snapshot.Recipient.Address}} now? This cannot be undone.')"><input type="hidden" name="initiator" value="operator"><button class="btn-primary" style="width:100%">Send this approved email now</button></form>
   {{else}}

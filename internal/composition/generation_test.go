@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthonyalando8/prospector/internal/explain"
 	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"github.com/anthonyalando8/prospector/internal/plan"
 	"github.com/anthonyalando8/prospector/internal/profile"
@@ -193,5 +194,37 @@ func TestDropGapSentencesKeepsParagraphs(t *testing.T) {
 	claim := Email{Body: "I ship Node.js services."}
 	if out, removed := DropGapSentences(claim, []Finding{{Code: "unapproved_technology", Excerpt: "I ship Node.js services"}}); len(removed) != 0 || out.Body != claim.Body {
 		t.Fatal("a claim must not be removed as if it were a gap")
+	}
+}
+
+// The payment firewall: an offer about checkout is critical when nobody asked for it, and a
+// warning the sender can approve when their own notes or override reason ask for that topic.
+func TestCheckoutOfferFollowsTheSendersInstruction(t *testing.T) {
+	s := syntheticSnapshot(plan.ServiceOutreach)
+	e := syntheticEmail(s)
+	e.Subject = "Faster pages for your online store"
+	e.Body = "Hello team,\n\nI had a look at your online store and would be glad to help make product pages and checkout faster.\n\n" + backendBody[strings.Index(backendBody, "In Synthetic Ledger"):]
+	severity := func(s Snapshot) string {
+		for _, f := range Validate(s, e) {
+			if f.Code == "recipient_payment_problem" {
+				return f.Severity
+			}
+		}
+		return ""
+	}
+	if got := severity(s); got != "block" {
+		t.Fatalf("an unrequested checkout offer should be critical, got %q", got)
+	}
+	asked := s
+	asked.ReviewReasons = explain.Reasons{{Code: plan.OperatorNoteCode, Text: "E-commerce store; offer to speed up product pages and checkout."}}
+	asked.InputHash = asked.Hash()
+	if got := severity(asked); got != "review" {
+		t.Fatalf("a checkout offer the sender asked for should be a warning, got %q", got)
+	}
+	unrelated := s
+	unrelated.ReviewReasons = explain.Reasons{{Code: plan.OperatorNoteCode, Text: "Keep it short and friendly."}}
+	unrelated.InputHash = unrelated.Hash()
+	if got := severity(unrelated); got != "block" {
+		t.Fatalf("notes that do not mention payments must not relax the rule, got %q", got)
 	}
 }
