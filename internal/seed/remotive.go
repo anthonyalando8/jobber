@@ -9,10 +9,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// remotiveAPIURL is Remotive's public, documented JSON API — filtered to the software-dev
-// category server-side, so this doesn't need the title-phrase filter to do as much work as the
-// broader feeds (RemoteOK, WWR's general "programming" category) that pull everything.
-const remotiveAPIURL = "https://remotive.com/api/remote-jobs?category=software-dev"
+// remotiveFeeds are Remotive's public, documented JSON API, filtered by category server-side:
+// software development, and DevOps/sysadmin, which is where platform, infrastructure, cloud and
+// site-reliability roles are filed. The matcher, not the category, decides fit.
+var remotiveFeeds = []string{
+	"https://remotive.com/api/remote-jobs?category=software-dev",
+	"https://remotive.com/api/remote-jobs?category=devops",
+}
 
 // RemotiveSeeder pulls remote job postings from Remotive's public API.
 type RemotiveSeeder struct {
@@ -43,23 +46,26 @@ type remotiveResponse struct {
 // Seed stores bounded source listings independently of company discovery and Redis.
 func (r *RemotiveSeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Client) (int, error) {
 	run := newBatch(r.Name())
-	raw, err := r.fetchListing(ctx, remotiveAPIURL)
-	if !run.feed(remotiveAPIURL, err) {
-		return run.result()
-	}
-	var parsed remotiveResponse
-	if err = json.Unmarshal(raw, &parsed); err != nil {
-		return 0, fmt.Errorf("remotive: unexpected response: %w", err)
-	}
-	for i, job := range parsed.Jobs {
-		if i >= maxFeedJobs {
-			break
-		}
-		if job.CompanyName == "" && job.Title == "" && job.URL == "" && externalID(job.ID) == "" {
+	for _, feed := range remotiveFeeds {
+		raw, err := r.fetchListing(ctx, feed)
+		if !run.feed(feed, err) {
 			continue
 		}
-		d := opportunity.DiscoveredOpportunity{Source: "remotive", ExternalID: externalID(job.ID), CompanyName: job.CompanyName, Title: job.Title, URL: job.URL, Location: job.Location, EmploymentType: job.EmploymentType, Description: descriptionText(job.Description), PublishedAt: sourceTimestamp(job.PublicationDate), DescriptionStatus: "complete", RemoteStatus: "remote"}
-		run.ingest(ctx, db, d)
+		var parsed remotiveResponse
+		if err = json.Unmarshal(raw, &parsed); err != nil {
+			run.unreadable(feed, fmt.Errorf("remotive: unexpected response: %w", err))
+			continue
+		}
+		for i, job := range parsed.Jobs {
+			if i >= maxFeedJobs {
+				break
+			}
+			if job.CompanyName == "" && job.Title == "" && job.URL == "" && externalID(job.ID) == "" {
+				continue
+			}
+			d := opportunity.DiscoveredOpportunity{Source: "remotive", ExternalID: externalID(job.ID), CompanyName: job.CompanyName, Title: job.Title, URL: job.URL, Location: job.Location, EmploymentType: job.EmploymentType, Description: descriptionText(job.Description), PublishedAt: sourceTimestamp(job.PublicationDate), DescriptionStatus: "complete", RemoteStatus: "remote"}
+			run.ingest(ctx, db, d)
+		}
 	}
 	return run.result()
 }

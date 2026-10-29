@@ -231,6 +231,40 @@ func (db *DB) ListOpportunities(ctx context.Context, source string, companyID in
 	return db.ListOpportunitiesFiltered(ctx, source, companyID, "", "", 200, 0)
 }
 
+// ListActiveOpportunities returns a company's opportunities except those under a live suppression
+// (dismissed, expired, filled, taken down). Company and plan pages read this, so a dismissed job
+// does not come back through them; the record and its history are untouched.
+func (db *DB) ListActiveOpportunities(ctx context.Context, companyID int64) ([]Opportunity, error) {
+	rows, err := db.ListOpportunities(ctx, "", companyID)
+	if err != nil {
+		return nil, err
+	}
+	suppressed := map[int64]bool{}
+	ids, err := db.Query(ctx, `SELECT s.opportunity_id FROM opportunity_suppression s JOIN opportunity o ON o.id=s.opportunity_id
+		 WHERE o.company_id=$1 AND s.superseded_at IS NULL`, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer ids.Close()
+	for ids.Next() {
+		var id int64
+		if err = ids.Scan(&id); err != nil {
+			return nil, err
+		}
+		suppressed[id] = true
+	}
+	if err = ids.Err(); err != nil {
+		return nil, err
+	}
+	out := rows[:0]
+	for _, o := range rows {
+		if !suppressed[o.ID] {
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
+
 // CountOpportunitiesFiltered reports how many rows the same filter matches in total, so the UI
 // can show a real count and a real number of pages rather than "at least this many".
 func (db *DB) CountOpportunitiesFiltered(ctx context.Context, source string, companyID int64, title, availability string) (int, error) {

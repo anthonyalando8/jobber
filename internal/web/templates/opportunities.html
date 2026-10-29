@@ -10,13 +10,27 @@
   </div>
 </header>
 
-<nav class="quick-views" aria-label="Quick views">
+{{with .Notice}}
+{{if eq .Kind "dismissed"}}<div class="alert alert-success list-notice" role="status"><div><strong>Dismissed “{{.Title}}”.</strong> It is hidden from this list and kept in the Dismissed view.</div>
+  <form method="post" action="/opportunities/{{.ID}}/reinstate"><input type="hidden" name="from" value="list"><input type="hidden" name="return" value="{{$.CurrentURL}}"><button class="btn-sm">Undo</button></form></div>
+{{else if eq .Kind "restored"}}<div class="alert alert-success list-notice" role="status"><div><strong>Restored “{{.Title}}”.</strong> It is back in the active list.</div></div>
+{{else if eq .Kind "failed"}}<div class="alert alert-danger" role="alert"><div><strong>Could not dismiss “{{.Title}}”.</strong> Nothing was changed. Try again, or open it and dismiss it from its page.</div></div>
+{{else}}<div class="alert alert-danger" role="alert"><div><strong>Could not restore “{{.Title}}”.</strong> Nothing was changed. Try again from the Dismissed view.</div></div>{{end}}
+{{end}}
+
+<nav class="segmented list-tabs" aria-label="Which opportunities">
+  <a href="{{.ActiveViewURL}}" {{if ne .Filter.Suppressed "only"}}class="active" aria-current="page"{{end}}>Active</a>
+  <a href="{{.DismissedViewURL}}" {{if eq .Filter.Suppressed "only"}}class="active" aria-current="page"{{end}}>Dismissed <span>{{.Facets.Suppressed}}</span></a>
+</nav>
+{{if eq .Filter.Suppressed "only"}}<p class="list-intro">Dismissed opportunities, and ones taken out automatically because they expired, were filled or were removed by the source. They stay in the system with their history; <strong>Restore</strong> puts one back in the active list.</p>{{end}}
+
+{{if ne .Filter.Suppressed "only"}}<nav class="quick-views" aria-label="Quick views">
   <a href="/opportunities" {{if not (or .Filter.Access .Filter.Route .Filter.Tracking .Filter.Contract)}}class="active"{{end}}>All</a>
   <a href="/opportunities?access=accessible" {{if eq .Filter.Access "accessible"}}class="active"{{end}}>Open to Kenya <span>{{.Facets.Accessible}}</span></a>
   <a href="/opportunities?route=direct_contact" {{if eq .Filter.Route "direct_contact"}}class="active"{{end}}>Direct contact <span>{{.Facets.Direct}}</span></a>
   <a href="/opportunities?contract=1&amp;access=accessible" {{if .Filter.Contract}}class="active"{{end}}>Contract &amp; freelance</a>
   <a href="/opportunities?tracking=active" {{if eq .Filter.Tracking "active"}}class="active"{{end}}>Saved &amp; applied <span>{{.Facets.Tracked}}</span></a>
-</nav>
+</nav>{{end}}
 
 {{range .Warnings}}<p class="filter-warning" role="status">{{.}}</p>{{end}}
 
@@ -27,7 +41,7 @@
   <label>Source<select name="source"><option value="">All sources</option>{{range .Facets.Sources}}<option value="{{.}}" {{if eq $.Filter.Source .}}selected{{end}}>{{.}}</option>{{end}}</select></label>
   <label>Sort<select name="sort"><option value="" {{if eq .Filter.Sort ""}}selected{{end}}>Best to pursue</option><option value="updated" {{if eq .Filter.Sort "updated"}}selected{{end}}>Recently updated</option><option value="newest" {{if eq .Filter.Sort "newest"}}selected{{end}}>Newest discovered</option><option value="best" {{if eq .Filter.Sort "best"}}selected{{end}}>Best match</option><option value="company" {{if eq .Filter.Sort "company"}}selected{{end}}>Company</option><option value="title" {{if eq .Filter.Sort "title"}}selected{{end}}>Title</option><option value="priority" {{if eq .Filter.Sort "priority"}}selected{{end}}>Selection review, then best matches</option></select></label>
   <div class="filter-actions"><a href="/opportunities">Clear</a><button type="submit" class="btn-primary">Apply</button></div>
-  <details class="filter-more" {{if or .Filter.Assessment .Filter.Availability .Filter.Description .Filter.Selection .Filter.Recipient .Filter.ContactSearch .Filter.CompanyID .Filter.Title .Filter.Route .Filter.Cost .Filter.Tracking .Filter.Contract (ne .Filter.Suppressed "hidden")}}open{{end}}>
+  <details class="filter-more" {{if or .Filter.Assessment .Filter.Availability .Filter.Description .Filter.Selection .Filter.Recipient .Filter.ContactSearch .Filter.CompanyID .Filter.Title .Filter.Route .Filter.Cost .Filter.Tracking .Filter.Contract (eq .Filter.Suppressed "any")}}open{{end}}>
     <summary>More filters</summary>
     <div class="filter-more-grid">
       <label>How to apply<select name="route"><option value="" {{if eq .Filter.Route ""}}selected{{end}}>Any route</option><option value="direct_contact" {{if eq .Filter.Route "direct_contact"}}selected{{end}}>Published email</option><option value="employer_ats" {{if eq .Filter.Route "employer_ats"}}selected{{end}}>Employer careers system</option><option value="employer_site" {{if eq .Filter.Route "employer_site"}}selected{{end}}>Employer website</option><option value="job_board" {{if eq .Filter.Route "job_board"}}selected{{end}}>Through the job board</option><option value="unknown" {{if eq .Filter.Route "unknown"}}selected{{end}}>Unknown</option></select></label>
@@ -40,7 +54,7 @@
       <label>Description<select name="description"><option value="" {{if eq .Filter.Description ""}}selected{{end}}>Any description</option><option value="complete" {{if eq .Filter.Description "complete"}}selected{{end}}>Complete</option><option value="partial" {{if eq .Filter.Description "partial"}}selected{{end}}>Partial</option><option value="unavailable" {{if eq .Filter.Description "unavailable"}}selected{{end}}>Unavailable</option></select></label>
       <label>Recipient<select name="recipient"><option value="" {{if eq .Filter.Recipient ""}}selected{{end}}>Any recipient state</option><option value="acceptable" {{if eq .Filter.Recipient "acceptable"}}selected{{end}}>Has an acceptable recipient</option><option value="missing" {{if eq .Filter.Recipient "missing"}}selected{{end}}>No recipient at all</option><option value="generic" {{if eq .Filter.Recipient "generic"}}selected{{end}}>Generic mailboxes only</option></select></label>
       <label>Contact search<select name="contact_search"><option value="" {{if eq .Filter.ContactSearch ""}}selected{{end}}>Any search state</option><option value="pending" {{if eq .Filter.ContactSearch "pending"}}selected{{end}}>Queued</option><option value="searching" {{if eq .Filter.ContactSearch "searching"}}selected{{end}}>Searching</option><option value="completed" {{if eq .Filter.ContactSearch "completed"}}selected{{end}}>Completed</option><option value="partial" {{if eq .Filter.ContactSearch "partial"}}selected{{end}}>Partial</option><option value="review_required" {{if eq .Filter.ContactSearch "review_required"}}selected{{end}}>Needs review</option><option value="no_result" {{if eq .Filter.ContactSearch "no_result"}}selected{{end}}>No result</option><option value="identity_blocked" {{if eq .Filter.ContactSearch "identity_blocked"}}selected{{end}}>Employer identity unresolved</option><option value="failed" {{if eq .Filter.ContactSearch "failed"}}selected{{end}}>Failed</option></select></label>
-      <label>Suppressed<select name="suppressed"><option value="hidden" {{if eq .Filter.Suppressed "hidden"}}selected{{end}}>Hide suppressed ({{.Facets.Suppressed}})</option><option value="only" {{if eq .Filter.Suppressed "only"}}selected{{end}}>Only suppressed ({{.Facets.Suppressed}})</option><option value="any" {{if eq .Filter.Suppressed "any"}}selected{{end}}>Include suppressed</option></select></label>
+      <label>Dismissed<select name="suppressed"><option value="hidden" {{if eq .Filter.Suppressed "hidden"}}selected{{end}}>Active only</option><option value="only" {{if eq .Filter.Suppressed "only"}}selected{{end}}>Dismissed only ({{.Facets.Suppressed}})</option><option value="any" {{if eq .Filter.Suppressed "any"}}selected{{end}}>Active and dismissed</option></select></label>
       <label>Company ID<input name="company_id" inputmode="numeric" {{if .Filter.CompanyID}}value="{{.Filter.CompanyID}}"{{end}} placeholder="Any company"></label>
       {{if .Filter.Title}}<label>Title contains<input name="title" value="{{.Filter.Title}}"></label>{{end}}
       {{if .Filter.Priority}}<label>View<select name="view"><option value="priority" selected>Priority opportunities</option><option value="">All opportunities</option></select></label>{{end}}
@@ -48,7 +62,6 @@
   </details>
 </form>
 
-{{if and .Facets.Suppressed (eq .Filter.Suppressed "hidden")}}<p class="list-intro">{{.Facets.Suppressed}} suppressed {{if eq .Facets.Suppressed 1}}posting is{{else}}postings are{{end}} hidden as expired, filled or taken down. <a href="/opportunities?suppressed=only">Review them</a></p>{{end}}
 
 <div class="list-toolbar">
   <div class="result-summary"><strong>{{.Total}} opportunities{{if .Filter.Query}} for &quot;{{.Filter.Query}}&quot;{{end}}</strong>{{if .Total}}<span>Showing {{.First}}-{{.Last}} &middot; page {{.Page}} of {{.Pages}}</span>{{end}}{{if .CompanyName}}<span>Company: <a href="/companies/{{.Filter.CompanyID}}?return={{urlquery .CurrentURL}}">{{.CompanyName}}</a></span>{{end}}</div>
@@ -56,18 +69,20 @@
 </div>
 
 {{if .Rows}}
-<div class="table-wrap"><table class="browse-table"><thead><tr><th>Role</th><th>Fit</th><th>From Kenya</th><th>How to apply</th><th>Found</th><th>Progress</th></tr></thead><tbody>
-{{range .Rows}}<tr>
+<div class="table-wrap"><table class="browse-table"><thead><tr><th>Role</th><th>Fit</th><th>From Kenya</th><th>How to apply</th><th>Found</th><th>Progress</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+{{range .Rows}}<tr{{if .Suppressed}} class="is-dismissed"{{end}}>
 <td><a class="cell-strong" href="/opportunities/{{.ID}}?return={{urlquery $.CurrentURL}}">{{if .Facts.Title}}{{.Facts.Title}}{{else}}Unknown title{{end}}</a><small><a href="/companies/{{.CompanyID}}?return={{urlquery $.CurrentURL}}">{{.CompanyName}}</a>{{if .Facts.Location}} · {{.Facts.Location}}{{end}}</small>{{if .Suppressed}}<small><span class="badge red" title="{{.SuppressionBasis}}">{{.SuppressionLabel}}</span></small>{{end}}</td>
 <td><span class="badge {{if eq .Fit "strong_match"}}green{{else if eq .Fit "possible_match"}}amber{{else if eq .Fit "unrelated"}}neutral{{else}}blue{{end}}">{{if eq .Fit "strong_match"}}Strong match{{else if eq .Fit "possible_match"}}Possible match{{else if eq .Fit "unrelated"}}Unrelated{{else}}Unassessed{{end}}</span>{{if .Access.Contract}}<small>Contract</small>{{end}}</td>
 <td>{{with .Access}}{{if eq .KenyaAccess "open"}}<span class="badge green" title="{{.EligibilityEvidence}}">Open</span>{{else if eq .KenyaAccess "likely"}}<span class="badge blue" title="{{.EligibilityEvidence}}">Likely</span>{{else if eq .KenyaAccess "restricted"}}<span class="badge red" title="{{.EligibilityEvidence}}">Restricted</span>{{else}}<span class="badge neutral">Not stated</span>{{end}}{{end}}</td>
 <td>{{with .Access}}{{if eq .Route "direct_contact"}}<span class="badge green">Email</span>{{else if eq .Route "employer_ats"}}Employer careers{{else if eq .Route "employer_site"}}Employer site{{else if eq .Route "job_board"}}Job board{{else}}<span class="muted">Unknown</span>{{end}}{{if eq .Cost "paid"}} <span class="badge red" title="{{.CostEvidence}}">Paid</span>{{else if eq .Cost "registration"}} <span class="badge amber" title="{{.CostEvidence}}">Account</span>{{end}}{{end}}</td>
 <td class="nowrap">{{.DiscoveredAt.Format "2 Jan"}}<small>{{.Facts.Source}}</small></td>
 <td>{{if .Tracking}}<span class="badge {{if eq .Tracking "rejected"}}red{{else if eq .Tracking "not_interested"}}neutral{{else if eq .Tracking "saved"}}blue{{else}}green{{end}}">{{.Tracking}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+<td class="actions">{{if .Suppressed}}<form method="post" action="/opportunities/{{.ID}}/reinstate"><input type="hidden" name="from" value="list"><input type="hidden" name="return" value="{{$.CurrentURL}}"><button class="btn-sm" title="Put this back in the active list">Restore</button></form>{{else}}<form method="post" action="/opportunities/{{.ID}}/suppress"><input type="hidden" name="from" value="list"><input type="hidden" name="return" value="{{$.CurrentURL}}"><button class="btn-sm btn-ghost" title="Hide from the list; kept in the Dismissed view">Dismiss</button></form>{{end}}</td>
 </tr>{{end}}
 </tbody></table></div>
 {{else}}
-<div class="card empty-state"><strong>No opportunities match these filters</strong><a href="/opportunities">Clear filters</a> to see the whole workspace.</div>
+{{if eq .Filter.Suppressed "only"}}<div class="card empty-state"><strong>Nothing dismissed{{if .ActiveFilters}} matches these filters{{end}}</strong><a href="{{.ActiveViewURL}}">Back to active opportunities</a></div>
+{{else}}<div class="card empty-state"><strong>No opportunities match these filters</strong><a href="/opportunities">Clear filters</a> to see the whole workspace.</div>{{end}}
 {{end}}
 
 <nav class="pagination" aria-label="Opportunity pages">{{if .HasPrev}}<a href="{{.PrevURL}}">Previous</a>{{end}}{{range .PageLinks}}{{if .Ellipsis}}<span class="disabled">…</span>{{else if .Current}}<span aria-current="page">{{.Number}}</span>{{else}}<a href="{{.URL}}">{{.Number}}</a>{{end}}{{end}}{{if .HasNext}}<a href="{{.NextURL}}">Next</a>{{end}}</nav>

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -267,5 +268,37 @@ func TestOneLiveCompositionPerVacancy(t *testing.T) {
 	}
 	if _, err := db.QueueComposition(ctx, second); err != nil {
 		t.Fatalf("composing after discard refused: %v", err)
+	}
+}
+
+// A new matcher version that reaches the same assessment does not make a composed application
+// stale; until the job is re-assessed under the current matcher it does, and a changed
+// conclusion still does.
+func TestMatcherVersionAloneDoesNotStaleADraft(t *testing.T) {
+	db := phase3DB(t)
+	ctx := context.Background()
+	s := compositionFixture(t, db)
+	if reasons, err := db.CompositionStaleReasons(ctx, s); err != nil || len(reasons) != 0 {
+		t.Fatalf("fresh snapshot stale: %v %v", reasons, err)
+	}
+	older := s
+	pinned := *s.Match
+	pinned.MatcherVersion = "fit-v1"
+	older.Match = &pinned
+	if reasons, err := db.CompositionStaleReasons(ctx, older); err != nil || len(reasons) != 0 {
+		t.Fatalf("a version-only change staled the draft: %v %v", reasons, err)
+	}
+	changed := *s.Match
+	changed.Classification = "possible_match"
+	differs := s
+	differs.Match = &changed
+	if reasons, _ := db.CompositionStaleReasons(ctx, differs); !slices.Contains(reasons, "match_changed") {
+		t.Fatalf("a changed assessment must stale the draft: %v", reasons)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM opportunity_match WHERE opportunity_id=$1`, s.OpportunityID); err != nil {
+		t.Fatal(err)
+	}
+	if reasons, _ := db.CompositionStaleReasons(ctx, older); !slices.Contains(reasons, "match_changed") {
+		t.Fatalf("an unassessed job must read as stale until re-assessed: %v", reasons)
 	}
 }

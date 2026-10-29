@@ -103,7 +103,8 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{"Query": q, "Warnings": warnings, "CurrentURL": listURL("/search", url.Values{"q": []string{q}}, 1)}
 	if q != "" {
 		cf := store.CompanyFilter{Search: q}
-		of := store.OpportunityListFilter{Query: q}
+		// Search shows active opportunities, like the list: dismissed and expired ones stay out.
+		of := store.OpportunityListFilter{Query: q, Suppressed: "hidden"}
 		companies, err := h.db.ListCompanies(r.Context(), cf, 20, 0)
 		if err != nil {
 			http.Error(w, "Search unavailable", 500)

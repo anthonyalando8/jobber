@@ -168,7 +168,8 @@ func (db *DB) ATSLinks(ctx context.Context) ([]ATSLink, error) {
 func (db *DB) ListUnassessedOpportunityIDs(ctx context.Context, limit int) ([]int64, error) {
 	rows, err := db.Query(ctx, `SELECT o.id`+opportunityBrowseFrom+` WHERE m.id IS NULL AND NOT `+liveSuppression+`
  AND (SELECT active_revision_id FROM candidate_profile WHERE id=1) IS NOT NULL
- ORDER BY o.discovered_at DESC, o.id DESC LIMIT $2`, opportunity.MatcherVersion, limit)
+ ORDER BY EXISTS(SELECT 1 FROM contact_plan cp WHERE cp.opportunity_id=o.id AND cp.status IN ('suggested','selected')) DESC,
+   o.discovered_at DESC, o.id DESC LIMIT $2`, opportunity.MatcherVersion, limit)
 	if err != nil {
 		return nil, err
 	}

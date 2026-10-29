@@ -94,7 +94,7 @@ func (s *Service) AssessOpportunity(ctx context.Context, opportunityID int64) (*
 
 // AssessCompanyOpportunities recomputes every vacancy at a company.
 func (s *Service) AssessCompanyOpportunities(ctx context.Context, companyID int64) ([]OpportunityAssessment, error) {
-	rows, err := s.db.ListOpportunities(ctx, "", companyID)
+	rows, err := s.db.ListActiveOpportunities(ctx, companyID)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (s *Service) loadCompany(ctx context.Context, companyID int64, refresh bool
 			return nil, err
 		}
 	} else {
-		rows, err := s.db.ListOpportunities(ctx, "", companyID)
+		rows, err := s.db.ListActiveOpportunities(ctx, companyID)
 		if err != nil {
 			return nil, err
 		}

@@ -60,6 +60,9 @@ func (j *JobBoardSeeder) Seed(ctx context.Context, db *store.DB, redis *redis.Cl
 	searchTerms := []string{
 		"backend", "golang", "django", "python", "node", "nodejs", "php", "laravel",
 		"software+engineer", "software+developer",
+		// Role names the stack searches above miss. The same listing found by two searches is
+		// stored once (keyed by its URL); the matcher decides fit, not the search term.
+		"full+stack", "web+developer", "api+developer", "devops",
 	}
 
 	var queries []jobBoardQuery

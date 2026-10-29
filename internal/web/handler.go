@@ -655,7 +655,7 @@ func (h *Handler) ViewCompany(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ViewCompany: failed to load Phase 3 assessment for %d: %v", id, err)
 	}
 
-	opportunityCount, err := h.db.CountOpportunityList(ctx, store.OpportunityListFilter{CompanyID: id})
+	opportunityCount, err := h.db.CountOpportunityList(ctx, store.OpportunityListFilter{CompanyID: id, Suppressed: "hidden"})
 	if err != nil {
 		http.Error(w, "Cannot count company opportunities", 500)
 		return

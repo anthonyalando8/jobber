@@ -14,7 +14,15 @@ import (
 // jobicyAPIURL is Jobicy's public remote-jobs API, filtered to the development industry. Jobicy
 // asks consumers to poll sparingly and to link back to the listing; the scheduler runs each source
 // at most every few hours and every stored listing keeps Jobicy's own URL.
-const jobicyAPIURL = "https://jobicy.com/api/v2/remote-jobs?count=50&industry=dev"
+// jobicyFeeds are Jobicy's public API: the development industry feed, plus tag searches for the
+// backend and Go roles a general feed of 50 can crowd out. The same listing returned by two feeds
+// is stored once, keyed by its Jobicy ID. Jobicy asks for sparing polling; these run once per
+// discovery interval (3 hours by default).
+var jobicyFeeds = []string{
+	"https://jobicy.com/api/v2/remote-jobs?count=50&industry=dev",
+	"https://jobicy.com/api/v2/remote-jobs?count=50&tag=backend",
+	"https://jobicy.com/api/v2/remote-jobs?count=50&tag=golang",
+}
 
 // JobicySeeder pulls remote developer jobs from Jobicy's public API.
 type JobicySeeder struct{ *BaseSeeder }
@@ -44,31 +52,34 @@ type jobicyResponse struct {
 // Seed stores bounded source listings.
 func (j *JobicySeeder) Seed(ctx context.Context, db *store.DB, _ *redis.Client) (int, error) {
 	run := newBatch(j.Name())
-	raw, err := j.fetchListing(ctx, jobicyAPIURL)
-	if !run.feed(jobicyAPIURL, err) {
-		return run.result()
-	}
-	var parsed jobicyResponse
-	if err = json.Unmarshal(raw, &parsed); err != nil {
-		return 0, fmt.Errorf("jobicy: unexpected response: %w", err)
-	}
-	for i, job := range parsed.Jobs {
-		if i >= maxFeedJobs {
-			break
-		}
-		if job.Company == "" && job.Title == "" {
+	for _, feed := range jobicyFeeds {
+		raw, err := j.fetchListing(ctx, feed)
+		if !run.feed(feed, err) {
 			continue
 		}
-		description, status := job.Description, "complete"
-		if description == "" {
-			description, status = job.Excerpt, "partial"
+		var parsed jobicyResponse
+		if err = json.Unmarshal(raw, &parsed); err != nil {
+			run.unreadable(feed, fmt.Errorf("jobicy: unexpected response: %w", err))
+			continue
 		}
-		run.ingest(ctx, db, opportunity.DiscoveredOpportunity{
-			Source: "jobicy", ExternalID: externalID(job.ID), CompanyName: strings.TrimSpace(job.Company),
-			Title: strings.TrimSpace(job.Title), URL: job.URL, Location: strings.TrimSpace(job.Geo),
-			EmploymentType: stringOrList(job.Types), Description: descriptionText(description),
-			PublishedAt: sourceTimestamp(job.PubDate), DescriptionStatus: status, RemoteStatus: "remote",
-		})
+		for i, job := range parsed.Jobs {
+			if i >= maxFeedJobs {
+				break
+			}
+			if job.Company == "" && job.Title == "" {
+				continue
+			}
+			description, status := job.Description, "complete"
+			if description == "" {
+				description, status = job.Excerpt, "partial"
+			}
+			run.ingest(ctx, db, opportunity.DiscoveredOpportunity{
+				Source: "jobicy", ExternalID: externalID(job.ID), CompanyName: strings.TrimSpace(job.Company),
+				Title: strings.TrimSpace(job.Title), URL: job.URL, Location: strings.TrimSpace(job.Geo),
+				EmploymentType: stringOrList(job.Types), Description: descriptionText(description),
+				PublishedAt: sourceTimestamp(job.PubDate), DescriptionStatus: status, RemoteStatus: "remote",
+			})
+		}
 	}
 	return run.result()
 }

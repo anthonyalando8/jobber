@@ -192,13 +192,15 @@ func TestTheOpportunityListShowsWhatItIsHiding(t *testing.T) {
 		t.Error("the list offers no control over suppressed postings")
 	}
 
-	// With the default filter, the page says how many postings it is holding back and links to them.
+	// With the default filter, the Dismissed tab says how many postings are held back and links
+	// to them.
 	data["Filter"] = store.OpportunityListFilter{Suppressed: "hidden"}
+	data["DismissedViewURL"] = "/opportunities?suppressed=only"
 	out.Reset()
 	if err := tmpl.Execute(&out, data); err != nil {
 		t.Fatal(err)
 	}
-	if page = out.String(); !strings.Contains(page, "12 suppressed") || !strings.Contains(page, "suppressed=only") {
+	if page = out.String(); !strings.Contains(page, "Dismissed <span>12</span>") || !strings.Contains(page, `href="/opportunities?suppressed=only"`) {
 		t.Error("the list does not say how many suppressed postings it is hiding")
 	}
 }

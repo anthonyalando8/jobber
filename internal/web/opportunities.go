@@ -63,10 +63,41 @@ func (h *Handler) Opportunities(w http.ResponseWriter, r *http.Request) {
 			companyName = company.Name
 		}
 	}
+	// The Active and Dismissed tabs keep every other filter, so switching view never loses a search.
+	activeView, dismissedView := f, f
+	activeView.Suppressed, dismissedView.Suppressed = "hidden", "only"
 	renderTemplate(w, "opportunities.html", map[string]any{"Rows": rows, "Filter": f, "Facets": facets, "Warnings": warnings, "ActiveFilters": activeFilters(values), "CompanyName": companyName,
+		"Notice": h.listNotice(r), "ActiveViewURL": listURL("/opportunities", opportunityValues(activeView), 1), "DismissedViewURL": listURL("/opportunities", opportunityValues(dismissedView), 1),
 		"Total": total, "Page": page, "Pages": pages, "First": first, "Last": max(0, first+len(rows)-1), "CurrentURL": current,
 		"HasPrev": page > 1, "HasNext": page < pages, "PrevURL": listURL("/opportunities", values, page-1), "NextURL": listURL("/opportunities", values, page+1),
 		"PageLinks": paginationWindow(page, pages, func(n int) string { return listURL("/opportunities", values, n) })})
+}
+
+// listNotice is the message shown after a dismiss or restore from the list.
+type listNotice struct {
+	Kind, Title string
+	ID          int64
+}
+
+func (h *Handler) listNotice(r *http.Request) *listNotice {
+	kind := r.URL.Query().Get("notice")
+	switch kind {
+	case "dismissed", "restored", "failed", "restore_failed":
+	default:
+		return nil
+	}
+	id, err := strconv.ParseInt(r.URL.Query().Get("notice_id"), 10, 64)
+	if err != nil || id <= 0 {
+		return nil
+	}
+	n := &listNotice{Kind: kind, ID: id, Title: "Opportunity " + strconv.FormatInt(id, 10)}
+	if o, err := h.db.GetOpportunity(r.Context(), id); err == nil && strings.TrimSpace(o.Facts.Title) != "" {
+		n.Title = o.Facts.Title
+		if o.CompanyName != "" {
+			n.Title += " at " + o.CompanyName
+		}
+	}
+	return n
 }
 
 func (h *Handler) Opportunity(w http.ResponseWriter, r *http.Request) {

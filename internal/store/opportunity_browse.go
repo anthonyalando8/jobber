@@ -205,8 +205,8 @@ type OpportunityFacets struct {
 
 func (db *DB) OpportunityFacets(ctx context.Context) (OpportunityFacets, error) {
 	var f OpportunityFacets
-	err := db.QueryRow(ctx, `SELECT count(*) FILTER(WHERE m.classification='strong_match'),count(*) FILTER(WHERE m.classification='possible_match'),count(*) FILTER(WHERE m.classification='unrelated'),count(*) FILTER(WHERE m.id IS NULL),count(*) FILTER(WHERE o.selection_status='review_required'),count(*) FILTER(WHERE `+liveSuppression+`),COALESCE(array_agg(DISTINCT o.source) FILTER(WHERE o.source<>''),'{}'),
+	err := db.QueryRow(ctx, `SELECT count(*) FILTER(WHERE m.classification='strong_match' AND NOT `+liveSuppression+`),count(*) FILTER(WHERE m.classification='possible_match' AND NOT `+liveSuppression+`),count(*) FILTER(WHERE m.classification='unrelated' AND NOT `+liveSuppression+`),count(*) FILTER(WHERE m.id IS NULL AND NOT `+liveSuppression+`),count(*) FILTER(WHERE o.selection_status='review_required' AND NOT `+liveSuppression+`),count(*) FILTER(WHERE `+liveSuppression+`),COALESCE(array_agg(DISTINCT o.source) FILTER(WHERE o.source<>''),'{}'),
  count(*) FILTER(WHERE a.kenya_access IN ('open','likely') AND NOT `+liveSuppression+`),count(*) FILTER(WHERE a.route='direct_contact' AND NOT `+liveSuppression+`),
- count(*) FILTER(WHERE tr.state IN ('saved','applied','interviewing','offer'))`+opportunityBrowseFrom, opportunity.MatcherVersion).Scan(&f.Strong, &f.Possible, &f.Unrelated, &f.Unassessed, &f.Review, &f.Suppressed, &f.Sources, &f.Accessible, &f.Direct, &f.Tracked)
+ count(*) FILTER(WHERE tr.state IN ('saved','applied','interviewing','offer') AND NOT `+liveSuppression+`)`+opportunityBrowseFrom, opportunity.MatcherVersion).Scan(&f.Strong, &f.Possible, &f.Unrelated, &f.Unassessed, &f.Review, &f.Suppressed, &f.Sources, &f.Accessible, &f.Direct, &f.Tracked)
 	return f, err
 }

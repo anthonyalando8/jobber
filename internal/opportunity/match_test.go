@@ -279,10 +279,12 @@ func TestExplicitPaymentVacancyMatchesPaymentCapability(t *testing.T) {
 	}
 }
 
-// An ambiguous engineering title is reviewable, never automatically strong.
+// An ambiguous engineering title is reviewable, never automatically strong, unless the job's own
+// requirements establish the family (see TestFamilyEstablishedByRequirements).
 func TestAmbiguousEngineeringTitleIsPossibleNotStrong(t *testing.T) {
 	doc := syntheticProfile()
-	result := assessFixture(t, "Engineer", backendDescription, "complete", &doc)
+	thin := "Requirements:\n- Experience with Go\n- Clear written communication\n"
+	result := assessFixture(t, "Engineer", thin, "complete", &doc)
 	if result.Classification != ClassificationPossible {
 		t.Fatalf("classification = %q, want possible_match", result.Classification)
 	}
@@ -493,8 +495,9 @@ func TestNonEnglishEngineeringRoleNouns(t *testing.T) {
 		{"Desarrollador/a Full Stack", FamilyClear},
 		{"Desenvolvedor Backend", FamilyClear},
 		{"Ingeniero de Software", FamilyClear},
-		// An engineering noun without an approved specialization is still only ambiguous.
-		{"Desarrollador", FamilyAmbiguous},
+		// An engineering noun without an approved specialization is ambiguous until the
+		// requirements establish a family; this description does (Go APIs, PostgreSQL).
+		{"Desarrollador", FamilyClear},
 		// A non-engineering function still decides the designation.
 		{"Ejecutivo de Marketing", FamilyNone},
 	} {
@@ -681,5 +684,65 @@ func TestSupportedCapabilitiesAreOrderedBySupport(t *testing.T) {
 	}
 	if result.SupportedCapability[0] != "cap-api" {
 		t.Fatalf("the most-supported capability should lead, got %v", result.SupportedCapability)
+	}
+}
+
+// Broader discovery: an engineering title that does not name an approved family is classified by
+// what the job actually asks for, while unrelated and management titles stay where they were.
+func TestFamilyEstablishedByRequirements(t *testing.T) {
+	doc := syntheticProfile()
+	doc.DesiredRoles[0].Aliases = append(doc.DesiredRoles[0].Aliases, "Golang Engineer", "Golang Developer")
+	thin := "Requirements:\n- Experience with HVAC control systems\n- Valid driving licence\n"
+	for _, tc := range []struct {
+		title, description, wantFamily, wantFamilyID string
+		inferred                                     bool
+	}{
+		{"Platform Engineer", backendDescription, FamilyClear, "role-backend", true},
+		{"Distributed Systems Engineer", backendDescription, FamilyClear, "role-backend", true},
+		{"Senior Payments Engineer", backendDescription, FamilyClear, "role-backend", true},
+		{"Integration Engineer", backendDescription, FamilyClear, "role-backend", true},
+		{"Systems Engineer", backendDescription, FamilyClear, "role-backend", true},
+		{"Cloud Infrastructure Engineer", backendDescription, FamilyClear, "role-backend", true},
+		{"Engineer - Platform", backendDescription, FamilyClear, "role-backend", true},
+		// Stated in the title, so not inferred.
+		{"Go Developer", backendDescription, FamilyClear, "role-backend", false},
+		{"Senior Go Engineer (Remote)", backendDescription, FamilyClear, "role-backend", false},
+		{"Backend Lead", backendDescription, FamilyClear, "role-backend", false},
+		{"Software Architect", backendDescription, FamilyClear, "role-software", false},
+		{"Software Engineer", backendDescription, FamilyClear, "role-software", false},
+		// Not enough of the job matches the profile: stays ambiguous.
+		{"Platform Engineer", thin, FamilyAmbiguous, "", false},
+		{"Tech Lead", thin, FamilyAmbiguous, "", false},
+		// Managing people is not inferred into a hands-on family.
+		{"Engineering Manager", backendDescription, FamilyAmbiguous, "", false},
+		// A non-engineering function or discipline still decides, whatever the description says.
+		{"Sales Engineer", backendDescription, FamilyNone, "", false},
+		{"Customer Support Engineer", backendDescription, FamilyNone, "", false},
+		{"Mechanical Engineer", backendDescription, FamilyNone, "", false},
+		{"Marketing Manager", backendDescription, FamilyNone, "", false},
+		{"Go-To-Market Lead", backendDescription, FamilyNone, "", false},
+	} {
+		result := assessFixture(t, tc.title, tc.description, "complete", &doc)
+		if result.FamilyConfidence != tc.wantFamily || result.FamilyID != tc.wantFamilyID {
+			t.Errorf("%q: family %q/%q, want %q/%q (%v)", tc.title, result.FamilyConfidence, result.FamilyID, tc.wantFamily, tc.wantFamilyID, result.Reasons.Codes())
+			continue
+		}
+		if got := result.Reasons.Has("family_established_by_requirements"); got != tc.inferred {
+			t.Errorf("%q: inferred = %v, want %v", tc.title, got, tc.inferred)
+		}
+		if tc.wantFamily == FamilyNone && result.Classification != ClassificationUnrelated {
+			t.Errorf("%q: classification %q, want unrelated", tc.title, result.Classification)
+		}
+	}
+}
+
+// A family read from requirements counts for slightly less than one the title states, so a job
+// that says "Backend Engineer" still ranks above an equally matched "Platform Engineer".
+func TestInferredFamilyScoresBelowStatedFamily(t *testing.T) {
+	doc := syntheticProfile()
+	stated := assessFixture(t, "Backend Engineer", backendDescription, "complete", &doc)
+	inferred := assessFixture(t, "Platform Engineer", backendDescription, "complete", &doc)
+	if inferred.Score >= stated.Score || inferred.Classification == ClassificationUnrelated {
+		t.Fatalf("stated %d (%s), inferred %d (%s)", stated.Score, stated.Classification, inferred.Score, inferred.Classification)
 	}
 }

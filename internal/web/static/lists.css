@@ -50,3 +50,12 @@
 .quick-views a span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .browse-filters label.check-field { justify-content: flex-end; }
 .browse-filters .check { height: 36px; color: var(--text-2); font-size: 13px; }
+
+/* Active / Dismissed tabs and row actions on the opportunity list */
+.list-tabs{margin-bottom:12px}
+.list-tabs span{margin-left:6px;color:var(--muted);font-variant-numeric:tabular-nums}
+.browse-table tr.is-dismissed td{background:var(--surface-2)}
+.browse-table tr.is-dismissed .cell-strong{color:var(--text-2)}
+.browse-table td.actions form{margin:0}
+.list-notice{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.list-notice form{margin:0;flex:none}

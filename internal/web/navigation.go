@@ -121,7 +121,7 @@ func listURL(path string, values url.Values, page int) string {
 }
 func activeFilters(values url.Values) []string {
 	labels := []string{}
-	keys := []string{"q", "fit", "access", "route", "cost", "tracking", "contract", "lead", "business", "assessment", "source", "company_id", "availability", "description", "selection", "recipient", "contact_search", "view", "research", "has_opportunities", "has_strong", "domain_status", "status", "attention", "event", "state", "sort", "suppressed"}
+	keys := []string{"q", "fit", "access", "route", "cost", "tracking", "contract", "lead", "business", "assessment", "source", "company_id", "availability", "description", "selection", "recipient", "contact_search", "view", "research", "has_opportunities", "has_strong", "domain_status", "status", "attention", "event", "state", "sort"}
 	for _, k := range keys {
 		if v := values.Get(k); v != "" {
 			labels = append(labels, k+": "+strings.ReplaceAll(v, "_", " "))

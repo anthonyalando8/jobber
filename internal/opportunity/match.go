@@ -1,6 +1,7 @@
 package opportunity
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 
 // MatcherVersion changes whenever the rules below change, so an assessment stored by an older
 // binary is never silently read as current.
-const MatcherVersion = "fit-v1"
+const MatcherVersion = "fit-v2"
 
 // Authoritative classifications. The numeric score is a ranking and debugging aid only; it
 // never decides any of these and can never override ClassificationUnrelated.
@@ -118,6 +119,9 @@ func (m MatchResult) Stale(currentRevision int, activeProfileRevisionID int64) b
 var roleNouns = map[string]bool{
 	"engineer": true, "engineers": true, "engineering": true,
 	"developer": true, "developers": true, "development": true,
+	// Architects and site-reliability engineers are hands-on engineering titles too. A title
+	// without one of these nouns is never promoted, whatever its description says.
+	"architect": true, "architects": true, "sre": true, "swe": true,
 	"programmer": true, "programmers": true, "programming": true, "coder": true,
 	// Spanish
 	"desarrollador": true, "desarrolladora": true, "desarrolladores": true,
@@ -171,8 +175,30 @@ var listingQualifiers = map[string]bool{
 func normalizeTitleForMatch(title string) string {
 	s := strings.ToLower(hyphenVariants.Replace(title))
 	s = strings.Join(strings.Fields(s), " ")
-	return strings.NewReplacer("full-stack", "full stack", "fullstack", "full stack",
+	s = strings.NewReplacer("full-stack", "full stack", "fullstack", "full stack",
 		"back-end", "backend", "front-end", "frontend").Replace(s)
+	// "Go" is the language's own name and is how most boards write it; profiles say "Golang".
+	// Only the word directly before an engineering word is rewritten, so "go-to-market" and
+	// "on the go" are untouched.
+	return goBeforeRole.ReplaceAllString(s, "${1}golang ${2}")
+}
+
+var goBeforeRole = regexp.MustCompile(`(^|[^a-z0-9.])go (developer|engineer|programmer|backend|software|services|platform)`)
+
+// leadPhrases make a title a hands-on engineering lead even without an engineer/developer noun.
+var leadPhrases = []string{"tech lead", "technical lead", "engineering lead", "development lead"}
+
+// managementWords mark titles whose work is managing people rather than building software. Such
+// a title may still be ambiguous engineering, but its family is never inferred from requirements.
+var managementWords = []string{"manager", "director", "head of", "vp", "vice president", "chief", "cto"}
+
+func hasAnyPhrase(text string, phrases []string) bool {
+	for _, p := range phrases {
+		if containsPhrase(text, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // headPhrase is the role designation: what comes before the first separator, skipping a leading
@@ -276,7 +302,9 @@ func hasRoleNoun(phrase string) bool {
 
 type gateResult struct {
 	confidence, familyID, familyName, matched string
-	reasons                                   explain.Reasons
+	// inferred is true when the family came from the requirements rather than the title.
+	inferred bool
+	reasons  explain.Reasons
 }
 
 // gateTitle is the first and decisive role-family check. The advertised title decides the
@@ -297,13 +325,14 @@ func gateTitle(originalTitle string, specs []familySpec) gateResult {
 					"\". Engineering vocabulary elsewhere in the description cannot change this.")}
 		}
 	}
-	if spec, phrase, ok := matchSpecialization(head, specs); ok && hasRoleNoun(head) {
+	// "Backend Lead" and "Golang Lead" name the family and a hands-on lead role.
+	if spec, phrase, ok := matchSpecialization(head, specs); ok && (hasRoleNoun(head) || containsPhrase(head, "lead")) {
 		return gateResult{confidence: FamilyClear, familyID: spec.id, familyName: spec.name, matched: phrase,
 			reasons: explain.Reasons{}.Add("desired_role_family_matched",
 				"The advertised title states the approved desired family "+spec.name+" (\""+phrase+"\" with an engineering role noun).",
 				"profile:role:"+spec.id)}
 	}
-	if hasRoleNoun(head) {
+	if hasRoleNoun(head) || hasAnyPhrase(head, leadPhrases) {
 		return gateResult{confidence: FamilyAmbiguous, reasons: explain.Reasons{}.Add(
 			"ambiguous_engineering_title",
 			"The advertised title \""+head+"\" is an engineering role noun without an approved desired specialization, so the family is ambiguous.")}
@@ -321,6 +350,58 @@ func gateTitle(originalTitle string, specs []familySpec) gateResult {
 		"unrelated_advertised_title",
 		"The advertised title \""+head+"\" names no approved desired engineering family and no engineering role.")}
 }
+
+// inferFamily establishes the family of an engineering title that does not name one ("Platform
+// Engineer", "Distributed Systems Engineer", "Engineer, Payments") from what the job actually
+// asks for. It only applies to an ambiguous engineering title, never to an unrelated one or to a
+// management title, and it needs at least two approved capabilities that real requirement
+// excerpts support, with the family taken from those capabilities' own approved role families.
+func inferFamily(gate gateResult, title string, capabilityIDs []string, doc profile.Document) (gateResult, bool) {
+	if gate.confidence != FamilyAmbiguous || len(capabilityIDs) < minInferenceCapabilities {
+		return gate, false
+	}
+	if hasAnyPhrase(normalizeTitleForMatch(title), managementWords) {
+		return gate, false
+	}
+	desired := map[string]profile.JobFamily{}
+	for _, f := range doc.DesiredRoles {
+		desired[f.ID] = f
+	}
+	counts := map[string]int{}
+	for _, id := range capabilityIDs {
+		for _, c := range doc.Capabilities {
+			if c.ID != id {
+				continue
+			}
+			for _, family := range c.RoleFamilyIDs {
+				if _, ok := desired[family]; ok {
+					counts[family]++
+				}
+			}
+		}
+	}
+	best, bestCount := "", 0
+	for _, f := range doc.DesiredRoles { // profile order breaks ties, so the result is stable
+		if counts[f.ID] > bestCount {
+			best, bestCount = f.ID, counts[f.ID]
+		}
+	}
+	if bestCount < minInferenceCapabilities {
+		return gate, false
+	}
+	refs := []string{"profile:role:" + best}
+	for _, id := range capabilityIDs {
+		refs = append(refs, "profile:capability:"+id)
+	}
+	return gateResult{confidence: FamilyClear, inferred: true, familyID: best, familyName: desired[best].Name,
+		reasons: explain.Reasons{}.Add("family_established_by_requirements",
+			"The title does not name an approved family, but "+itoa(bestCount)+" approved "+desired[best].Name+
+				" capabilities are supported by the job's own requirements, so the role is treated as "+desired[best].Name+".",
+			refs...)}, true
+}
+
+// minInferenceCapabilities is how many supported capabilities establish a family from requirements.
+const minInferenceCapabilities = 2
 
 func matchSpecialization(phrase string, specs []familySpec) (familySpec, string, bool) {
 	for _, spec := range specs {
@@ -395,6 +476,13 @@ func Assess(in AssessInput) MatchResult {
 
 	capabilityIDs, projectIDs := supportedItems(result.Matched)
 	result.SupportedCapability, result.SupportingProjects = capabilityIDs, projectIDs
+
+	if inferred, ok := inferFamily(gate, in.Facts.Title, capabilityIDs, doc); ok {
+		gate = inferred
+		result.FamilyConfidence = gate.confidence
+		result.FamilyID, result.FamilyName = gate.familyID, gate.familyName
+		result.Reasons = append(result.Reasons, gate.reasons...)
+	}
 
 	if gate.confidence == FamilyNone {
 		// An unrelated title is settled before any requirement or score is considered.
@@ -621,7 +709,11 @@ func scoreFit(gate gateResult, result MatchResult, doc profile.Document, reasons
 	score := 0
 	switch gate.confidence {
 	case FamilyClear:
+		// A family the title states outright counts for more than one read from requirements.
 		score += 40
+		if gate.inferred {
+			score -= 10
+		}
 	case FamilyAmbiguous:
 		score += 20
 	}

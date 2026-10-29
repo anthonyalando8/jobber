@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/anthonyalando8/prospector/internal/composition"
-	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"github.com/anthonyalando8/prospector/internal/plan"
 )
 
@@ -231,9 +230,6 @@ func (db *DB) CompositionStaleReasons(ctx context.Context, s composition.Snapsho
 			reasons = append(reasons, "opportunity_changed")
 		}
 	}
-	if s.Match != nil && s.Match.MatcherVersion != opportunity.MatcherVersion {
-		reasons = append(reasons, "matcher_changed")
-	}
 	if s.Match != nil {
 		current, err := db.GetCurrentOpportunityMatch(ctx, s.OpportunityID)
 		if err != nil {
@@ -243,9 +239,13 @@ func (db *DB) CompositionStaleReasons(ctx context.Context, s composition.Snapsho
 			reasons = append(reasons, "match_changed")
 		} else {
 			before, after := *s.Match, *current
-			// Refresh timestamps and priority scores alone do not change the plan's facts.
+			// Refresh timestamps and priority scores alone do not change the plan's facts, and
+			// neither does a new matcher version that reaches the same assessment: only a
+			// changed conclusion makes the draft stale. Until the job is re-assessed under the
+			// current matcher, current is nil and the draft reads as stale (above).
 			before.AssessedAt, after.AssessedAt = time.Time{}, time.Time{}
 			before.Score, after.Score = 0, 0
+			before.MatcherVersion, after.MatcherVersion = "", ""
 			if composition.Hash(before) != composition.Hash(after) {
 				reasons = append(reasons, "match_changed")
 			}

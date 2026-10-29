@@ -46,6 +46,15 @@ func (b *batch) feed(url string, err error) bool {
 	return true
 }
 
+// unreadable marks a feed that answered but could not be parsed, after feed counted it as tried.
+func (b *batch) unreadable(url string, err error) {
+	b.feedsFailed++
+	if b.firstErr == nil {
+		b.firstErr = err
+	}
+	log.Printf("seed %s: %s: %v", b.source, url, err)
+}
+
 func (b *batch) ingest(ctx context.Context, db *store.DB, d opportunity.DiscoveredOpportunity) {
 	b.seen++
 	result, err := IngestOpportunity(ctx, db, d)
