@@ -186,6 +186,12 @@
   {{if .Send.Thread}}<div class="card-section"><a href="/threads/{{.Send.Thread.ID}}">Conversation {{.Send.Thread.ID}}</a> <span class="badge {{.Send.Thread.State}}">{{.Send.Thread.State}}</span><p class="help">Intent {{.Send.Thread.Intent}} · follow-up step {{.Send.Thread.FollowupStep}}</p></div>{{end}}
 </section>
 
+{{with .Draft.Snapshot.PostingInstructions}}
+<section class="card instructions-card" id="posting-instructions">
+  <div class="card-head"><div><h2>Instructions in this posting</h2><p>The posting tells its reader to do something. The email writer never acts on these by itself; you decide, in your notes for the writer on the contact plan. Postings like this are never sent automatically.</p></div></div>
+  <ul class="instruction-list">{{range .}}<li><span class="badge {{if eq .Kind "ai_directed"}}red{{else if eq .Kind "attention_check"}}amber{{else}}neutral{{end}}">{{.Label}}</span> <q>{{.Excerpt}}</q><small>{{.Advice}}</small></li>{{end}}</ul>
+</section>
+{{end}}
 <section class="card">
   <div class="card-head"><h2>Pinned inputs</h2></div>
   <dl class="kv">

@@ -224,6 +224,10 @@ type Input struct {
 	CompanyRelevant  bool
 	OperatorOverride bool
 	Body             string
+	// PostingInstructions labels the instructions the posting gives its reader (an attention
+	// check, a line addressed to AI, a take-home). Only a person who read the posting can decide
+	// how to answer them, so any of them keeps the message for a person.
+	PostingInstructions []string
 }
 
 // Finding is the shape of a validation or review finding, kept local so this package does not
@@ -398,6 +402,11 @@ func Evaluate(in Input) Decision {
 	}
 	if in.Intent == plan.ServiceOutreach {
 		evaluateService(&d, in)
+	}
+	if len(in.PostingInstructions) > 0 {
+		d.Blockers = d.Blockers.Add("posting_has_applicant_instructions",
+			"The posting gives its reader instructions ("+strings.Join(in.PostingInstructions, "; ")+
+				"). Only a person who read it can decide how to answer them.")
 	}
 
 	for _, b := range d.Blockers {

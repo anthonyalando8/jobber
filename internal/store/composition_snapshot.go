@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anthonyalando8/prospector/internal/composition"
+	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"github.com/anthonyalando8/prospector/internal/plan"
 )
 
@@ -71,6 +72,9 @@ func (db *DB) BuildCompositionSnapshot(ctx context.Context, planID int64) (compo
 		}
 		s.OpportunityID, s.OpportunityRevision, s.AdvertisedTitle, s.Match = o.ID, o.Revision, o.Facts.Title, match
 		s.Sources = append(s.Sources, composition.Source{ID: fmt.Sprintf("opportunity:%d", o.ID), URL: o.Facts.URL, Text: o.Facts.Description, Kind: "job_description", Revision: o.Revision})
+		if found := opportunity.PostingInstructions(o.Facts.Description); len(found) > 0 {
+			s.PostingInstructions = found
+		}
 	} else if p.ProvenanceOpportunityID != nil {
 		o, err := db.GetOpportunity(ctx, *p.ProvenanceOpportunityID)
 		if err != nil {

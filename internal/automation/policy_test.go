@@ -630,3 +630,13 @@ func TestAcceptedInferredAddressNeedsAPerson(t *testing.T) {
 		t.Fatalf("inferred recipient: outcome %s blockers %v", d.Outcome, d.Blockers.Codes())
 	}
 }
+
+// A posting with an attention check or a line addressed to AI always waits for a person.
+func TestPostingInstructionsNeedAPerson(t *testing.T) {
+	in := eligible()
+	in.PostingInstructions = []string{"Check that you read the posting"}
+	d := Evaluate(in)
+	if d.Eligible() || !blocked(d, "posting_has_applicant_instructions") || d.Outcome == Blocked {
+		t.Fatalf("outcome %s blockers %v", d.Outcome, d.Blockers.Codes())
+	}
+}

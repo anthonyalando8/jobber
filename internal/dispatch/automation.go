@@ -248,6 +248,11 @@ func (s *Service) automationInput(ctx context.Context, draftID int64, cfg Automa
 
 	// Business outreach: is the reason to write evidenced by research, or an operator's override?
 	in.Body = v.email.Body
+	for _, instruction := range snapshot.PostingInstructions {
+		if instruction.AutomationRelevant() {
+			in.PostingInstructions = append(in.PostingInstructions, instruction.Label())
+		}
+	}
 	for _, reason := range snapshot.ReviewReasons {
 		if reason.Code == "operator_override" {
 			in.OperatorOverride = true

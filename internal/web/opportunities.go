@@ -207,6 +207,7 @@ func (h *Handler) Opportunity(w http.ResponseWriter, r *http.Request) {
 	}
 	data["Access"] = access
 	data["ApplyEmail"] = facts.Metadata[opportunity.MetaApplyEmail]
+	data["Instructions"] = opportunity.PostingInstructions(facts.Description)
 	data["ApplyURL"] = facts.Metadata[opportunity.MetaApplyURL]
 	data["EmployerURL"] = facts.Metadata[opportunity.MetaEmployerURL]
 	tracking, err := h.db.GetOpportunityTracking(r.Context(), id)

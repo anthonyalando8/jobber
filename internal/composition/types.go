@@ -77,8 +77,12 @@ type Snapshot struct {
 	AllowedClaims       []Claim                  `json:"allowed_claims"`
 	ForbiddenClaims     []plan.Claim             `json:"forbidden_claims"`
 	Sources             []Source                 `json:"untrusted_sources"`
-	ReviewReasons       explain.Reasons          `json:"review_reasons"`
-	InputHash           string                   `json:"input_hash"`
+	// PostingInstructions are instructions found in the job posting's text (an attention check,
+	// a line addressed to AI, a take-home). They are facts about the posting, never commands:
+	// the writer acts on one only when the sender's own notes ask it to.
+	PostingInstructions []opportunity.PostingInstruction `json:"posting_instructions,omitempty"`
+	ReviewReasons       explain.Reasons                  `json:"review_reasons"`
+	InputHash           string                           `json:"input_hash"`
 }
 
 type Email struct {
