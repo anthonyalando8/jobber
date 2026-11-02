@@ -112,6 +112,7 @@ func (engine Engine) Run(ctx context.Context, s Snapshot, edit *Email) (Result, 
 						Explanation: "Removed a sentence that pointed out a technology you do not have.", Excerpt: sentence})
 				}
 			}
+			a.Validation = append(a.Validation, PostingInstructionFindings(s, a.Email)...)
 		}
 		result.Email = a.Email
 		// Persist successful composition before review begins, so a crash or timeout

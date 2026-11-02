@@ -297,3 +297,10 @@ func CurrentPromptHash(stage, intent string) string {
 	}
 	return Hash(string(p))
 }
+
+// CallJSON sends one system prompt and one JSON input to the configured provider and returns the
+// raw JSON it answered with. It exists so a judgement other than email review (the address check)
+// can share this provider's credentials, key rotation and error handling instead of copying them.
+func (p *JSONProvider) CallJSON(ctx context.Context, system string, input any, version string) ([]byte, Metadata, error) {
+	return p.call(ctx, system, input, version)
+}

@@ -211,6 +211,9 @@ func (s *Service) automationInput(ctx context.Context, draftID int64, cfg Automa
 		}
 		in.Recipient.Function = relevance.ClassifyContact(contact).Function
 	}
+	if snapshot.Recipient.ContactID != 0 {
+		in.Recipient.Inferred = s.db.ContactFromInferredAddress(ctx, snapshot.Recipient.ContactID)
+	}
 	if snapshot.Recipient.Relevance == "source_published" {
 		in.Recipient.SourcePublished = true
 	}
@@ -225,6 +228,38 @@ func (s *Service) automationInput(ctx context.Context, draftID int64, cfg Automa
 	}
 	if sent, err := s.db.AutoSentToday(ctx, startOfLocalDay(time.Now())); err == nil {
 		in.AutoSentToday = sent
+	}
+	if sent, err := s.db.AutoSentToday(ctx, time.Now().Add(-time.Hour)); err == nil {
+		in.AutoSentLastHour = sent
+	}
+
+	// The operator's switches, read now rather than at startup, so a pause takes effect at once.
+	in.AutoSendOn = s.db.SettingOn(ctx, store.SettingAutoSend)
+	in.Paused = s.db.SettingOn(ctx, store.SettingSendingPaused)
+	if since, err := s.db.Setting(ctx, store.SettingAutoSendSince, ""); err == nil && since != "" {
+		in.AutoSendSince, _ = time.Parse(time.RFC3339Nano, since)
+	}
+	facts, err := s.db.AutomationFactsFor(ctx, draftID, v.composed.Revision, snapshot.OpportunityID)
+	if err != nil {
+		return in, v, err
+	}
+	in.RevisionCreatedAt, in.OpportunitySuppressed = facts.RevisionCreatedAt, facts.OpportunitySuppressed
+	in.TransientFailures, in.LastFailureAt = facts.TransientFailures, facts.LastFailureAt
+
+	// Business outreach: is the reason to write evidenced by research, or an operator's override?
+	in.Body = v.email.Body
+	for _, instruction := range snapshot.PostingInstructions {
+		if instruction.AutomationRelevant() {
+			in.PostingInstructions = append(in.PostingInstructions, instruction.Label())
+		}
+	}
+	for _, reason := range snapshot.ReviewReasons {
+		if reason.Code == "operator_override" {
+			in.OperatorOverride = true
+		}
+	}
+	if relevance, err := s.db.GetCompanyRelevance(ctx, snapshot.CompanyID); err == nil && relevance != nil {
+		in.CompanyRelevant = relevance.Relevant && relevance.ProfileRevisionID == snapshot.ProfileRevisionID
 	}
 	// An approval made by a person keeps this draft on the manual path. One made by automation
 	// is this runner's own authorization and is not an obstacle to it.

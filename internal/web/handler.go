@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/anthonyalando8/prospector/internal/addresscheck"
 	"html/template"
 	"log"
 	"net/http"
@@ -66,6 +67,8 @@ type Handler struct {
 	dashboardCache     *dashboardView
 	schemaChecked      time.Time
 	schemaOK           bool
+	// addressChecker builds the address checker; nil uses the environment. Tests replace it.
+	addressChecker func() *addresscheck.Runner
 }
 
 // NewHandler creates a new handler with dependencies

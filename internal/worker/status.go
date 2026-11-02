@@ -23,7 +23,7 @@ type RuntimeStatus struct {
 // ReportedLoops are the loops the dashboard shows and judges liveness by. The draft loop is
 // deliberately absent: it is a no-op without an AI provider, so reporting it as overdue would
 // describe a configuration choice as a fault.
-var ReportedLoops = []string{"discovery", "research", "domain-resolve", contactDiscoveryLoop, suppressionLoop}
+var ReportedLoops = []string{"discovery", "research", "domain-resolve", contactDiscoveryLoop, suppressionLoop, triageLoop, outreachLoop, addressCheckLoop}
 
 func (s *Scheduler) Status() []LoopStatus {
 	s.runtime.mu.RLock()

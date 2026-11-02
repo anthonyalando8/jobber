@@ -13,6 +13,7 @@
 {{with .Notice}}
 {{if eq .Kind "dismissed"}}<div class="alert alert-success list-notice" role="status"><div><strong>Dismissed “{{.Title}}”.</strong> It is hidden from this list and kept in the Dismissed view.</div>
   <form method="post" action="/opportunities/{{.ID}}/reinstate"><input type="hidden" name="from" value="list"><input type="hidden" name="return" value="{{$.CurrentURL}}"><button class="btn-sm">Undo</button></form></div>
+{{else if eq .Kind "kept"}}<div class="alert alert-success list-notice" role="status"><div><strong>Kept “{{.Title}}” visible.</strong> It has left the triage review queue.</div></div>
 {{else if eq .Kind "restored"}}<div class="alert alert-success list-notice" role="status"><div><strong>Restored “{{.Title}}”.</strong> It is back in the active list.</div></div>
 {{else if eq .Kind "failed"}}<div class="alert alert-danger" role="alert"><div><strong>Could not dismiss “{{.Title}}”.</strong> Nothing was changed. Try again, or open it and dismiss it from its page.</div></div>
 {{else}}<div class="alert alert-danger" role="alert"><div><strong>Could not restore “{{.Title}}”.</strong> Nothing was changed. Try again from the Dismissed view.</div></div>{{end}}
@@ -22,6 +23,8 @@
   <a href="{{.ActiveViewURL}}" {{if ne .Filter.Suppressed "only"}}class="active" aria-current="page"{{end}}>Active</a>
   <a href="{{.DismissedViewURL}}" {{if eq .Filter.Suppressed "only"}}class="active" aria-current="page"{{end}}>Dismissed <span>{{.Facets.Suppressed}}</span></a>
 </nav>
+{{if eq .Filter.Triage "manual_review"}}<p class="list-intro">The matcher found these unrelated, but their requirements match your capabilities. Open one to judge it, then <strong>Keep</strong> it visible or <strong>Dismiss</strong> it.</p>{{end}}
+{{if eq .Filter.Triage "pending"}}<p class="list-intro">High-confidence unrelated postings triage would take out of the list once suppression is turned on (dashboard → Automation). Check a sample; anything here that matters is a sign the rules need adjusting.</p>{{end}}
 {{if eq .Filter.Suppressed "only"}}<p class="list-intro">Dismissed opportunities, and ones taken out automatically because they expired, were filled or were removed by the source. They stay in the system with their history; <strong>Restore</strong> puts one back in the active list.</p>{{end}}
 
 {{if ne .Filter.Suppressed "only"}}<nav class="quick-views" aria-label="Quick views">
@@ -30,6 +33,8 @@
   <a href="/opportunities?route=direct_contact" {{if eq .Filter.Route "direct_contact"}}class="active"{{end}}>Direct contact <span>{{.Facets.Direct}}</span></a>
   <a href="/opportunities?contract=1&amp;access=accessible" {{if .Filter.Contract}}class="active"{{end}}>Contract &amp; freelance</a>
   <a href="/opportunities?tracking=active" {{if eq .Filter.Tracking "active"}}class="active"{{end}}>Saved &amp; applied <span>{{.Facets.Tracked}}</span></a>
+  {{if .Triage.ManualReview}}<a href="/opportunities?triage=manual_review" {{if eq .Filter.Triage "manual_review"}}class="active"{{end}}>Needs triage review <span>{{.Triage.ManualReview}}</span></a>{{end}}
+  {{if .Triage.PendingSuppression}}<a href="/opportunities?triage=pending" {{if eq .Filter.Triage "pending"}}class="active"{{end}}>Triage would hide <span>{{.Triage.PendingSuppression}}</span></a>{{end}}
 </nav>{{end}}
 
 {{range .Warnings}}<p class="filter-warning" role="status">{{.}}</p>{{end}}
@@ -77,7 +82,7 @@
 <td>{{with .Access}}{{if eq .Route "direct_contact"}}<span class="badge green">Email</span>{{else if eq .Route "employer_ats"}}Employer careers{{else if eq .Route "employer_site"}}Employer site{{else if eq .Route "job_board"}}Job board{{else}}<span class="muted">Unknown</span>{{end}}{{if eq .Cost "paid"}} <span class="badge red" title="{{.CostEvidence}}">Paid</span>{{else if eq .Cost "registration"}} <span class="badge amber" title="{{.CostEvidence}}">Account</span>{{end}}{{end}}</td>
 <td class="nowrap">{{.DiscoveredAt.Format "2 Jan"}}<small>{{.Facts.Source}}</small></td>
 <td>{{if .Tracking}}<span class="badge {{if eq .Tracking "rejected"}}red{{else if eq .Tracking "not_interested"}}neutral{{else if eq .Tracking "saved"}}blue{{else}}green{{end}}">{{.Tracking}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-<td class="actions">{{if .Suppressed}}<form method="post" action="/opportunities/{{.ID}}/reinstate"><input type="hidden" name="from" value="list"><input type="hidden" name="return" value="{{$.CurrentURL}}"><button class="btn-sm" title="Put this back in the active list">Restore</button></form>{{else}}<form method="post" action="/opportunities/{{.ID}}/suppress"><input type="hidden" name="from" value="list"><input type="hidden" name="return" value="{{$.CurrentURL}}"><button class="btn-sm btn-ghost" title="Hide from the list; kept in the Dismissed view">Dismiss</button></form>{{end}}</td>
+<td class="actions">{{if .Suppressed}}<form method="post" action="/opportunities/{{.ID}}/reinstate"><input type="hidden" name="from" value="list"><input type="hidden" name="return" value="{{$.CurrentURL}}"><button class="btn-sm" title="Put this back in the active list">Restore</button></form>{{else}}<form method="post" action="/opportunities/{{.ID}}/suppress"><input type="hidden" name="from" value="list"><input type="hidden" name="return" value="{{$.CurrentURL}}"><button class="btn-sm btn-ghost" title="Hide from the list; kept in the Dismissed view">Dismiss</button></form>{{if eq $.Filter.Triage "manual_review"}}<form method="post" action="/opportunities/{{.ID}}/triage/keep"><input type="hidden" name="return" value="{{$.CurrentURL}}"><button class="btn-sm" title="Keep visible; leaves the review queue">Keep</button></form>{{end}}{{end}}</td>
 </tr>{{end}}
 </tbody></table></div>
 {{else}}

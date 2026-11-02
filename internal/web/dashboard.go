@@ -54,6 +54,8 @@ type dashboardView struct {
 	LastResearch                                         string
 	// HeldBack counts listings held at ingestion in the last 7 days; they are not opportunities.
 	HeldBack int
+	// Automation is the automation card: sending mode, limits, holds, drafting and triage.
+	Automation dashboardAutomation
 }
 
 func (h *Handler) SetWorkerStatus(source func() []worker.LoopStatus) { h.workerStatus = source }
@@ -184,6 +186,17 @@ func (h *Handler) dashboardSnapshot(ctx context.Context) (*dashboardView, error)
 		v.LastResearch = "No company researched yet"
 	}
 	v.Metrics = dashboardMetrics(c)
+	v.Automation = h.automationView(ctx, c)
+	if v.Automation.Mode == "Paused" {
+		v.addProblem("Automatic sending is paused", "/#automation", "Review automation")
+	}
+	if v.Automation.Triage.ManualReview > 0 {
+		v.addProblem(fmt.Sprintf("%d unrelated posting%s need a triage decision", v.Automation.Triage.ManualReview, plural(v.Automation.Triage.ManualReview, "", "s")),
+			"/opportunities?triage=manual_review", "Review postings")
+	}
+	if v.Automation.Triage.Failed > 0 {
+		v.addProblem(fmt.Sprintf("Triage failed on %d posting%s", v.Automation.Triage.Failed, plural(v.Automation.Triage.Failed, "", "s")), "", "")
+	}
 	if !c.ProfileActive {
 		v.Next = append(v.Next, dashboardAction{"Activate your candidate profile", "Approve the facts used to assess opportunities", "/profile"})
 	}

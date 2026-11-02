@@ -195,8 +195,10 @@ docker compose stats --no-stream                   # memory use against limits
 bash deploy/backup.sh                              # backup now
 ```
 
-Logs rotate at 10 MB × 3 files per container. Memory limits: app 256 MB, db 384 MB, redis 96 MB.
-Measured at idle: about 14 MB, 49 MB and 4 MB.
+Logs rotate at 10 MB × 3 files per container. Memory limits, sized for an 8 GB / 4-core VPS
+shared with other services: app 768 MB (2 CPUs, `GOMEMLIMIT` 640 MiB), db 1 GB
+(`shared_buffers` 256 MB), redis 192 MB (`maxmemory` 128 MB). About 2 GB in total; the earlier,
+smaller limits measured about 14 MB, 49 MB and 4 MB at idle.
 
 ---
 
@@ -221,3 +223,38 @@ To try the production stack locally, create a `.env.production` from the example
   budgets or sessions.
 - `.env.production` and `backups/` contain secrets and personal data. Both are git-ignored and
   excluded from the image.
+
+
+---
+
+## 8. Triage, autonomous outreach and address review (migrations 0031–0032)
+
+Deploy as usual (`git pull --ff-only && bash deploy/deploy.sh`). Both migrations are additive;
+`deploy.sh` takes and verifies a backup before applying them. Then add to `.env.production`:
+
+```bash
+EMAIL_COMPOSITION_ENABLED=true   # required for automatic drafting and AI address opinions
+AUTO_SEND_HOURLY_CAP=1
+OUTREACH_DAILY_DRAFTS=3
+ADDRESS_AI_DAILY=20
+# optional: TRIAGE_INTERVAL_MINUTES=10  OUTREACH_INTERVAL_MINUTES=30  ADDRESS_CHECK_INTERVAL_MINUTES=15
+```
+
+and apply them with `docker compose up -d --wait app`.
+
+Everything autonomous starts **off** and is switched from the dashboard's Automation card, without
+a restart. Suggested order, a few days apart:
+
+1. Read the triage results ("Would be hidden"), then **Let triage hide unrelated postings**.
+2. Review addresses under **Contact addresses to review**; optionally **Get AI opinions in the background**.
+3. **Switch on drafting** and read what it writes.
+4. Automatic sending needs both the deployment permission and the switch:
+   `EMAIL_PIPELINE_MODE=v2_auto`, `AUTO_SEND_INTENTS=specific_job_application`,
+   `AUTO_SEND_DAILY_CAP=1`, then **Switch on automatic sending**. Only drafts written after the switch
+   are ever sent automatically. **Pause all automatic sending** stops it at once.
+
+Read-only check of what triage would hide, by source:
+
+```bash
+docker compose run --rm migrate -command triage-report
+```

@@ -14,7 +14,7 @@ import (
 )
 
 func dashboardTestView() *dashboardView {
-	return &dashboardView{Greeting: "Good afternoon, Anthony", Health: "System needs attention", Counts: &store.DashboardCounts{}, Rollout: rolloutView{Mode: send.ModeManualSend, ManualSendPermitted: true}}
+	return &dashboardView{Greeting: "Good afternoon, Anthony", Health: "System needs attention", Counts: &store.DashboardCounts{}, Rollout: rolloutView{Mode: send.ModeManualSend, ManualSendPermitted: true}, Automation: dashboardAutomation{Mode: "Manual"}}
 }
 func renderDashboardTest(t *testing.T, v *dashboardView) string {
 	t.Helper()
@@ -64,7 +64,7 @@ func TestDashboardUsesInitializedV2GeminiAndEffectiveLimits(t *testing.T) {
 	v := dashboardTestView()
 	v.AI = a
 	page := renderDashboardTest(t, v)
-	for _, want := range []string{"Google Gemini", "synthetic-compose-model", "synthetic-review-model", "2 / 18", "7 / 60", "Approval required before sending", "Automation off"} {
+	for _, want := range []string{"Google Gemini", "synthetic-compose-model", "synthetic-review-model", "2 / 18", "7 / 60", "Approval required before sending", "Automatic sending: Manual"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("missing %q", want)
 		}

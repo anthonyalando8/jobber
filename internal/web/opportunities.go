@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"github.com/anthonyalando8/prospector/internal/store"
+	"github.com/anthonyalando8/prospector/internal/triage"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -63,11 +65,15 @@ func (h *Handler) Opportunities(w http.ResponseWriter, r *http.Request) {
 			companyName = company.Name
 		}
 	}
+	triageStats, err := h.db.TriageStats(r.Context(), triage.Version, h.db.SettingOn(r.Context(), store.SettingTriageSuppress))
+	if err != nil {
+		log.Printf("opportunities: triage counts: %v", err)
+	}
 	// The Active and Dismissed tabs keep every other filter, so switching view never loses a search.
 	activeView, dismissedView := f, f
 	activeView.Suppressed, dismissedView.Suppressed = "hidden", "only"
 	renderTemplate(w, "opportunities.html", map[string]any{"Rows": rows, "Filter": f, "Facets": facets, "Warnings": warnings, "ActiveFilters": activeFilters(values), "CompanyName": companyName,
-		"Notice": h.listNotice(r), "ActiveViewURL": listURL("/opportunities", opportunityValues(activeView), 1), "DismissedViewURL": listURL("/opportunities", opportunityValues(dismissedView), 1),
+		"Notice": h.listNotice(r), "Triage": triageStats, "ActiveViewURL": listURL("/opportunities", opportunityValues(activeView), 1), "DismissedViewURL": listURL("/opportunities", opportunityValues(dismissedView), 1),
 		"Total": total, "Page": page, "Pages": pages, "First": first, "Last": max(0, first+len(rows)-1), "CurrentURL": current,
 		"HasPrev": page > 1, "HasNext": page < pages, "PrevURL": listURL("/opportunities", values, page-1), "NextURL": listURL("/opportunities", values, page+1),
 		"PageLinks": paginationWindow(page, pages, func(n int) string { return listURL("/opportunities", values, n) })})
@@ -82,7 +88,7 @@ type listNotice struct {
 func (h *Handler) listNotice(r *http.Request) *listNotice {
 	kind := r.URL.Query().Get("notice")
 	switch kind {
-	case "dismissed", "restored", "failed", "restore_failed":
+	case "dismissed", "restored", "failed", "restore_failed", "kept":
 	default:
 		return nil
 	}
@@ -98,6 +104,22 @@ func (h *Handler) listNotice(r *http.Request) *listNotice {
 		}
 	}
 	return n
+}
+
+// OpportunityTriageKeep records a person's decision to keep a triaged posting visible: it leaves
+// the "needs review" queue and triage will not revisit it until its inputs change.
+func (h *Handler) OpportunityTriageKeep(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		http.Error(w, "Invalid opportunity ID", http.StatusBadRequest)
+		return
+	}
+	if err := h.db.MarkTriageKept(r.Context(), id, "operator"); err != nil {
+		h.backToList(w, r, "failed", id)
+		return
+	}
+	h.logActivity(r.Context(), "opportunity", "Kept opportunity "+strconv.FormatInt(id, 10)+" visible after triage review", true)
+	h.backToList(w, r, "kept", id)
 }
 
 func (h *Handler) Opportunity(w http.ResponseWriter, r *http.Request) {
@@ -185,6 +207,7 @@ func (h *Handler) Opportunity(w http.ResponseWriter, r *http.Request) {
 	}
 	data["Access"] = access
 	data["ApplyEmail"] = facts.Metadata[opportunity.MetaApplyEmail]
+	data["Instructions"] = opportunity.PostingInstructions(facts.Description)
 	data["ApplyURL"] = facts.Metadata[opportunity.MetaApplyURL]
 	data["EmployerURL"] = facts.Metadata[opportunity.MetaEmployerURL]
 	tracking, err := h.db.GetOpportunityTracking(r.Context(), id)

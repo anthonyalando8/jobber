@@ -83,12 +83,24 @@ func (r *AutomationRunner) Tick(ctx context.Context) {
 		return
 	}
 
+	// The operator's switches, read every tick: pausing or switching off takes effect at once and
+	// costs nothing further this tick.
+	if !r.db.SettingOn(ctx, store.SettingAutoSend) || r.db.SettingOn(ctx, store.SettingSendingPaused) {
+		return
+	}
+	since := time.Now()
+	if raw, err := r.db.Setting(ctx, store.SettingAutoSendSince, ""); err == nil && raw != "" {
+		if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			since = parsed
+		}
+	}
+
 	available, reason := true, ""
 	if r.budget != nil {
 		available, reason = r.budget(ctx)
 	}
 
-	candidates, err := r.db.AutomationCandidates(ctx, 10)
+	candidates, err := r.db.AutomationCandidates(ctx, since, 10)
 	if err != nil {
 		log.Print("automation: cannot list candidates")
 		return

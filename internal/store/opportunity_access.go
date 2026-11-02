@@ -190,17 +190,41 @@ type SourceCount struct {
 	Source                      string
 	Total, LastWeek, Accessible int
 	Latest                      *time.Time
+	// Quality, over live listings under the current assessment: how many are a strong or possible
+	// match and how many unrelated; and how many listings triage has taken out of the list.
+	Relevant, Unrelated, TriageHidden int
+}
+
+// UnrelatedPercent is the share of assessed live listings the matcher found unrelated.
+func (c SourceCount) UnrelatedPercent() int {
+	if assessed := c.Relevant + c.Unrelated; assessed > 0 {
+		return c.Unrelated * 100 / assessed
+	}
+	return 0
 }
 
 // SourceCounts reports, per opportunity source, how many live listings are stored, how many were
-// discovered in the last seven days and how many are open or likely open to an applicant in Kenya.
-// This is what answers "is this source actually producing anything" from the UI.
+// discovered in the last seven days, how many are open or likely open to an applicant in Kenya,
+// and how relevant they turn out to be. This is what answers "is this source actually producing
+// anything worth having" from the UI. A noisy source is not turned off: triage keeps its
+// unrelated listings out of the way and the numbers stay visible here.
 func (db *DB) SourceCounts(ctx context.Context) ([]SourceCount, error) {
-	rows, err := db.Query(ctx, `SELECT o.source,count(*),count(*) FILTER(WHERE o.discovered_at > now()-interval '7 days'),
- count(*) FILTER(WHERE a.kenya_access IN ('open','likely')),max(o.discovered_at)
- FROM opportunity o LEFT JOIN opportunity_access a ON a.opportunity_id=o.id
- WHERE NOT EXISTS(SELECT 1 FROM opportunity_suppression s WHERE s.opportunity_id=o.id AND s.superseded_at IS NULL)
- GROUP BY o.source ORDER BY count(*) DESC`)
+	rows, err := db.Query(ctx, `WITH current AS (
+	  SELECT o.id, o.source, o.discovered_at, a.kenya_access, m.classification,
+	    EXISTS(SELECT 1 FROM opportunity_suppression s WHERE s.opportunity_id=o.id AND s.superseded_at IS NULL) AS suppressed,
+	    EXISTS(SELECT 1 FROM opportunity_suppression s WHERE s.opportunity_id=o.id AND s.superseded_at IS NULL AND s.basis='triage_rules') AS triaged
+	  FROM opportunity o LEFT JOIN opportunity_access a ON a.opportunity_id=o.id
+	  LEFT JOIN opportunity_match m ON m.opportunity_id=o.id AND m.opportunity_revision=o.current_revision AND m.matcher_version=$1
+	    AND m.profile_revision_id=(SELECT active_revision_id FROM candidate_profile WHERE id=1))
+	 SELECT source, count(*) FILTER(WHERE NOT suppressed),
+	   count(*) FILTER(WHERE NOT suppressed AND discovered_at > now()-interval '7 days'),
+	   count(*) FILTER(WHERE NOT suppressed AND kenya_access IN ('open','likely')),
+	   max(discovered_at) FILTER(WHERE NOT suppressed),
+	   count(*) FILTER(WHERE NOT suppressed AND classification IN ('strong_match','possible_match')),
+	   count(*) FILTER(WHERE NOT suppressed AND classification='unrelated'),
+	   count(*) FILTER(WHERE triaged)
+	 FROM current GROUP BY source HAVING count(*) FILTER(WHERE NOT suppressed) > 0 OR count(*) FILTER(WHERE triaged) > 0
+	 ORDER BY count(*) FILTER(WHERE NOT suppressed) DESC`, opportunity.MatcherVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +232,7 @@ func (db *DB) SourceCounts(ctx context.Context) ([]SourceCount, error) {
 	out := []SourceCount{}
 	for rows.Next() {
 		var c SourceCount
-		if err = rows.Scan(&c.Source, &c.Total, &c.LastWeek, &c.Accessible, &c.Latest); err != nil {
+		if err = rows.Scan(&c.Source, &c.Total, &c.LastWeek, &c.Accessible, &c.Latest, &c.Relevant, &c.Unrelated, &c.TriageHidden); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

@@ -15,16 +15,19 @@ import (
 	"time"
 
 	"github.com/anthonyalando8/prospector/internal/activity"
+	"github.com/anthonyalando8/prospector/internal/addresscheck"
 	"github.com/anthonyalando8/prospector/internal/aibudget"
 	"github.com/anthonyalando8/prospector/internal/assess"
 	"github.com/anthonyalando8/prospector/internal/contactsearch"
 	"github.com/anthonyalando8/prospector/internal/domainsearch"
 	"github.com/anthonyalando8/prospector/internal/draft"
 	"github.com/anthonyalando8/prospector/internal/enrich"
+	"github.com/anthonyalando8/prospector/internal/outreach"
 	"github.com/anthonyalando8/prospector/internal/score"
 	"github.com/anthonyalando8/prospector/internal/seed"
 	"github.com/anthonyalando8/prospector/internal/sendpolicy"
 	"github.com/anthonyalando8/prospector/internal/store"
+	"github.com/anthonyalando8/prospector/internal/triage"
 	"github.com/anthonyalando8/prospector/internal/verify"
 	"github.com/redis/go-redis/v9"
 )
@@ -66,6 +69,15 @@ type Config struct {
 	// disappeared from their source. Slow on purpose: the signals it reads are a published
 	// closing date and a two-week absence, neither of which changes between ticks.
 	SuppressionInterval time.Duration // default 6h
+	// TriageInterval is how often unrelated postings are triaged. Each posting is triaged once per
+	// set of inputs, so a tick after the backlog is cleared only looks at new arrivals.
+	TriageInterval time.Duration // default 10m
+	// OutreachInterval is how often the outreach worker looks for a qualified opportunity to draft
+	// an email for. It only acts when the operator has turned automatic drafting on.
+	OutreachInterval time.Duration // default 30m
+	// AddressCheckInterval is how often discovered addresses waiting for review are checked. The
+	// deterministic check is free; AI opinions run only when the operator switched them on.
+	AddressCheckInterval time.Duration // default 15m
 	// SourceInterval is the minimum time between two runs of the same discovery source. The
 	// discovery loop wakes every DiscoveryInterval and runs whichever sources are due, so each job
 	// board is read a few times a day rather than every twenty minutes.
@@ -83,6 +95,9 @@ func DefaultConfig() Config {
 		DomainResolveInterval:    30 * time.Minute,
 		ContactDiscoveryInterval: 45 * time.Minute,
 		SuppressionInterval:      6 * time.Hour,
+		TriageInterval:           10 * time.Minute,
+		OutreachInterval:         30 * time.Minute,
+		AddressCheckInterval:     15 * time.Minute,
 		SourceInterval:           3 * time.Hour,
 	}
 }
@@ -139,13 +154,16 @@ func NewScheduler(db *store.DB, redisConn *redis.Client, enricher *enrich.Enrich
 // until ctx is cancelled. wg lets the caller wait for every loop to actually finish its
 // current tick before the process exits (graceful shutdown).
 func (s *Scheduler) Run(ctx context.Context, wg *sync.WaitGroup) {
-	wg.Add(6)
+	wg.Add(9)
 	go s.loop(ctx, wg, "discovery", s.cfg.DiscoveryInterval, s.discoveryTick)
 	go s.loop(ctx, wg, "research", s.cfg.ResearchInterval, s.researchTick)
 	go s.loop(ctx, wg, "draft", s.cfg.DraftInterval, s.draftTick)
 	go s.loop(ctx, wg, "domain-resolve", s.cfg.DomainResolveInterval, s.domainResolveTick)
 	go s.loop(ctx, wg, contactDiscoveryLoop, s.cfg.ContactDiscoveryInterval, s.contactDiscoveryTick)
 	go s.loop(ctx, wg, suppressionLoop, s.cfg.SuppressionInterval, s.suppressionTick)
+	go s.loop(ctx, wg, triageLoop, s.cfg.TriageInterval, s.triageTick)
+	go s.loop(ctx, wg, outreachLoop, s.cfg.OutreachInterval, s.outreachTick)
+	go s.loop(ctx, wg, addressCheckLoop, s.cfg.AddressCheckInterval, s.addressCheckTick)
 }
 
 // loop runs tick immediately, then again every interval, until ctx is cancelled. A busy tick
@@ -592,4 +610,77 @@ func pluralS(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+// triageLoop is the loop's name in the status report.
+const triageLoop = "triage"
+
+// triageBatch bounds one triage tick. Triage is deterministic and cheap, so the bound is about
+// keeping a tick short, not about cost; a backlog of a few thousand clears in a few ticks.
+const triageBatch = 500
+
+// triageTick triages unrelated postings. The triage package reads the operator's pause and
+// suppression switches itself, so pausing triage never touches any other loop.
+func (s *Scheduler) triageTick(ctx context.Context) {
+	result, err := triage.Run(ctx, s.db, triageBatch)
+	if err != nil {
+		s.recordFailure(triageLoop)
+		log.Printf("worker: triage: %v", err)
+		activity.Log(ctx, s.redis, "worker:triage", "Opportunity triage failed; inspect server logs", false)
+		return
+	}
+	if result.Failed > 0 {
+		s.recordFailure(triageLoop)
+	}
+	if result.Considered == 0 {
+		return
+	}
+	activity.Log(ctx, s.redis, "worker:triage", fmt.Sprintf("Triaged %d unrelated posting%s: %d suppressed, %d would be suppressed, %d kept visible, %d need review, %d failed",
+		result.Considered, plural(result.Considered), result.Suppressed, result.WouldSuppress, result.Confirmed, result.ManualReview, result.Failed), result.Failed == 0)
+}
+
+// outreachLoop is the loop's name in the status report.
+const outreachLoop = "outreach"
+
+// outreachTick drafts at most one application for a qualified opportunity, when the operator has
+// switched automatic drafting on. It never sends; the sending policy decides what happens to the
+// draft. The worker is rebuilt from the environment each tick so it always uses the current
+// provider configuration.
+func (s *Scheduler) outreachTick(ctx context.Context) {
+	result, err := outreach.FromEnvironment(s.db, s.redis).Tick(ctx)
+	if err != nil {
+		s.recordFailure(outreachLoop)
+		log.Printf("worker: outreach: %v", err)
+		activity.Log(ctx, s.redis, "worker:outreach", "Automatic drafting failed: "+err.Error(), false)
+		return
+	}
+	if result.Drafted > 0 {
+		activity.Log(ctx, s.redis, "worker:outreach", "Drafted an application for a strong match; it goes to the sending policy", true)
+	}
+}
+
+// addressCheckLoop is the loop's name in the status report.
+const addressCheckLoop = "address-check"
+
+// addressCheckTick checks discovered addresses waiting for a person. It never accepts or rejects
+// one; it records what it found so the person deciding has it in front of them.
+func (s *Scheduler) addressCheckTick(ctx context.Context) {
+	result, err := addresscheck.FromEnvironment(s.db).Run(ctx, 100, 5)
+	if err != nil {
+		s.recordFailure(addressCheckLoop)
+		log.Printf("worker: address check: %v", err)
+		activity.Log(ctx, s.redis, "worker:address-check", "Address check failed; inspect server logs", false)
+		return
+	}
+	if result.Checked+result.AIJudged > 0 {
+		activity.Log(ctx, s.redis, "worker:address-check", fmt.Sprintf("Checked %d waiting address%s; %d AI opinion%s",
+			result.Checked, pluralES(result.Checked), result.AIJudged, pluralS(result.AIJudged)), true)
+	}
+}
+
+func pluralES(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "es"
 }

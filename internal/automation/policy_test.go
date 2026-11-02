@@ -49,6 +49,10 @@ func eligible() Input {
 			Endpoint: relevance.ClassifyEndpoint("engineering@northwind.example"),
 		},
 		BudgetAvailable: true,
+		// The operator turned automatic sending on an hour ago, and this revision is newer.
+		AutoSendOn:        true,
+		AutoSendSince:     time.Now().UTC().Add(-time.Hour),
+		RevisionCreatedAt: time.Now().UTC(),
 	}
 }
 
@@ -214,8 +218,13 @@ func TestDeterministicFindingsEndAutomation(t *testing.T) {
 	in.DeterministicFindings = []Finding{{Severity: "block", Code: "unapproved_technology",
 		Text: "Names a technology outside the approved profile."}}
 	d := Evaluate(in)
-	if d.Eligible() || !blocked(d, "deterministic_unapproved_technology") {
-		t.Fatalf("a deterministic finding was eligible: %v", d.Blockers.Codes())
+	if d.Eligible() || !blocked(d, "critical_unapproved_technology") || d.Outcome != Blocked {
+		t.Fatalf("a critical deterministic finding was not blocked: %s %v", d.Outcome, d.Blockers.Codes())
+	}
+	warning := eligible()
+	warning.DeterministicFindings = []Finding{{Severity: "review", Code: "acknowledged_skill_gap", Text: "Mentions a gap."}}
+	if d := Evaluate(warning); d.Outcome != ReviewRequired || !blocked(d, "deterministic_acknowledged_skill_gap") {
+		t.Fatalf("a deterministic warning should need review, not block: %s %v", d.Outcome, d.Blockers.Codes())
 	}
 }
 
@@ -264,30 +273,50 @@ func TestUnresolvedAttemptHaltsAutomation(t *testing.T) {
 	}
 }
 
-// J and K. Speculative enquiry and service outreach are review-required regardless of the
-// allowlist, because the policy itself refuses to automate them.
-func TestSpeculativeAndServiceAreNeverAutomatable(t *testing.T) {
-	for _, intent := range []plan.Intent{plan.SpeculativeJobEnquiry, plan.ServiceOutreach} {
-		t.Run(string(intent), func(t *testing.T) {
-			in := eligible()
-			in.Intent = intent
-			// Deliberately allowlist it and satisfy everything else.
-			in.Config.Allowlist = []string{string(intent)}
-			in.Match = nil
-			d := Evaluate(in)
-			if d.Eligible() {
-				t.Fatalf("%s was eligible even though the policy never automates it", intent)
-			}
-			if !blocked(d, "intent_not_automatable") {
-				t.Fatalf("blockers = %v", d.Blockers.Codes())
-			}
-			if IntentCapable(intent) {
-				t.Fatalf("%s must not be reported as automatable", intent)
-			}
-			if IntentCapabilityReason(intent) == "" {
-				t.Fatal("the refusal has no stated reason")
-			}
-		})
+// J. A speculative enquiry is review-required regardless of the allowlist, because the policy
+// itself refuses to automate it.
+func TestSpeculativeIsNeverAutomatable(t *testing.T) {
+	in := eligible()
+	in.Intent = plan.SpeculativeJobEnquiry
+	in.Config.Allowlist = []string{string(plan.SpeculativeJobEnquiry)}
+	in.Match = nil
+	d := Evaluate(in)
+	if d.Eligible() || !blocked(d, "intent_not_automatable") {
+		t.Fatalf("a speculative enquiry was eligible: %v", d.Blockers.Codes())
+	}
+	if IntentCapable(plan.SpeculativeJobEnquiry) || IntentCapabilityReason(plan.SpeculativeJobEnquiry) == "" {
+		t.Fatal("speculative enquiries must not be automatable, with a stated reason")
+	}
+}
+
+// K. Business outreach is automatable only with research evidence, a business contact and an
+// opt-out line.
+func TestServiceOutreachNeedsEvidenceContactAndOptOut(t *testing.T) {
+	service := func() Input {
+		in := eligible()
+		in.Intent = plan.ServiceOutreach
+		in.Config.Allowlist = []string{string(plan.ServiceOutreach)}
+		in.Match = nil
+		in.OpportunityPinnedRevision, in.OpportunityCurrentRevision = 0, 0
+		in.Recipient.Function = relevance.FunctionLeadership
+		in.CompanyRelevant = true
+		in.Body = "I build Go APIs for online stores.\n\nIf this isn't relevant, just let me know and I won't follow up."
+		return in
+	}
+	if d := Evaluate(service()); !d.Eligible() {
+		t.Fatalf("a fully evidenced business proposal was refused: %v", d.Blockers.Codes())
+	}
+	for name, change := range map[string]func(*Input){
+		"no research evidence": func(in *Input) { in.CompanyRelevant = false },
+		"reason from override": func(in *Input) { in.OperatorOverride = true },
+		"no opt-out line":      func(in *Input) { in.Body = "I build Go APIs for online stores." },
+		"recruiting contact":   func(in *Input) { in.Recipient.Function = relevance.FunctionRecruiting },
+	} {
+		in := service()
+		change(&in)
+		if d := Evaluate(in); d.Eligible() || d.Outcome != ReviewRequired {
+			t.Errorf("%s: %s %v", name, d.Outcome, d.Blockers.Codes())
+		}
 	}
 }
 
@@ -312,7 +341,10 @@ func TestAllowlistParsing(t *testing.T) {
 	}
 	// An intent that exists but is never automatable is refused at configuration time, so the
 	// mistake surfaces at startup rather than as a silent no-op per message.
-	for _, refused := range []string{"speculative_job_enquiry", "service_outreach"} {
+	if got, err := ParseAllowlist("service_outreach,specific_job_application"); err != nil || len(got) != 2 {
+		t.Fatalf("service outreach is automatable under its own gates: %v %v", got, err)
+	}
+	for _, refused := range []string{"speculative_job_enquiry"} {
 		if _, err := ParseAllowlist(refused); err == nil {
 			t.Fatalf("%q was accepted even though the policy never automates it", refused)
 		}
@@ -394,7 +426,11 @@ func TestBudgetAndSendPathGates(t *testing.T) {
 	if d.Eligible() || !blocked(d, "budget_unavailable") {
 		t.Fatalf("automation ran without budget: %v", d.Blockers.Codes())
 	}
-	if !strings.Contains(d.Blockers[len(d.Blockers)-1].Text, "exhausted") {
+	carried := false
+	for _, b := range d.Blockers {
+		carried = carried || (b.Code == "budget_unavailable" && strings.Contains(b.Text, "exhausted"))
+	}
+	if !carried {
 		t.Fatal("the budget blocker does not carry the actual reason")
 	}
 
@@ -541,5 +577,66 @@ func TestAutomationStateRequiresEverything(t *testing.T) {
 		if len(state.Reasons) == 0 {
 			t.Fatalf("automation disabled by %s gave no reason", name)
 		}
+	}
+}
+
+// The three outcomes, and the operator's controls.
+func TestOutcomesAndOperatorControls(t *testing.T) {
+	cases := map[string]struct {
+		change  func(*Input)
+		outcome string
+		code    string
+	}{
+		"switched off":             {func(in *Input) { in.AutoSendOn = false }, ReviewRequired, "automatic_sending_off"},
+		"paused":                   {func(in *Input) { in.Paused = true }, ReviewRequired, "automatic_sending_paused"},
+		"historical draft":         {func(in *Input) { in.RevisionCreatedAt = in.AutoSendSince.Add(-time.Minute) }, ReviewRequired, "written_before_automation_enabled"},
+		"hourly cap":               {func(in *Input) { in.Config.HourlyCap = 1; in.AutoSentLastHour = 1 }, ReviewRequired, "automation_hourly_cap_reached"},
+		"retry backoff":            {func(in *Input) { in.TransientFailures = 1; in.LastFailureAt = time.Now().UTC() }, ReviewRequired, "retry_backoff"},
+		"ai warning":               {func(in *Input) { in.SemanticFindings = []Finding{{Severity: "review", Code: "weak_relevance"}} }, ReviewRequired, "semantic_weak_relevance"},
+		"suppressed address":       {func(in *Input) { in.AddressSuppressed = true }, Blocked, "address_suppressed"},
+		"dismissed opportunity":    {func(in *Input) { in.OpportunitySuppressed = true }, Blocked, "opportunity_suppressed"},
+		"not a mailbox for people": {func(in *Input) { in.Recipient.Endpoint.Contactable = false }, Blocked, "recipient_not_a_human_mailbox"},
+		"bad recipient":            {func(in *Input) { in.Recipient.Status = "bad" }, Blocked, "recipient_marked_bad"},
+	}
+	for name, tc := range cases {
+		in := eligible()
+		tc.change(&in)
+		d := Evaluate(in)
+		if d.Outcome != tc.outcome || !blocked(d, tc.code) {
+			t.Errorf("%s: %s %v, want %s with %s", name, d.Outcome, d.Blockers.Codes(), tc.outcome, tc.code)
+		}
+	}
+	// Backoff expires.
+	later := eligible()
+	later.TransientFailures, later.LastFailureAt = 2, time.Now().UTC().Add(-31*time.Minute)
+	if d := Evaluate(later); !d.Eligible() {
+		t.Fatalf("backoff did not expire: %v", d.Blockers.Codes())
+	}
+	if RetryBackoff(1) != 15*time.Minute || RetryBackoff(3) != time.Hour || RetryBackoff(9) != time.Hour {
+		t.Fatal("unexpected backoff schedule")
+	}
+}
+
+// An inferred address a person accepted may be written to by that person, never automatically,
+// and it stays a review question rather than a hard block.
+func TestAcceptedInferredAddressNeedsAPerson(t *testing.T) {
+	in := eligible()
+	if d := Evaluate(in); !d.Eligible() {
+		t.Fatalf("fixture not eligible: %v", d.Blockers.Codes())
+	}
+	in.Recipient.Inferred = true
+	d := Evaluate(in)
+	if d.Eligible() || !blocked(d, "recipient_inferred_address") || d.Outcome == Blocked {
+		t.Fatalf("inferred recipient: outcome %s blockers %v", d.Outcome, d.Blockers.Codes())
+	}
+}
+
+// A posting with an attention check or a line addressed to AI always waits for a person.
+func TestPostingInstructionsNeedAPerson(t *testing.T) {
+	in := eligible()
+	in.PostingInstructions = []string{"Check that you read the posting"}
+	d := Evaluate(in)
+	if d.Eligible() || !blocked(d, "posting_has_applicant_instructions") || d.Outcome == Blocked {
+		t.Fatalf("outcome %s blockers %v", d.Outcome, d.Blockers.Codes())
 	}
 }

@@ -97,6 +97,8 @@ type contactDiscoveryView struct {
 
 	Promoted, NeedsReview, PeopleWithoutEmail, Routes int
 	Status                                            string
+	// Notice is the outcome of the last candidate action, when there is one.
+	Notice string
 
 	// Budget bars, computed here rather than in the template: the shared renderer has no
 	// function map, and arithmetic in a template is the kind of thing that silently divides by
@@ -116,6 +118,8 @@ type contactCandidateView struct {
 	Inferred bool
 	// Note is the one caveat worth stating inline, when there is one.
 	Note string
+	// Check is the latest check of the current address, when one has run.
+	Check *store.AddressCheck
 }
 
 // Ready reports whether there is anywhere acceptable to send anything at all, by either route.
@@ -150,6 +154,7 @@ func (h *Handler) ContactDiscovery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view.Status = r.URL.Query().Get("status")
+	view.Notice = addressNoticeText(r.URL.Query().Get("notice"), r.URL.Query().Get("detail"))
 	renderTemplate(w, "contact_discovery.html", map[string]any{
 		"View": view, "CompanyID": id,
 		"BackURL":   safeReturn(r.URL.Query().Get("return"), "/companies/"+strconv.FormatInt(id, 10)),
@@ -262,9 +267,21 @@ func (h *Handler) contactDiscoveryView(r *http.Request, companyID int64) (*conta
 		Name: company.Name, Domain: company.Domain, DomainStatus: company.DomainStatus,
 	})
 
+	ids := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	checks, err := h.db.LatestAddressChecks(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	discoveredRoute := ""
 	for _, row := range rows {
-		view.Candidates = append(view.Candidates, presentCandidate(row))
+		item := presentCandidate(row)
+		if check, ok := checks[row.ID]; ok {
+			item.Check = &check
+		}
+		view.Candidates = append(view.Candidates, item)
 		switch row.Status {
 		case "promoted":
 			view.Promoted++

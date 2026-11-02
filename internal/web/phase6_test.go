@@ -374,7 +374,7 @@ func TestDashboardStatesRolloutAndProfileBlocker(t *testing.T) {
 	v.Rollout = rolloutView{Mode: send.ModeReview, AutomationReasons: []string{"rollout mode v2_review is not v2_auto"}, ReadinessReasons: []string{"rollout mode v2_review does not permit sending"}}
 	v.Problems = []dashboardProblem{{Text: "Activate a candidate profile before planning outreach", Href: "/profile", Action: "Open profile"}}
 	page := renderDashboardTest(t, v)
-	for _, want := range []string{"v2_review", "Automation off", "Activate a candidate profile", "Sending unavailable"} {
+	for _, want := range []string{"v2_review", "Automatic sending: Manual", "Activate a candidate profile", "Sending unavailable"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("dashboard missing %q", want)
 		}

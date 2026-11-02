@@ -13,6 +13,9 @@ type OpportunityListFilter struct {
 	// "acceptable" means an identified recruiting or engineering mailbox, or a published
 	// application route; "missing" is the state the contact-discovery worker exists to fix.
 	Recipient, ContactSearch string
+	// Triage selects by triage conclusion: "manual_review" (waiting for a person) or "pending"
+	// (high-confidence unrelated, recorded while triage suppression is off).
+	Triage string
 	// Suppressed selects on whether a live suppression stands: "hidden" leaves suppressed
 	// postings out, "only" shows just them, "any" or empty shows everything. Empty is "any" so
 	// that a zero filter still means the whole workspace; the browse page asks for "hidden".
@@ -88,7 +91,9 @@ const opportunityBrowseWhere = ` WHERE
  AND ($16='' OR a.route=$16)
  AND ($17='' OR ($17='not_paid' AND COALESCE(a.cost,'unknown')<>'paid') OR a.cost=$17)
  AND ($18='' OR ($18='active' AND tr.state IN ('saved','applied','interviewing','offer')) OR ($18='none' AND tr.state IS NULL) OR tr.state=$18)
- AND (NOT $19 OR a.contract) `
+ AND (NOT $19 OR a.contract)
+ AND ($20='' OR EXISTS(SELECT 1 FROM opportunity_triage tg WHERE tg.opportunity_id=o.id
+   AND ((tg.outcome=$20) OR ($20='pending' AND tg.outcome='confirmed_unrelated' AND tg.confidence='high')))) `
 
 // liveSuppression is "a suppression stands against this posting right now" — the row the partial
 // unique index guarantees is at most one. A posting is suppressed because it expired, was filled
@@ -133,7 +138,7 @@ func likeSearch(value string) string {
 }
 func (f OpportunityListFilter) args() []any {
 	return []any{opportunity.MatcherVersion, likeSearch(f.Query), f.Fit, f.Assessment, f.Source, f.CompanyID, f.Availability, f.Description, f.Selection, likeSearch(opportunity.NormalizeTitle(f.Title)), f.Priority, f.Recipient, f.ContactSearch, f.Suppressed,
-		f.Access, f.Route, f.Cost, f.Tracking, f.Contract}
+		f.Access, f.Route, f.Cost, f.Tracking, f.Contract, f.Triage}
 }
 func (db *DB) CountOpportunityList(ctx context.Context, f OpportunityListFilter) (int, error) {
 	var total int
@@ -169,7 +174,7 @@ func (db *DB) ListOpportunityPage(ctx context.Context, f OpportunityListFilter, 
  COALESCE((SELECT s.reason FROM opportunity_suppression s WHERE s.opportunity_id=o.id AND s.superseded_at IS NULL),''),
  COALESCE((SELECT s.basis FROM opportunity_suppression s WHERE s.opportunity_id=o.id AND s.superseded_at IS NULL),''),
  COALESCE(a.eligibility,''),COALESCE(a.kenya_access,''),COALESCE(a.eligibility_evidence,''),COALESCE(a.route,''),COALESCE(a.route_url,''),COALESCE(a.cost,''),COALESCE(a.cost_evidence,''),COALESCE(a.contract,false),
- COALESCE(tr.state,''),`+pursuitScoreSQL+opportunityBrowseFrom+` JOIN opportunity_revision r ON r.opportunity_id=o.id AND r.revision=o.current_revision `+opportunityBrowseWhere+` ORDER BY `+order+` LIMIT $20 OFFSET $21`, args...)
+ COALESCE(tr.state,''),`+pursuitScoreSQL+opportunityBrowseFrom+` JOIN opportunity_revision r ON r.opportunity_id=o.id AND r.revision=o.current_revision `+opportunityBrowseWhere+` ORDER BY `+order+` LIMIT $21 OFFSET $22`, args...)
 	if err != nil {
 		return nil, err
 	}

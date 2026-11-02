@@ -37,11 +37,14 @@
 
 <div class="grid-2 section-gap">
 <section class="card">
-  <div class="card-head"><div><h2>Listings by source</h2><p>Live listings stored from each source, excluding expired or suppressed ones.</p></div></div>
+  <div class="card-head"><div><h2>Listings by source</h2><p>Live listings from each source, and how relevant they turn out to be. Unrelated listings from a noisy source are handled by triage rather than by switching the source off.</p></div></div>
   {{if .Counts}}
   <div class="table-wrap"><table>
-    <thead><tr><th>Source</th><th>Listings</th><th>New this week</th><th>Open to Kenya</th></tr></thead>
-    <tbody>{{range .Counts}}<tr><td><a href="/opportunities?source={{.Source}}">{{.Source}}</a></td><td class="num">{{.Total}}</td><td class="num">{{.LastWeek}}</td><td class="num"><a href="/opportunities?source={{.Source}}&amp;access=accessible">{{.Accessible}}</a></td></tr>{{end}}</tbody>
+    <thead><tr><th>Source</th><th>Listings</th><th>New this week</th><th>Open to Kenya</th><th>Relevant</th><th>Unrelated</th><th>Hidden by triage</th></tr></thead>
+    <tbody>{{range .Counts}}<tr><td><a href="/opportunities?source={{.Source}}">{{.Source}}</a></td><td class="num">{{.Total}}</td><td class="num">{{.LastWeek}}</td><td class="num"><a href="/opportunities?source={{.Source}}&amp;access=accessible">{{.Accessible}}</a></td>
+      <td class="num"><a href="/opportunities?source={{.Source}}&amp;fit=possible_match">{{.Relevant}}</a></td>
+      <td class="num"><a href="/opportunities?source={{.Source}}&amp;fit=unrelated">{{.Unrelated}}</a>{{if .UnrelatedPercent}}<small>{{.UnrelatedPercent}}%</small>{{end}}</td>
+      <td class="num">{{if .TriageHidden}}<a href="/opportunities?source={{.Source}}&amp;suppressed=only">{{.TriageHidden}}</a>{{else}}0{{end}}</td></tr>{{end}}</tbody>
   </table></div>
   {{else}}<p class="empty">Nothing stored yet. Use <strong>Fetch all now</strong> to run every source.</p>{{end}}
 </section>

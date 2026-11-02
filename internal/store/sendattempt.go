@@ -44,6 +44,9 @@ const (
 	ApprovalManualOverride = "manual_override"
 )
 
+// Automatic reports whether the sending policy, not a person, gave this approval.
+func (a *SendApproval) Automatic() bool { return strings.HasPrefix(a.ApprovedBy, "automation:") }
+
 // ToPolicy converts the stored approval into the shape the preflight rules read.
 func (a *SendApproval) ToPolicy() *send.Approval {
 	if a == nil {
@@ -240,6 +243,9 @@ func (db *DB) LiveApproval(ctx context.Context, draftID int64) (*SendApproval, e
 	}
 	return a, nil
 }
+
+// Automatic reports whether the sending policy started this attempt rather than a person.
+func (a *SendAttempt) Automatic() bool { return strings.HasPrefix(a.Initiator, "automation:") }
 
 // SendAttempt is one durable transmission attempt.
 type SendAttempt struct {

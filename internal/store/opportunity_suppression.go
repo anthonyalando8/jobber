@@ -28,6 +28,9 @@ const (
 	SuppressWithdrawnBySource = "withdrawn_by_source"
 	SuppressNotPursuing       = "not_pursuing"
 	SuppressDuplicate         = "duplicate"
+	// SuppressNotRelevant is triage's conclusion: the posting is not engineering work this profile
+	// can pursue. It is a reversible suppression like any other.
+	SuppressNotRelevant = "not_relevant"
 )
 
 // Suppression bases: how it is known. Kept separate from the reason, because a person deciding a
@@ -38,12 +41,14 @@ const (
 	BasisSourceClosed     = "source_closed"
 	BasisExpiryPassed     = "expiry_date_passed"
 	BasisAbsentFromSource = "absent_from_source"
+	// BasisTriage is the deterministic triage rules, reading the stored assessment and description.
+	BasisTriage = "triage_rules"
 )
 
 // SuppressionReasons are the conclusions that may be recorded, in the order the UI offers them.
 var SuppressionReasons = []string{
 	SuppressExpired, SuppressFilled, SuppressNoLongerHiring,
-	SuppressWithdrawnBySource, SuppressNotPursuing, SuppressDuplicate,
+	SuppressWithdrawnBySource, SuppressNotPursuing, SuppressDuplicate, SuppressNotRelevant,
 }
 
 // ErrNotSuppressed is returned when reinstating something that is not currently suppressed. It is
@@ -84,7 +89,7 @@ func validSuppression(reason, basis string) error {
 		return fmt.Errorf("unknown suppression reason %q", reason)
 	}
 	switch basis {
-	case BasisOperator, BasisSourceClosed, BasisExpiryPassed, BasisAbsentFromSource:
+	case BasisOperator, BasisSourceClosed, BasisExpiryPassed, BasisAbsentFromSource, BasisTriage:
 		return nil
 	}
 	return fmt.Errorf("unknown suppression basis %q", basis)
@@ -272,6 +277,7 @@ func SuppressionReasonChoices() []SuppressionChoice {
 		{SuppressWithdrawnBySource, "Withdrawn by source", "The job board or the employer took the posting down."},
 		{SuppressNotPursuing, "Not pursuing", "Still open, but a deliberate decision not to apply."},
 		{SuppressDuplicate, "Duplicate", "The same vacancy is already tracked under another posting."},
+		{SuppressNotRelevant, "Not relevant", "Not engineering work this profile can pursue."},
 	}
 }
 
@@ -297,6 +303,8 @@ func (s OpportunitySuppression) BasisLabel() string {
 		return "the published closing date has passed"
 	case BasisAbsentFromSource:
 		return "the posting stopped appearing in a feed that is still being read"
+	case BasisTriage:
+		return "the triage rules found it unrelated with high confidence"
 	}
 	return s.Basis
 }

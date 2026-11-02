@@ -36,7 +36,7 @@ func main() {
 
 func run() error {
 	flags := flag.NewFlagSet("prospector-migrate", flag.ContinueOnError)
-	command := flags.String("command", "inspect", "inspect | check | profile | activate-profile | legacy-inventory | contact-endpoints | backup-verify | baseline | apply | backfill-opportunities")
+	command := flags.String("command", "inspect", "inspect | check | profile | activate-profile | legacy-inventory | contact-endpoints | backup-verify | baseline | apply | backfill-opportunities | triage-report")
 	out := flags.String("out", "", "report JSON path (inspect) or new backup archive path (backup-verify)")
 	proof := flags.String("proof", "", "verified backup manifest required for baseline or existing-database apply")
 	pgBin := flags.String("pg-bin", "", "directory containing pg_dump and pg_restore")
@@ -93,6 +93,28 @@ func run() error {
 			}
 		}
 		fmt.Printf("Backfill processed %d signals: %d converted, %d require review. Original rows unchanged.\n", total.Processed, total.Converted, total.ReviewRequired)
+		return nil
+	case "triage-report":
+		// Read-only: what the triage rules would conclude about every live unrelated posting,
+		// by source, with examples. Run it against production before turning suppression on.
+		if err := store.CheckSchema(ctx, conn); err != nil {
+			return err
+		}
+		db, err := store.NewDB(ctx, dsn)
+		if err != nil {
+			return errors.New("report connection failed (connection string withheld)")
+		}
+		defer db.Close()
+		report, err := triageReport(ctx, db)
+		if err != nil {
+			return err
+		}
+		if *out != "" {
+			if err := writeJSON(*out, report); err != nil {
+				return err
+			}
+		}
+		printTriageReport(report)
 		return nil
 	case "inspect":
 		report, err := store.InspectSchema(ctx, conn, true)

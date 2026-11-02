@@ -156,7 +156,22 @@ func (h *Handler) CompositionView(w http.ResponseWriter, r *http.Request) {
 		"Draft": d, "BackURL": safeReturn(r.URL.Query().Get("return"), "/compositions"), "BackLabel": returnLabel(safeReturn(r.URL.Query().Get("return"), "/compositions")), "Email": email, "Send": h.buildSendView(r.Context(), id, email),
 		"Fixes": currentFixes(d), "Existing": r.URL.Query().Get("existing") == "1",
 		"Running": d.Status == "running" || d.Status == "queued", "Stage": compositionStage(d), "AttemptCount": len(d.Attempts),
-		"ManualBlockers": store.ManualApprovalBlockers(d.Snapshot, email)})
+		"ManualBlockers": store.ManualApprovalBlockers(d.Snapshot, email), "PolicyDecision": h.latestPolicyDecision(r.Context(), d)})
+}
+
+// latestPolicyDecision is the sending policy's most recent decision about the current revision,
+// or nil when it has not been considered (automatic sending off, or not yet reached).
+func (h *Handler) latestPolicyDecision(ctx context.Context, d *store.ComposedDraft) *store.AutomationDecision {
+	decisions, err := h.db.AutomationDecisionsForDraft(ctx, d.ID)
+	if err != nil {
+		return nil
+	}
+	for _, decision := range decisions {
+		if decision.CompositionRevision == d.Revision {
+			return decision
+		}
+	}
+	return nil
 }
 
 // compositionStage says, in words, where a run is: queued, writing (or rewriting after a failed
