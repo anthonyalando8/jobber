@@ -73,6 +73,10 @@ func checkV2Schema(ctx context.Context, conn *pgx.Conn, version int, report *Sch
 		specs["opportunity_triage"] = "opportunity_id:bigint opportunity_revision:integer matcher_version:text profile_revision_id:bigint triage_version:text outcome:text confidence:text reasons:jsonb attempts:integer last_error:text decided_by:text triaged_at:timestamp_with_time_zone"
 		specs["operator_setting"] = "key:text value:text updated_by:text updated_at:timestamp_with_time_zone"
 	}
+	if version >= 32 {
+		specs["contact_candidate"] += " accepted_by:text accepted_at:timestamp_with_time_zone"
+		specs["contact_address_check"] = "id:bigint candidate_id:bigint email:text check_version:text verdict:text mail_servers:text checks:jsonb ai_verdict:text ai_reasons:jsonb ai_model:text checked_by:text checked_at:timestamp_with_time_zone"
+	}
 	for name, spec := range specs {
 		table, ok := report.Tables[name]
 		if !ok {

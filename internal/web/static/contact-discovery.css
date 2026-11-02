@@ -213,3 +213,19 @@
 .prospector-page .cd-status h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); margin: 0 0 8px; font-weight: 600; }
 .prospector-page .cd-status strong { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .prospector-page .cd-verdict h2 { font-size: 16px; }
+
+/* Address check (v3) */
+.cd-check { border-top: 1px solid var(--border); margin: 0 0 12px; padding-top: 10px; }
+.cd-check h4 { margin: 0 0 6px; font-size: 13px; }
+.cd-check-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 4px; }
+.cd-check-list li { display: flex; gap: 8px; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
+.cd-check-mark { flex: 0 0 16px; font-weight: 700; text-align: center; }
+.cd-check-list li.pass .cd-check-mark { color: var(--success); }
+.cd-check-list li.warn .cd-check-mark { color: #dc6803; }
+.cd-check-list li.fail .cd-check-mark { color: var(--danger); }
+.cd-check-list li.fail { color: var(--text); }
+.cd-check-ai-head { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; }
+.cd-check-ai { margin: 0 0 8px; padding-left: 20px; font-size: 12.5px; color: var(--text-2); }
+.cd-check-meta { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.cd-check-actions form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 8px; }
+.cd-check-actions .cd-reject input[type=text] { flex: 1 1 200px; min-width: 0; height: 28px; font-size: 12px; }

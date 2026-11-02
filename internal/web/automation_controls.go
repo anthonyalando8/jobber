@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthonyalando8/prospector/internal/addresscheck"
 	"github.com/anthonyalando8/prospector/internal/automation"
 	"github.com/anthonyalando8/prospector/internal/store"
 	"github.com/anthonyalando8/prospector/internal/triage"
@@ -35,6 +36,11 @@ type dashboardAutomation struct {
 
 	TriagePaused, TriageSuppress bool
 	Triage                       store.TriageCounts
+
+	AddressAI        bool
+	AddressAICap     int
+	Addresses        store.AddressReviewCounts
+	AddressCompanies []store.AddressReviewCompany
 }
 
 type dashboardReasonCount struct {
@@ -97,6 +103,13 @@ func (h *Handler) automationView(ctx context.Context, c *store.DashboardCounts) 
 	a.TriagePaused = h.db.SettingOn(ctx, store.SettingTriagePaused)
 	a.TriageSuppress = h.db.SettingOn(ctx, store.SettingTriageSuppress)
 	a.Triage, _ = h.db.TriageStats(ctx, triage.Version, a.TriageSuppress)
+	a.AddressAI = h.db.SettingOn(ctx, store.SettingAddressAI)
+	a.AddressAICap = addresscheck.DefaultAIDaily
+	if n, err := strconv.Atoi(os.Getenv("ADDRESS_AI_DAILY")); err == nil && n >= 0 {
+		a.AddressAICap = n
+	}
+	a.Addresses, _ = h.db.AddressReviewStats(ctx)
+	a.AddressCompanies, _ = h.db.AddressReviewCompanies(ctx, 5)
 	return a
 }
 
@@ -113,6 +126,8 @@ var automationActions = map[string]struct{ key, value, label string }{
 	"triage_resume":   {store.SettingTriagePaused, "off", "Opportunity triage resumed"},
 	"triage_hide_on":  {store.SettingTriageSuppress, "on", "Triage may now hide high-confidence unrelated postings"},
 	"triage_hide_off": {store.SettingTriageSuppress, "off", "Triage only records; it no longer hides postings"},
+	"address_ai_on":   {store.SettingAddressAI, "on", "Waiting contact addresses now get an AI opinion in the background"},
+	"address_ai_off":  {store.SettingAddressAI, "off", "Background AI opinions on contact addresses switched off"},
 }
 
 // AutomationControl flips one operator switch from the dashboard.

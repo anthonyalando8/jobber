@@ -247,6 +247,10 @@ type RecipientState struct {
 	// one case where a non-personal address is the correct destination.
 	SourcePublished bool
 	Endpoint        relevance.EndpointAssessment
+	// Inferred marks a contact that began as an address nobody published, built from the
+	// company's address format and accepted by a person. A person may write to it; automation
+	// may not, because a wrong guess bounces and bounces cost the sending domain its reputation.
+	Inferred bool
 }
 
 // Decision is the answer, with every reason that produced it.
@@ -501,6 +505,11 @@ func evaluateRecipient(d *Decision, in Input) {
 	}
 	if r.Status == "bad" {
 		d.Blockers = d.Blockers.Add("recipient_marked_bad", "The pinned contact is marked bad.")
+	}
+	if r.Inferred {
+		d.Blockers = d.Blockers.Add("recipient_inferred_address",
+			"Nobody published this address; it was inferred from the company's address format and accepted by a person. "+
+				"Only a person may send to it.")
 	}
 	// An address that is not a mailbox for humans can never be automated, whatever else is true
 	// about it. This is the Phase 6 Sentry ingest address, made structurally impossible rather

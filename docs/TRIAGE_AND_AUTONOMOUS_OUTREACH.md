@@ -427,3 +427,27 @@ TRIAGE_INTERVAL_MINUTES=10
   They need your judgement on whether a reason exists.
 - **Cross-source duplicates** (the same job on two boards) are still two rows.
 - **Live verification is still to do:** a real Gemini compose/review and a real SMTP send.
+
+## Addendum: review of discovered contact addresses (migration 0032)
+
+Contact discovery leaves addresses it cannot confirm (inferred from a company's format, published
+by a third party, or found only in weak evidence) in `review_required`. Previously nothing could
+accept or reject them. Now:
+
+- **Free check, automatic** (`internal/addresscheck`, loop `address-check`, every 15 minutes,
+  `ADDRESS_CHECK_INTERVAL_MINUTES`): syntax, no-reply/machine mailbox, company domain (own,
+  sibling domain the company already publishes on, personal mail provider, one-or-two-letter
+  look-alike), DNS mail servers (MX, address-only fallback, none, null MX), the person's name in the
+  address, and provenance. Verdict: looks deliverable / doubtful / will not receive. A resolver that
+  cannot find a known domain is treated as "lookup failed", never as "no mail servers".
+- **AI opinion, optional**: plausible / doubtful / implausible with reasons, from the review provider.
+  Background opinions only when the dashboard switch is on (`contacts.ai_check`, off by default), at
+  most `ADDRESS_AI_DAILY` (default 20) a day and inside `AI_REQUESTS_PER_HOUR/DAY`; an "Ask AI"
+  button per address. The AI cannot call an address with a hard fault plausible. Evidence text is
+  passed as untrusted.
+- **Only a person decides**: Accept (becomes a contact, `accepted_by` recorded) or Reject (kept with
+  its evidence; rediscovery does not reopen it). Checks are append-only history.
+- **Automatic sending never goes to an accepted inferred address** (`recipient_inferred_address`,
+  review required). A person can send to it manually.
+- Nothing is sent to an address to test it (no SMTP probing): it is unreliable and harms the
+  sending domain's reputation. No check proves a mailbox exists.

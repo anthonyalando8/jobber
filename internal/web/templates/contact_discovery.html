@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact discovery - {{.View.Company.Name}} - Prospector</title><link rel="stylesheet" href="/static/contact-discovery.css?v=2"></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact discovery - {{.View.Company.Name}} - Prospector</title><link rel="stylesheet" href="/static/contact-discovery.css?v=3"></head><body>
 <header class="page-head">
 <div>
 <nav class="crumbs back" aria-label="Breadcrumb"><a href="/companies/{{.CompanyID}}">Back to {{.View.Company.Name}}</a></nav>
@@ -49,8 +49,10 @@
 </div>
 <p class="list-intro">A person and an address are separate facts. Finding a name never creates an address, and every candidate below shows the source that supports it.</p>
 
+{{if .Notice}}<div class="alert alert-success list-notice" role="status"><div>{{.Notice}}</div></div>{{end}}
+
 {{range .Candidates}}
-<article class="cd-candidate {{.Tone}}">
+<article class="cd-candidate {{.Tone}}" id="candidate-{{.ID}}">
 <div class="cd-candidate-head">
 <h3>{{.Headline}}</h3>
 {{if .RoleTitle}}<span class="cd-role">{{.RoleTitle}}</span>{{end}}
@@ -69,6 +71,7 @@
 {{if .Inferred}}<span class="badge red">Inferred, not published</span>
 {{else if .Email}}<span class="badge neutral">{{.EmailProvenance}}</span>{{end}}
 {{if .EmployerOwned}}<span class="badge blue">Employer-owned evidence</span>{{end}}
+{{if .Check}}<span class="badge {{.CheckTone}}">{{.CheckLabel}}</span>{{if .AILabel}}<span class="badge {{.AITone}}">{{.AILabel}}</span>{{end}}{{end}}
 </div>
 
 <dl class="key-values">
@@ -84,6 +87,38 @@
 </dl>
 
 {{if .Note}}<p class="cd-note">{{.Note}}</p>{{end}}
+
+{{if .Email}}{{if or .Check .Reviewable}}
+<section class="cd-check" aria-label="Address check">
+<h4>Can this address receive email?</h4>
+{{with .Check}}
+<ul class="cd-check-list">
+{{range .Checks}}<li class="{{.Result}}"><span class="cd-check-mark">{{if eq .Result "pass"}}&#10003;{{else if eq .Result "fail"}}&#10007;{{else}}!{{end}}</span>{{.Text}}</li>{{end}}
+</ul>
+{{if .AIReasons}}<p class="cd-check-ai-head">AI opinion{{if .AIModel}} ({{.AIModel}}){{end}}:</p>
+<ul class="cd-check-ai">{{range .AIReasons}}<li>{{.}}</li>{{end}}</ul>{{end}}
+<p class="cd-check-meta">Checked {{.CheckedAt.Format "2 Jan 2006, 15:04"}} by {{.CheckedBy}}. Nothing was sent to the address; a check reads the address and the domain's mail servers and cannot prove the mailbox exists.</p>
+{{else}}
+<p class="cd-check-meta">Not checked yet. The background check runs every few minutes, or check it now.</p>
+{{end}}
+{{if .Reviewable}}
+<div class="cd-check-actions">
+<form method="post" action="/companies/{{$.CompanyID}}/candidates/{{.ID}}">
+<input type="hidden" name="return" value="{{$.BackURL}}">
+<button type="submit" name="action" value="accept" class="btn-primary btn-sm">Accept address</button>
+<button type="submit" name="action" value="check" class="btn-sm">Check again</button>
+<button type="submit" name="action" value="check_ai" class="btn-sm">Ask AI</button>
+</form>
+<form method="post" action="/companies/{{$.CompanyID}}/candidates/{{.ID}}" class="cd-reject">
+<input type="hidden" name="return" value="{{$.BackURL}}">
+<input type="text" name="reason" maxlength="300" placeholder="Why reject (optional)" aria-label="Reason for rejecting">
+<button type="submit" name="action" value="reject" class="btn-danger btn-sm">Reject</button>
+</form>
+<p class="cd-check-meta">Accepting makes it a contact you can choose as a recipient. Checks and the AI only advise; nothing is accepted without you.</p>
+</div>
+{{end}}
+</section>
+{{end}}{{end}}
 
 <details class="cd-evidence">
 <summary>Provenance &middot; {{len .Evidence}} source{{if ne (len .Evidence) 1}}s{{end}}</summary>

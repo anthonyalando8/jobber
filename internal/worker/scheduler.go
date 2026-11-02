@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/anthonyalando8/prospector/internal/activity"
+	"github.com/anthonyalando8/prospector/internal/addresscheck"
 	"github.com/anthonyalando8/prospector/internal/aibudget"
 	"github.com/anthonyalando8/prospector/internal/assess"
 	"github.com/anthonyalando8/prospector/internal/contactsearch"
@@ -74,6 +75,9 @@ type Config struct {
 	// OutreachInterval is how often the outreach worker looks for a qualified opportunity to draft
 	// an email for. It only acts when the operator has turned automatic drafting on.
 	OutreachInterval time.Duration // default 30m
+	// AddressCheckInterval is how often discovered addresses waiting for review are checked. The
+	// deterministic check is free; AI opinions run only when the operator switched them on.
+	AddressCheckInterval time.Duration // default 15m
 	// SourceInterval is the minimum time between two runs of the same discovery source. The
 	// discovery loop wakes every DiscoveryInterval and runs whichever sources are due, so each job
 	// board is read a few times a day rather than every twenty minutes.
@@ -93,6 +97,7 @@ func DefaultConfig() Config {
 		SuppressionInterval:      6 * time.Hour,
 		TriageInterval:           10 * time.Minute,
 		OutreachInterval:         30 * time.Minute,
+		AddressCheckInterval:     15 * time.Minute,
 		SourceInterval:           3 * time.Hour,
 	}
 }
@@ -149,7 +154,7 @@ func NewScheduler(db *store.DB, redisConn *redis.Client, enricher *enrich.Enrich
 // until ctx is cancelled. wg lets the caller wait for every loop to actually finish its
 // current tick before the process exits (graceful shutdown).
 func (s *Scheduler) Run(ctx context.Context, wg *sync.WaitGroup) {
-	wg.Add(8)
+	wg.Add(9)
 	go s.loop(ctx, wg, "discovery", s.cfg.DiscoveryInterval, s.discoveryTick)
 	go s.loop(ctx, wg, "research", s.cfg.ResearchInterval, s.researchTick)
 	go s.loop(ctx, wg, "draft", s.cfg.DraftInterval, s.draftTick)
@@ -158,6 +163,7 @@ func (s *Scheduler) Run(ctx context.Context, wg *sync.WaitGroup) {
 	go s.loop(ctx, wg, suppressionLoop, s.cfg.SuppressionInterval, s.suppressionTick)
 	go s.loop(ctx, wg, triageLoop, s.cfg.TriageInterval, s.triageTick)
 	go s.loop(ctx, wg, outreachLoop, s.cfg.OutreachInterval, s.outreachTick)
+	go s.loop(ctx, wg, addressCheckLoop, s.cfg.AddressCheckInterval, s.addressCheckTick)
 }
 
 // loop runs tick immediately, then again every interval, until ctx is cancelled. A busy tick
@@ -651,4 +657,30 @@ func (s *Scheduler) outreachTick(ctx context.Context) {
 	if result.Drafted > 0 {
 		activity.Log(ctx, s.redis, "worker:outreach", "Drafted an application for a strong match; it goes to the sending policy", true)
 	}
+}
+
+// addressCheckLoop is the loop's name in the status report.
+const addressCheckLoop = "address-check"
+
+// addressCheckTick checks discovered addresses waiting for a person. It never accepts or rejects
+// one; it records what it found so the person deciding has it in front of them.
+func (s *Scheduler) addressCheckTick(ctx context.Context) {
+	result, err := addresscheck.FromEnvironment(s.db).Run(ctx, 100, 5)
+	if err != nil {
+		s.recordFailure(addressCheckLoop)
+		log.Printf("worker: address check: %v", err)
+		activity.Log(ctx, s.redis, "worker:address-check", "Address check failed; inspect server logs", false)
+		return
+	}
+	if result.Checked+result.AIJudged > 0 {
+		activity.Log(ctx, s.redis, "worker:address-check", fmt.Sprintf("Checked %d waiting address%s; %d AI opinion%s",
+			result.Checked, pluralES(result.Checked), result.AIJudged, pluralS(result.AIJudged)), true)
+	}
+}
+
+func pluralES(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "es"
 }

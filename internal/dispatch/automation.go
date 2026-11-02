@@ -211,6 +211,9 @@ func (s *Service) automationInput(ctx context.Context, draftID int64, cfg Automa
 		}
 		in.Recipient.Function = relevance.ClassifyContact(contact).Function
 	}
+	if snapshot.Recipient.ContactID != 0 {
+		in.Recipient.Inferred = s.db.ContactFromInferredAddress(ctx, snapshot.Recipient.ContactID)
+	}
 	if snapshot.Recipient.Relevance == "source_published" {
 		in.Recipient.SourcePublished = true
 	}

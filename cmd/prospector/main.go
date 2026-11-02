@@ -243,6 +243,7 @@ func main() {
 		// timeout as enrichment. It discovers contact data only: it creates no plan and sends
 		// nothing, whatever the rollout mode.
 		r.Post("/companies/{id}/contact-search", handler.ContactDiscoveryRun)
+		r.Post("/companies/{id}/candidates/{cid}", handler.CandidateAction)
 	})
 
 	// Autonomous worker: the same seed/enrich/score dependencies the HTTP admin routes use,
@@ -292,6 +293,11 @@ func main() {
 	if v := os.Getenv("TRIAGE_INTERVAL_MINUTES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			workerCfg.TriageInterval = time.Duration(n) * time.Minute
+		}
+	}
+	if v := os.Getenv("ADDRESS_CHECK_INTERVAL_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workerCfg.AddressCheckInterval = time.Duration(n) * time.Minute
 		}
 	}
 	if v := os.Getenv("OUTREACH_INTERVAL_MINUTES"); v != "" {

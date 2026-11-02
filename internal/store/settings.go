@@ -29,6 +29,9 @@ const (
 	// SettingTriageSuppress is "on" when triage may take high-confidence unrelated postings out of
 	// the list. Off, it only records what it would do, so the rules can be checked first.
 	SettingTriageSuppress = "triage.suppress"
+	// SettingAddressAI is "on" when waiting contact addresses may get an AI opinion in the
+	// background. The free deterministic check runs regardless.
+	SettingAddressAI = "contacts.ai_check"
 )
 
 // Setting returns a setting's value, or fallback when it has never been set.

@@ -616,3 +616,17 @@ func TestOutcomesAndOperatorControls(t *testing.T) {
 		t.Fatal("unexpected backoff schedule")
 	}
 }
+
+// An inferred address a person accepted may be written to by that person, never automatically,
+// and it stays a review question rather than a hard block.
+func TestAcceptedInferredAddressNeedsAPerson(t *testing.T) {
+	in := eligible()
+	if d := Evaluate(in); !d.Eligible() {
+		t.Fatalf("fixture not eligible: %v", d.Blockers.Codes())
+	}
+	in.Recipient.Inferred = true
+	d := Evaluate(in)
+	if d.Eligible() || !blocked(d, "recipient_inferred_address") || d.Outcome == Blocked {
+		t.Fatalf("inferred recipient: outcome %s blockers %v", d.Outcome, d.Blockers.Codes())
+	}
+}
