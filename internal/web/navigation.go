@@ -69,6 +69,7 @@ func opportunityFilter(values url.Values) (store.OpportunityListFilter, []string
 	f.Recipient = enumFilter(values, "recipient", "acceptable,missing,generic", &warnings)
 	f.ContactSearch = enumFilter(values, "contact_search", "pending,claimed,searching,completed,partial,no_result,review_required,identity_blocked,failed", &warnings)
 	f.Priority = enumFilter(values, "view", "priority", &warnings) == "priority"
+	f.Triage = enumFilter(values, "triage", "manual_review,pending", &warnings)
 	// A suppressed posting has expired, been filled or been taken down, so the browse page hides
 	// it unless asked. Defaulting to "hidden" rather than "any" is the point of the feature: the
 	// list is meant to be the work that is still live.
@@ -85,7 +86,7 @@ func opportunityFilter(values url.Values) (store.OpportunityListFilter, []string
 func opportunityValues(f store.OpportunityListFilter) url.Values {
 	v := url.Values{}
 	for key, value := range map[string]string{"q": f.Query, "title": f.Title, "fit": f.Fit, "assessment": f.Assessment, "source": f.Source, "availability": f.Availability, "description": f.Description, "selection": f.Selection, "sort": f.Sort, "recipient": f.Recipient, "contact_search": f.ContactSearch,
-		"access": f.Access, "route": f.Route, "cost": f.Cost, "tracking": f.Tracking} {
+		"access": f.Access, "route": f.Route, "cost": f.Cost, "tracking": f.Tracking, "triage": f.Triage} {
 		if value != "" {
 			v.Set(key, value)
 		}
@@ -121,7 +122,7 @@ func listURL(path string, values url.Values, page int) string {
 }
 func activeFilters(values url.Values) []string {
 	labels := []string{}
-	keys := []string{"q", "fit", "access", "route", "cost", "tracking", "contract", "lead", "business", "assessment", "source", "company_id", "availability", "description", "selection", "recipient", "contact_search", "view", "research", "has_opportunities", "has_strong", "domain_status", "status", "attention", "event", "state", "sort"}
+	keys := []string{"q", "fit", "access", "route", "cost", "tracking", "contract", "lead", "business", "assessment", "source", "company_id", "availability", "description", "selection", "recipient", "contact_search", "triage", "view", "research", "has_opportunities", "has_strong", "domain_status", "status", "attention", "event", "state", "sort"}
 	for _, k := range keys {
 		if v := values.Get(k); v != "" {
 			labels = append(labels, k+": "+strings.ReplaceAll(v, "_", " "))

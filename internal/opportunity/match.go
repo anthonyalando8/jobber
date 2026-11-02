@@ -12,7 +12,7 @@ import (
 
 // MatcherVersion changes whenever the rules below change, so an assessment stored by an older
 // binary is never silently read as current.
-const MatcherVersion = "fit-v2"
+const MatcherVersion = "fit-v3"
 
 // Authoritative classifications. The numeric score is a ranking and debugging aid only; it
 // never decides any of these and can never override ClassificationUnrelated.
@@ -150,6 +150,8 @@ var disqualifyingFunctions = []string{
 	"scrum master", "business analyst", "data entry", "operations manager",
 	"mechanical", "civil engineer", "electrical", "electronic engineer", "chemical",
 	"structural", "industrial engineer", "quantity survey", "surveyor", "technician",
+	// Commercial roles that boards file under technology but are not engineering work.
+	"go-to-market", "account executive", "account manager", "partnerships", "community manager",
 }
 
 var titleSeparators = []string{" - ", " — ", " – ", ",", "(", "|", ":", " at ", " @ "}
@@ -304,7 +306,10 @@ type gateResult struct {
 	confidence, familyID, familyName, matched string
 	// inferred is true when the family came from the requirements rather than the title.
 	inferred bool
-	reasons  explain.Reasons
+	// disqualified is true when the title names a non-engineering function or discipline. Such a
+	// title is settled as unrelated and nothing in the description can change that.
+	disqualified bool
+	reasons      explain.Reasons
 }
 
 // gateTitle is the first and decisive role-family check. The advertised title decides the
@@ -319,7 +324,7 @@ func gateTitle(originalTitle string, specs []familySpec) gateResult {
 	head := headPhrase(normalized)
 	for _, fn := range disqualifyingFunctions {
 		if strings.Contains(head, fn) {
-			return gateResult{confidence: FamilyNone, reasons: explain.Reasons{}.Add(
+			return gateResult{confidence: FamilyNone, disqualified: true, reasons: explain.Reasons{}.Add(
 				"unrelated_advertised_title",
 				"The advertised role designation \""+head+"\" names the non-engineering function \""+fn+
 					"\". Engineering vocabulary elsewhere in the description cannot change this.")}
@@ -398,6 +403,26 @@ func inferFamily(gate gateResult, title string, capabilityIDs []string, doc prof
 			"The title does not name an approved family, but "+itoa(bestCount)+" approved "+desired[best].Name+
 				" capabilities are supported by the job's own requirements, so the role is treated as "+desired[best].Name+".",
 			refs...)}, true
+}
+
+// rescueUntitledWork keeps engineering work whose title carries no role noun ("Golang",
+// "Build our Django REST API", "Backend platform for a payments startup", typical of freelance and
+// contract postings) out of the unrelated bin when the job's own requirements support at least
+// two approved capabilities. It only lifts it to ambiguous, so it is reviewable as a possible match
+// and never a strong one. A title naming a non-engineering function is never rescued.
+func rescueUntitledWork(gate gateResult, title string, capabilityIDs []string) (gateResult, bool) {
+	if gate.confidence != FamilyNone || gate.disqualified || strings.TrimSpace(title) == "" ||
+		len(capabilityIDs) < minInferenceCapabilities {
+		return gate, false
+	}
+	refs := []string{}
+	for _, id := range capabilityIDs {
+		refs = append(refs, "profile:capability:"+id)
+	}
+	return gateResult{confidence: FamilyAmbiguous, reasons: explain.Reasons{}.Add("engineering_work_without_role_title",
+		"The title names no engineering role, but "+itoa(len(capabilityIDs))+
+			" approved capabilities are supported by the job's own requirements, so it is reviewable as possible engineering work.",
+		refs...)}, true
 }
 
 // minInferenceCapabilities is how many supported capabilities establish a family from requirements.
@@ -481,6 +506,11 @@ func Assess(in AssessInput) MatchResult {
 		gate = inferred
 		result.FamilyConfidence = gate.confidence
 		result.FamilyID, result.FamilyName = gate.familyID, gate.familyName
+		result.Reasons = append(result.Reasons, gate.reasons...)
+	}
+	if rescued, ok := rescueUntitledWork(gate, in.Facts.Title, capabilityIDs); ok {
+		gate = rescued
+		result.FamilyConfidence = gate.confidence
 		result.Reasons = append(result.Reasons, gate.reasons...)
 	}
 
@@ -831,4 +861,23 @@ func classify(gate gateResult, result MatchResult, requirements []Requirement) (
 		return ClassificationStrong, explain.Reasons{}
 	}
 	return ClassificationPossible, blockers
+}
+
+// NonEngineeringFunction reports the business function or non-software discipline a title's role
+// designation names, if any: the same check the matcher's title gate applies. Triage reads it
+// rather than restating the list.
+func NonEngineeringFunction(title string) (string, bool) {
+	head := headPhrase(normalizeTitleForMatch(title))
+	for _, fn := range disqualifyingFunctions {
+		if strings.Contains(head, fn) {
+			return fn, true
+		}
+	}
+	return "", false
+}
+
+// HasEngineeringRoleNoun reports whether a title names a hands-on engineering role at all.
+func HasEngineeringRoleNoun(title string) bool {
+	normalized := normalizeTitleForMatch(title)
+	return hasRoleNoun(normalized) || hasAnyPhrase(normalized, leadPhrases)
 }

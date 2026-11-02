@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/anthonyalando8/prospector/internal/opportunity"
 	"time"
 
 	"github.com/anthonyalando8/prospector/internal/automation"
@@ -200,19 +201,30 @@ func (db *DB) ReleaseAutomationClaim(ctx context.Context, draftID int64, owner s
 // AutomationCandidates lists drafts that could plausibly be automated, before the policy runs.
 // It is deliberately narrow: reviewed v2 compositions with no live approval and no settled send,
 // and nothing else. It never walks company status or any legacy queue.
-func (db *DB) AutomationCandidates(ctx context.Context, limit int) ([]int64, error) {
+//
+// since is when the operator switched automatic sending on: a revision written before it is
+// historical and never a candidate. A revision already decided BLOCKED is not reconsidered (its
+// content cannot change without a new revision), and one decided REVIEW_REQUIRED within the last
+// hour waits, so an unchanged draft is not re-decided every tick.
+func (db *DB) AutomationCandidates(ctx context.Context, since time.Time, limit int) ([]int64, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	rows, err := db.Query(ctx, `
 		SELECT c.draft_id FROM draft_composition c
-		 WHERE c.status = 'reviewed'
+		 JOIN draft_composition_revision r ON r.draft_id = c.draft_id AND r.revision = c.current_revision
+		 JOIN draft d ON d.id = c.draft_id
+		 WHERE c.status = 'reviewed' AND d.state NOT IN ('sent','discarded')
+		   AND r.created_at >= $2
 		   AND NOT EXISTS(SELECT 1 FROM send_approval a WHERE a.draft_id = c.draft_id AND a.revoked_at IS NULL)
 		   AND NOT EXISTS(SELECT 1 FROM send_attempt s WHERE s.draft_id = c.draft_id
 		                   AND s.state IN ('reserved','sending','accepted','uncertain','rejected'))
 		   AND NOT EXISTS(SELECT 1 FROM automation_claim k WHERE k.draft_id = c.draft_id AND k.expires_at > now())
+		   AND NOT EXISTS(SELECT 1 FROM automation_decision x WHERE x.draft_id = c.draft_id
+		                   AND x.composition_revision = c.current_revision
+		                   AND (x.outcome = 'blocked' OR (x.outcome = 'review_required' AND x.evaluated_at > now() - interval '1 hour')))
 		 ORDER BY c.updated_at ASC
-		 LIMIT $1`, limit)
+		 LIMIT $1`, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -279,4 +291,86 @@ func AutomationDecisionFrom(d automation.Decision, draftID int64, revision int, 
 		Outcome: d.Outcome, PolicyVersion: d.PolicyVersion, Intent: d.Intent,
 		Reasons: d.Reasons, Blockers: d.Blockers, EvaluatedAt: d.EvaluatedAt,
 	}
+}
+
+// AutomationFacts are the extra facts the auto-v2 policy reads about one draft.
+type AutomationFacts struct {
+	RevisionCreatedAt     time.Time
+	OpportunitySuppressed bool
+	TransientFailures     int
+	LastFailureAt         time.Time
+}
+
+// AutomationFactsFor reads them in one round trip.
+func (db *DB) AutomationFactsFor(ctx context.Context, draftID int64, revision int, opportunityID int64) (AutomationFacts, error) {
+	var f AutomationFacts
+	var last *time.Time
+	err := db.QueryRow(ctx, `SELECT
+	   COALESCE((SELECT created_at FROM draft_composition_revision WHERE draft_id=$1 AND revision=$2), 'epoch'::timestamptz),
+	   $3>0 AND EXISTS(SELECT 1 FROM opportunity_suppression WHERE opportunity_id=$3 AND superseded_at IS NULL),
+	   (SELECT count(*) FROM send_attempt WHERE draft_id=$1 AND state='transient_failed'),
+	   (SELECT max(COALESCE(settled_at, reserved_at)) FROM send_attempt WHERE draft_id=$1 AND state='transient_failed')`,
+		draftID, revision, opportunityID).Scan(&f.RevisionCreatedAt, &f.OpportunitySuppressed, &f.TransientFailures, &last)
+	if last != nil {
+		f.LastFailureAt = *last
+	}
+	return f, err
+}
+
+// OutreachCandidate is an opportunity the outreach worker may draft an application for.
+type OutreachCandidate struct {
+	OpportunityID, CompanyID int64
+	Revision                 int
+}
+
+// OutreachCandidates lists strong-match opportunities that have a strong reason to write and
+// nothing in the way of it: open, not dismissed or suppressed, at a company whose domain is
+// confirmed, with no live contact plan and no conversation ever opened with that company. It does
+// not decide anything; the worker still asks the plan rules and the recipient ranking.
+func (db *DB) OutreachCandidates(ctx context.Context, limit int) ([]OutreachCandidate, error) {
+	rows, err := db.Query(ctx, `SELECT o.id,o.company_id,o.current_revision
+		 FROM opportunity o JOIN company c ON c.id=o.company_id
+		 JOIN opportunity_match m ON m.opportunity_id=o.id AND m.opportunity_revision=o.current_revision AND m.matcher_version=$1
+		  AND m.profile_revision_id=(SELECT active_revision_id FROM candidate_profile WHERE id=1)
+		 WHERE m.classification='strong_match' AND o.availability_status<>'closed' AND o.selection_status<>'ignored'
+		   AND NOT `+liveSuppression+`
+		   AND c.domain_status IN ('verified','manual')
+		   -- A live plan blocks the company, except the worker's own plan for this posting whose
+		   -- draft never completed (a restart mid-draft): that one is retried, not abandoned.
+		   AND NOT EXISTS(SELECT 1 FROM contact_plan p WHERE p.company_id=o.company_id AND p.status IN ('suggested','selected')
+		     AND (p.selection_origin<>'suggested' OR p.opportunity_id IS DISTINCT FROM o.id
+		       OR EXISTS(SELECT 1 FROM draft_composition dc JOIN draft d ON d.id=dc.draft_id WHERE dc.plan_id=p.id
+		         AND d.state<>'discarded' AND NOT (dc.status='failed' OR (dc.status IN ('queued','running') AND COALESCE(dc.lease_until,dc.created_at+interval '10 minutes')<now())))))
+		   AND NOT EXISTS(SELECT 1 FROM outbound_thread t WHERE t.company_id=o.company_id)
+		 ORDER BY o.discovered_at DESC, o.id DESC LIMIT $2`, opportunity.MatcherVersion, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []OutreachCandidate{}
+	for rows.Next() {
+		var c OutreachCandidate
+		if err = rows.Scan(&c.OpportunityID, &c.CompanyID, &c.Revision); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// AutoComposedSince counts drafts the outreach worker started (from plans it suggested) since t.
+func (db *DB) AutoComposedSince(ctx context.Context, t time.Time) (int, error) {
+	var n int
+	err := db.QueryRow(ctx, `SELECT count(*) FROM draft_composition c JOIN contact_plan p ON p.id=c.plan_id
+		 WHERE p.selection_origin='suggested' AND c.created_at >= $1`, t).Scan(&n)
+	return n, err
+}
+
+// BlockedDraftsSince counts distinct drafts whose latest decision since t was BLOCKED.
+func (db *DB) BlockedDraftsSince(ctx context.Context, t time.Time) (int, error) {
+	var n int
+	err := db.QueryRow(ctx, `SELECT count(*) FROM (
+	   SELECT DISTINCT ON (draft_id) draft_id, outcome FROM automation_decision
+	    WHERE evaluated_at >= $1 ORDER BY draft_id, evaluated_at DESC) latest WHERE outcome='blocked'`, t).Scan(&n)
+	return n, err
 }

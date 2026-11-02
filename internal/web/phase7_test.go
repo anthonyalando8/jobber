@@ -58,9 +58,10 @@ func TestUnknownAutoSendIntentIsAConfigurationError(t *testing.T) {
 }
 
 // Intents that this policy never automates are refused at configuration time, so the mistake is
-// visible at startup rather than as a per-message no-op.
+// visible at startup rather than as a per-message no-op. Service outreach is automatable from
+// auto-v2 under its own evidence, contact and opt-out gates; a speculative enquiry never is.
 func TestNonAutomatableIntentsAreRefusedInConfiguration(t *testing.T) {
-	for _, intent := range []plan.Intent{plan.SpeculativeJobEnquiry, plan.ServiceOutreach} {
+	for _, intent := range []plan.Intent{plan.SpeculativeJobEnquiry} {
 		if _, err := automation.LoadConfig(send.ModeAuto, string(intent), ""); err == nil {
 			t.Fatalf("%s was accepted into the allowlist", intent)
 		}
@@ -90,8 +91,9 @@ func TestAutomationStateWithoutDatabase(t *testing.T) {
 func TestDashboardShowsAutomationAndItsBlockers(t *testing.T) {
 	v := dashboardTestView()
 	v.Rollout = rolloutView{Mode: send.ModeReview, AutomationReasons: []string{"no intent is allowlisted for automatic sending"}}
+	v.Automation = dashboardAutomation{Mode: "Manual", PermitReasons: v.Rollout.AutomationReasons}
 	page := renderDashboardTest(t, v)
-	for _, want := range []string{"Automation off", "no intent is allowlisted", "No automatic sends"} {
+	for _, want := range []string{"Automatic sending: Manual", "no intent is allowlisted", "Every email needs your approval", "Pause all automatic sending"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("dashboard missing %q", want)
 		}

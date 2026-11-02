@@ -161,6 +161,8 @@ func main() {
 		// queues without being deleted, and can be put back.
 		r.Post("/opportunities/{id}/suppress", handler.OpportunitySuppress)
 		r.Post("/opportunities/{id}/reinstate", handler.OpportunityReinstate)
+		r.Post("/opportunities/{id}/triage/keep", handler.OpportunityTriageKeep)
+		r.Post("/automation/control", handler.AutomationControl)
 		r.Post("/opportunities/{id}/track", handler.OpportunityTrack)
 		r.Get("/sources", handler.Sources)
 		r.Post("/sources/{name}/run", handler.SourceRun)
@@ -285,6 +287,16 @@ func main() {
 	if v := os.Getenv("SUPPRESSION_INTERVAL_MINUTES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			workerCfg.SuppressionInterval = time.Duration(n) * time.Minute
+		}
+	}
+	if v := os.Getenv("TRIAGE_INTERVAL_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workerCfg.TriageInterval = time.Duration(n) * time.Minute
+		}
+	}
+	if v := os.Getenv("OUTREACH_INTERVAL_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workerCfg.OutreachInterval = time.Duration(n) * time.Minute
 		}
 	}
 

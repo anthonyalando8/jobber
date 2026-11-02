@@ -13,6 +13,8 @@ package automation
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,13 +29,37 @@ import (
 
 // PolicyVersion changes whenever the rules below change. It is persisted with every decision so
 // an old decision can be read against the rules that actually produced it.
-const PolicyVersion = "auto-v1"
+const PolicyVersion = "auto-v2"
 
-// Outcomes.
+// Outcomes. In the operator's terms: AUTO_SEND, REVIEW_REQUIRED and BLOCKED.
+//
+//   - EligibleForAuto (AUTO_SEND): every condition holds; the message may go through the normal
+//     send path without a person approving it individually.
+//   - ReviewRequired (REVIEW_REQUIRED): nothing is wrong enough to forbid it, but something needs
+//     a person: uncertain relevance or recipient, a reviewer warning, automation switched off or
+//     paused, a limit reached for now. It stays in the review queue.
+//   - Blocked (BLOCKED): it must not be sent: a critical factual finding, a suppressed or bad
+//     recipient, a closed or dismissed opportunity, an address that is not a mailbox for people.
+//     A manual approval cannot send it either; the send preflight refuses the same things.
 const (
 	EligibleForAuto = "eligible_for_auto"
 	ReviewRequired  = "review_required"
+	Blocked         = "blocked"
 )
+
+// hardBlockers are the conditions that make a message BLOCKED rather than REVIEW_REQUIRED. Each
+// is a fact the send preflight or the factual validator also refuses, so no person or setting can
+// turn it into a send.
+var hardBlockers = map[string]bool{
+	"invalid_intent":                true,
+	"address_suppressed":            true,
+	"domain_suppressed":             true,
+	"recipient_marked_bad":          true,
+	"recipient_not_a_human_mailbox": true,
+	"no_pinned_recipient":           true,
+	"opportunity_closed":            true,
+	"opportunity_suppressed":        true,
+}
 
 // ModeAuto is re-exported from the send package so this package's callers do not have to import
 // both to read one decision.
@@ -42,15 +68,13 @@ const ModeAuto = send.ModeAuto
 // Intent capability. This is a property of the policy itself rather than of configuration: an
 // intent that is not capable cannot be made automatic by any setting, including the allowlist.
 //
-// Only specific job applications are capable in auto-v1. A job application is anchored to an
-// advertised role that the matcher verified against approved profile facts, which is the one
-// case where "is this message truthful and appropriate" reduces to checks already enforced.
-// Speculative enquiries and service outreach have no such anchor: their correctness depends on
-// company-relevance evidence that the live corpus cannot yet support, and their failure mode is
-// a fluent, plausible message that invents a reason to be writing. Human review is the control
-// that catches exactly that, so it stays.
+// A specific job application is anchored to an advertised role the matcher verified against
+// approved profile facts. Service outreach is capable from auto-v2, but only under extra gates
+// (see evaluateService): the reason to write must come from company research evidence rather than
+// a guess, the recipient must be a business contact, and the message must offer a way to decline
+// further contact. A speculative enquiry has neither anchor, so it always stays human-reviewed.
 func IntentCapable(intent plan.Intent) bool {
-	return intent == plan.SpecificJobApplication
+	return intent == plan.SpecificJobApplication || intent == plan.ServiceOutreach
 }
 
 // IntentCapabilityReason states why an intent is not capable, for the UI and the report.
@@ -63,8 +87,8 @@ func IntentCapabilityReason(intent plan.Intent) string {
 			"evidence with real provenance and an identified engineering or talent recipient, neither of which the stored " +
 			"evidence currently supports. It stays human-reviewed."
 	case plan.ServiceOutreach:
-		return "Service outreach asserts that a company has an engineering need. Inventing that need from weak signals was " +
-			"the previous pipeline's worst failure, and no automated check can establish it. It stays human-reviewed."
+		return "Service outreach is automatable only when company research established an engineering reason to " +
+			"write, the recipient is a business contact and the message offers a way to decline further contact."
 	}
 	return "Unknown intent."
 }
@@ -78,11 +102,13 @@ type Config struct {
 	// DailyCap is the automation-specific cap, deliberately far below the manual send cap. Its
 	// purpose is controlled observation, not throughput.
 	DailyCap int
+	// HourlyCap spreads automatic sends out across the day.
+	HourlyCap int
 }
 
 // DefaultConfig is safe: review-only, nothing allowlisted, one send a day if ever enabled.
 func DefaultConfig() Config {
-	return Config{Mode: send.ModeReview, Allowlist: []string{}, DailyCap: 1}
+	return Config{Mode: send.ModeReview, Allowlist: []string{}, DailyCap: 1, HourlyCap: 1}
 }
 
 func (c Config) Allows(intent plan.Intent) bool {
@@ -177,6 +203,27 @@ type Input struct {
 
 	BudgetAvailable bool
 	BudgetReason    string
+
+	// Operator switches, read from operator_setting at decision time.
+	AutoSendOn bool
+	Paused     bool
+	// AutoSendSince is when automatic sending was last turned on, and RevisionCreatedAt when this
+	// revision was written. A draft reviewed before automation was switched on is historical and
+	// is never sent automatically.
+	AutoSendSince     time.Time
+	RevisionCreatedAt time.Time
+
+	// OpportunitySuppressed is a live suppression (dismissed, expired, filled, triaged).
+	OpportunitySuppressed bool
+	AutoSentLastHour      int
+	// TransientFailures and LastFailureAt drive the retry backoff after the provider failed.
+	TransientFailures int
+	LastFailureAt     time.Time
+
+	// Service outreach only.
+	CompanyRelevant  bool
+	OperatorOverride bool
+	Body             string
 }
 
 // Finding is the shape of a validation or review finding, kept local so this package does not
@@ -340,6 +387,25 @@ func Evaluate(in Input) Decision {
 		d.Blockers = d.Blockers.Add("budget_unavailable", reason)
 	}
 
+	evaluateControls(&d, in, now)
+	if in.OpportunitySuppressed {
+		d.Blockers = d.Blockers.Add("opportunity_suppressed",
+			"The opportunity has been dismissed or suppressed (expired, filled, triaged as unrelated).")
+	}
+	if in.Intent == plan.ServiceOutreach {
+		evaluateService(&d, in)
+	}
+
+	for _, b := range d.Blockers {
+		if hardBlockers[b.Code] || strings.HasPrefix(b.Code, "critical_") {
+			d.Outcome = Blocked
+		}
+	}
+	if d.Outcome == Blocked {
+		d.Reasons = d.Reasons.Add("blocked",
+			"At least one condition forbids sending this message at all; no setting or approval changes that.")
+		return d
+	}
 	if len(d.Blockers) == 0 {
 		d.Outcome = EligibleForAuto
 		d.Reasons = d.Reasons.Add("all_automation_gates_passed",
@@ -396,10 +462,16 @@ func evaluateReview(d *Decision, in Input) {
 			"The composition is "+orUnknown(in.CompositionState)+" rather than reviewed.")
 	}
 	for _, f := range in.DeterministicFindings {
-		if f.Severity == "info" {
+		switch f.Severity {
+		case "info":
 			continue
+		case "block":
+			// A critical factual finding (an invented technology, a false attachment, an
+			// unconfigured link...). The message must not be sent in this form.
+			d.Blockers = d.Blockers.Add("critical_"+f.Code, f.Text)
+		default:
+			d.Blockers = d.Blockers.Add("deterministic_"+f.Code, f.Text)
 		}
-		d.Blockers = d.Blockers.Add("deterministic_"+f.Code, f.Text)
 	}
 	if !in.SemanticComplete {
 		d.Blockers = d.Blockers.Add("semantic_review_incomplete",
@@ -443,6 +515,17 @@ func evaluateRecipient(d *Decision, in Input) {
 				"rather than an inferred one.")
 		return
 	}
+	if in.Intent == plan.ServiceOutreach {
+		switch r.Function {
+		case relevance.FunctionEngineering, relevance.FunctionLeadership, relevance.FunctionCommercial:
+			d.Reasons = d.Reasons.Add("recipient_function_appropriate",
+				"The pinned contact's function is "+r.Function+", which suits a business proposal.")
+		default:
+			d.Blockers = d.Blockers.Add("recipient_not_business_contact",
+				"Automatic business outreach needs an engineering, leadership or commercial contact; this one is "+orUnknown(r.Function)+".")
+		}
+		return
+	}
 	switch r.Function {
 	case relevance.FunctionRecruiting, relevance.FunctionEngineering:
 		d.Reasons = d.Reasons.Add("recipient_function_appropriate",
@@ -457,6 +540,68 @@ func evaluateRecipient(d *Decision, in Input) {
 	default:
 		d.Blockers = d.Blockers.Add("recipient_function_inappropriate",
 			"The pinned contact's function is "+r.Function+", which does not suit a job application.")
+	}
+}
+
+// evaluateControls applies the operator's switches and the volume limits. None of these say the
+// message is wrong; they say "not automatically, not now", so each is a review reason.
+func evaluateControls(d *Decision, in Input, now time.Time) {
+	if !in.AutoSendOn {
+		d.Blockers = d.Blockers.Add("automatic_sending_off",
+			"Automatic sending is switched off on the dashboard. Approve and send this one by hand, or switch automatic sending on.")
+	}
+	if in.Paused {
+		d.Blockers = d.Blockers.Add("automatic_sending_paused",
+			"Automatic sending is paused on the dashboard.")
+	}
+	if in.AutoSendOn && (in.AutoSendSince.IsZero() || in.RevisionCreatedAt.IsZero() || in.RevisionCreatedAt.Before(in.AutoSendSince)) {
+		d.Blockers = d.Blockers.Add("written_before_automation_enabled",
+			"This revision was written before automatic sending was switched on. Historical drafts are never sent "+
+				"automatically; approve it by hand, or regenerate it.")
+	}
+	if in.Config.HourlyCap > 0 && in.AutoSentLastHour >= in.Config.HourlyCap {
+		d.Blockers = d.Blockers.Add("automation_hourly_cap_reached",
+			fmt.Sprintf("The automatic sending limit of %d per hour has been reached; it continues next hour.", in.Config.HourlyCap))
+	}
+	if in.TransientFailures > 0 && !in.LastFailureAt.IsZero() {
+		wait := RetryBackoff(in.TransientFailures)
+		if now.Sub(in.LastFailureAt) < wait {
+			d.Blockers = d.Blockers.Add("retry_backoff",
+				fmt.Sprintf("The provider failed %d time(s); the next automatic attempt waits until %s.",
+					in.TransientFailures, in.LastFailureAt.Add(wait).Format(time.RFC3339)))
+		}
+	}
+}
+
+// RetryBackoff is the wait after n transient provider failures of the same message: 15 minutes,
+// then 30, then 60. The send preflight's attempt limit stops it altogether after three attempts.
+func RetryBackoff(n int) time.Duration {
+	if n < 1 {
+		return 0
+	}
+	if n > 3 {
+		n = 3
+	}
+	return 15 * time.Minute << (n - 1)
+}
+
+// optOutPattern recognises the short sentence a commercial message must carry so the recipient
+// can decline further contact.
+var optOutPattern = regexp.MustCompile(`(?i)(won'?t|will not|not)\s+(follow up|contact|email|write|reach out)|unsubscribe|no further (contact|emails?)|not (be )?(interested|relevant)[^.]{0,60}(let me know|reply|tell me)`)
+
+// evaluateService adds the gates that make business outreach automatable at all.
+func evaluateService(d *Decision, in Input) {
+	if in.OperatorOverride {
+		d.Blockers = d.Blockers.Add("reason_from_operator_override",
+			"The reason to contact this company came from an operator's override, not from research evidence. "+
+				"A person reviews what was written from it.")
+	} else if !in.CompanyRelevant {
+		d.Blockers = d.Blockers.Add("company_relevance_not_evidenced",
+			"Company research has not established an engineering reason to contact this company.")
+	}
+	if !optOutPattern.MatchString(in.Body) {
+		d.Blockers = d.Blockers.Add("no_opt_out_line",
+			"Business outreach must tell the recipient they can decline further contact. Add one short sentence.")
 	}
 }
 
@@ -478,6 +623,10 @@ func LoadConfig(mode, rawAllowlist, rawCap string) (Config, error) {
 		return cfg, err
 	}
 	cfg.Allowlist = allowlist
+	// The hourly cap is read here so every caller gets it with the rest of the configuration.
+	if cfg.HourlyCap, err = ParseHourlyCap(os.Getenv("AUTO_SEND_HOURLY_CAP")); err != nil {
+		return cfg, err
+	}
 	if raw := strings.TrimSpace(rawCap); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
@@ -485,11 +634,27 @@ func LoadConfig(mode, rawAllowlist, rawCap string) (Config, error) {
 		}
 		// A cap far above the observation window this exists for is almost certainly a mistake,
 		// and the cost of the mistake is unattended email.
-		if n > 5 {
-			return cfg, fmt.Errorf("AUTO_SEND_DAILY_CAP is %d; selective automation is for controlled "+
-				"observation and refuses a cap above 5. Raise it deliberately in code once behaviour is measured", n)
+		if n > MaxDailyCap {
+			return cfg, fmt.Errorf("AUTO_SEND_DAILY_CAP is %d; automatic sending refuses a cap above %d", n, MaxDailyCap)
 		}
 		cfg.DailyCap = n
 	}
 	return cfg, nil
+}
+
+// MaxDailyCap bounds AUTO_SEND_DAILY_CAP. Reputation is built slowly; a cap above this is almost
+// certainly a mistake and the cost of the mistake is unattended email.
+const MaxDailyCap = 20
+
+// ParseHourlyCap reads AUTO_SEND_HOURLY_CAP (default 1).
+func ParseHourlyCap(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 1, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > MaxDailyCap {
+		return 0, fmt.Errorf("AUTO_SEND_HOURLY_CAP must be a whole number from 1 to %d, got %q", MaxDailyCap, raw)
+	}
+	return n, nil
 }

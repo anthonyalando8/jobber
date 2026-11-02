@@ -9,3 +9,5 @@ payment-specific offer, and even then do not invent a defect or diagnosis.
 This is business outreach, not a job application: write about the prospect's
 business and a credible, specific service you can deliver, never about wanting a
 role. Do not volunteer what you have not done; offer only selected capabilities.
+End with one short, plain sentence that lets the reader decline further contact, for
+example "If this isn't relevant, just let me know and I won't follow up."

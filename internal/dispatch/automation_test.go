@@ -43,7 +43,21 @@ func autoFixture(t *testing.T) *fixture {
 			Mode: send.ModeAuto, Allowlist: []string{string(plan.SpecificJobApplication)},
 			SchemaVersion: send.RequiredAutomationSchemaVersion, Readiness: autoReady(), DailyCap: 1,
 		}))
+	enableAutoSend(t, f, time.Now().Add(-time.Hour))
 	return f
+}
+
+// enableAutoSend is the operator switching automatic sending on at since. Drafts written before
+// since are historical and never sent automatically.
+func enableAutoSend(t *testing.T, f *fixture, since time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	if err := f.db.SetSetting(ctx, store.SettingAutoSend, "on", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetSetting(ctx, store.SettingAutoSendSince, since.UTC().Format(time.RFC3339Nano), "test"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // The classification the synthetic fixture actually produces decides what these tests can
@@ -386,17 +400,21 @@ func TestAutomationCandidateSelectionIsNarrow(t *testing.T) {
 	f := autoFixture(t)
 	ctx := context.Background()
 
-	candidates, err := f.db.AutomationCandidates(ctx, 50)
+	candidates, err := f.db.AutomationCandidates(ctx, time.Now().Add(-time.Hour), 50)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !containsID(candidates, f.draftID) {
 		t.Fatal("a reviewed, unapproved, unsent composition is not an automation candidate")
 	}
+	// A draft written before automatic sending was switched on is historical: never a candidate.
+	if historical, err := f.db.AutomationCandidates(ctx, time.Now().Add(time.Minute), 50); err != nil || containsID(historical, f.draftID) {
+		t.Fatalf("a historical draft is an automation candidate: %v", err)
+	}
 
 	// A live approval removes it.
 	f.approve(t)
-	candidates, err = f.db.AutomationCandidates(ctx, 50)
+	candidates, err = f.db.AutomationCandidates(ctx, time.Now().Add(-time.Hour), 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +429,7 @@ func TestAutomationCandidateSelectionIsNarrow(t *testing.T) {
 	if err := f.db.ClaimAutomationCandidate(ctx, f.draftID, "worker-1", 0); err != nil {
 		t.Fatal(err)
 	}
-	candidates, err = f.db.AutomationCandidates(ctx, 50)
+	candidates, err = f.db.AutomationCandidates(ctx, time.Now().Add(-time.Hour), 50)
 	if err != nil {
 		t.Fatal(err)
 	}

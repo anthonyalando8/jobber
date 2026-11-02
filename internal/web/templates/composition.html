@@ -111,13 +111,23 @@
   {{if .Send.Readiness.Ready}}<p class="small">The send path is ready. Every send still needs explicit approval of this exact content.</p>
   {{else}}<div class="alert alert-warning"><div><strong>The send path is not ready</strong><ul>{{range .Send.Readiness.Reasons}}<li>{{.}}</li>{{end}}</ul></div></div>{{end}}
 
+  {{with .PolicyDecision}}
+  <div class="card-section">
+  <h3>Sending policy</h3>
+  <p class="small"><span class="badge {{if eq .Outcome "eligible_for_auto"}}green{{else if eq .Outcome "blocked"}}red{{else}}amber{{end}}">{{if eq .Outcome "eligible_for_auto"}}AUTO_SEND{{else if eq .Outcome "blocked"}}BLOCKED{{else}}REVIEW_REQUIRED{{end}}</span>
+  <span class="muted">{{.PolicyVersion}} · {{.EvaluatedAt.Format "2 Jan 15:04"}}</span></p>
+  {{if eq .Outcome "blocked"}}<p class="small">This email must not be sent in this form; neither automatic nor manual sending will pass these checks.</p>{{else if eq .Outcome "review_required"}}<p class="small">Not sent automatically; it waits for you. The reasons:</p>{{end}}
+  {{if .Blockers}}<ul class="reason-list small">{{range .Blockers}}<li><code>{{.Code}}</code> {{.Text}}</li>{{end}}</ul>{{end}}
+  </div>
+  {{end}}
+
   <div class="card-section">
   <h3>Approval</h3>
   {{if .Send.Approval}}
     {{if eq .Send.Approval.Basis "manual_override"}}
     <div class="alert alert-warning"><div><strong>Approved manually, despite AI feedback.</strong> {{.Send.Approval.ApprovedBy}} approved content revision {{.Send.Approval.CompositionRevision}} for {{.Send.Approval.RecipientEmail}} at {{.Send.Approval.ApprovedAt.Format "2 Jan 2006, 15:04"}} UTC. The AI review did not pass this email; its findings are kept above.{{if .Send.Approval.OverrideNote}} Note: “{{.Send.Approval.OverrideNote}}”{{end}}</div></div>
     {{else}}
-    <div class="alert alert-success"><div>Approved after the AI review passed, by {{.Send.Approval.ApprovedBy}} at {{.Send.Approval.ApprovedAt}} for content revision {{.Send.Approval.CompositionRevision}}, recipient {{.Send.Approval.RecipientEmail}}, intent {{.Send.Approval.Intent}}.</div></div>
+    <div class="alert alert-success"><div>{{if .Send.Approval.Automatic}}<strong>Approved automatically by the sending policy</strong> ({{.Send.Approval.ApprovedBy}}): every automatic-sending check passed. Approved at{{else}}Approved after the AI review passed, by {{.Send.Approval.ApprovedBy}} at{{end}} {{.Send.Approval.ApprovedAt}} for content revision {{.Send.Approval.CompositionRevision}}, recipient {{.Send.Approval.RecipientEmail}}, intent {{.Send.Approval.Intent}}.</div></div>
     {{end}}
     <form class="stack-form" method="post" action="/compositions/{{.Draft.ID}}/approval/revoke">
       <label class="field">Reason <span class="field-hint">Optional</span><input type="text" name="reason" maxlength="200"></label>
@@ -169,7 +179,7 @@
   {{if .Send.Attempts}}
   <div class="card-section">
   <h3>Send history</h3>
-  <ul class="reason-list small">{{range .Send.Attempts}}<li><span class="cell-strong">Attempt {{.ID}}</span> <span class="badge {{.State}}">{{.State}}</span><div class="muted">{{.ProviderStage}} · {{.Provider}}{{if .ErrorCategory}} · {{.ErrorCategory}}{{end}}</div><div class="muted">Reserved {{.ReservedAt}} · settled {{if .SettledAt}}{{.SettledAt}}{{else}}—{{end}}</div></li>{{end}}</ul>
+  <ul class="reason-list small">{{range .Send.Attempts}}<li><span class="cell-strong">Attempt {{.ID}}</span> <span class="badge {{.State}}">{{.State}}</span> <span class="muted">{{if .Automatic}}sent automatically{{else}}sent by {{.Initiator}}{{end}}</span><div class="muted">{{.ProviderStage}} · {{.Provider}}{{if .ErrorCategory}} · {{.ErrorCategory}}{{end}}</div><div class="muted">Reserved {{.ReservedAt}} · settled {{if .SettledAt}}{{.SettledAt}}{{else}}—{{end}}</div></li>{{end}}</ul>
   <p class="help">Every row is permanent. An uncertain attempt is never retried automatically: reconcile it from the recipient’s side and record the outcome on its conversation.</p>
   </div>
   {{end}}
